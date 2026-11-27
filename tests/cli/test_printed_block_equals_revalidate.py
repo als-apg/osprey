@@ -13,11 +13,13 @@ closing command: they alone leave nothing at a retired path and bring every
 file ``--revalidate`` leaves at a moved path, so the closing command cannot
 stand in for a move line that is missing or wrong.
 
-Three repositories are taken both ways: the previous release (its facility
+Four repositories are taken both ways: the previous release (its facility
 tree at ``data/facility`` with the retired facility slots); the same
 release with its rendered sources under a non-default in-repo ``data:`` root;
-and the previous release whose facility tree is a repository of its own, where
-the commands for that repository run by both routes. A refusal that only names
+the previous release whose facility tree is a repository of its own, where
+the commands for that repository run by both routes; and the previous release
+whose pipeline carries the operator's own job, with paths spelled from
+``CI_PROJECT_DIR``. A refusal that only names
 files to place by hand prints no command to run.
 """
 
@@ -62,6 +64,27 @@ FACILITY = "facility"
 #: The non-default in-repo data root, and what it holds in the previous release.
 DATA_ROOT = "content"
 RENDERED_SOURCES = ("facility", "canopy", "landing")
+
+#: The operator's own pipeline job in the previous release: paths spelled from
+#: GitLab's name for the repository root.
+OPERATOR_JOB = (
+    "\noperator-checks:\n"
+    "  script:\n"
+    '    - sh "$CI_PROJECT_DIR/scripts/verify.sh"\n'
+    "    - ls ${CI_PROJECT_DIR}/services ${CI_PROJECT_DIR}/osprey.service\n"
+    "    - ls $CI_PROJECT_DIR/build ${CI_PROJECT_DIR}/var\n"
+    "    - cp ./osprey.service ~/.config/systemd/user/\n"
+)
+
+#: The same job once migrated.
+MIGRATED_OPERATOR_JOB = (
+    "\noperator-checks:\n"
+    "  script:\n"
+    '    - sh "$CI_PROJECT_DIR/ops/scripts/verify.sh"\n'
+    "    - ls ${CI_PROJECT_DIR}/ops/services ${CI_PROJECT_DIR}/ops/osprey.service\n"
+    "    - ls $CI_PROJECT_DIR/build ${CI_PROJECT_DIR}/var\n"
+    "    - cp ./ops/osprey.service ~/.config/systemd/user/\n"
+)
 
 #: Where revalidate's commands for another repository start, in its output.
 ELSEWHERE_STEPS = "Run these commands to move them:"
@@ -235,11 +258,23 @@ def _facility_repository(parent: Path) -> Path:
     return repo
 
 
+def _operator_pipeline_job(parent: Path) -> Path:
+    """The previous release whose pipeline ends with the operator's own job."""
+    repo = _previous_release_repo(parent / PROJECT)
+    _extend(repo)
+    pipeline = repo / ".gitlab-ci.yml"
+    pipeline.write_text(pipeline.read_text(encoding="utf-8") + OPERATOR_JOB, encoding="utf-8")
+    _git(repo, "init", "-q")
+    _commit_all(repo, "previous release, with the operator's pipeline job")
+    return repo
+
+
 #: Each fixture: its builder, and the other repositories it holds once migrated.
 FIXTURES: dict[str, tuple[Callable[[Path], Path], tuple[str, ...]]] = {
     "previous-release": (_previous_release, ()),
     "in-repo-data-root": (_in_repo_data_root, ()),
     "facility-in-another-repository": (_facility_repository, (FACILITY,)),
+    "operator-pipeline-job": (_operator_pipeline_job, ()),
 }
 
 
@@ -284,6 +319,13 @@ def test_both_routes_finish_the_migration(routes: Routes) -> None:
         assert find_retired(repo / FACILITY).empty, repo
         assert not (repo / "data").exists(), repo
         assert not (repo / DATA_ROOT).exists(), repo
+
+
+@pytest.mark.parametrize("routes", ["operator-pipeline-job"], indirect=True)
+def test_both_routes_rewrite_the_same_pipeline_lines(routes: Routes) -> None:
+    for repo in (routes.block, routes.moved, routes.revalidated):
+        pipeline = (repo / ".gitlab-ci.yml").read_text(encoding="utf-8")
+        assert pipeline.endswith(MIGRATED_OPERATOR_JOB), (repo, pipeline)
 
 
 def _moved_paths(repo: Path) -> set[str]:

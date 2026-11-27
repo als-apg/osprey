@@ -125,6 +125,11 @@ _DATA_KEY = "data"
 _PIPELINE_KEY = ".gitlab-ci.yml"
 _DOCKERIGNORE_KEY = ".dockerignore"
 
+#: How a path is spelled from the repo root in a shell command, and in the
+#: pipeline file, where GitLab defines ``CI_PROJECT_DIR`` as the repo root.
+_COMMAND_ROOTS: tuple[str, ...] = ("./",)
+_PIPELINE_ROOTS: tuple[str, ...] = (*_COMMAND_ROOTS, "$CI_PROJECT_DIR/", "${CI_PROJECT_DIR}/")
+
 #: How a value anchored at the project root through a placeholder begins.
 _PROJECT_ROOT_PLACEHOLDER = "{project_root}/"
 
@@ -1012,33 +1017,43 @@ def _anchored_retired(root: Path, value: str, table: Sequence[RootMove]) -> bool
 
 
 @cache
-def _token_pattern(table: tuple[RootMove, ...]) -> re.Pattern[str] | None:
+def _token_pattern(table: tuple[RootMove, ...], roots: tuple[str, ...]) -> re.Pattern[str] | None:
     """A path token naming a retired path in free text, longest first.
 
-    A bare directory name counts only before a ``/``; a name that is plainly a
-    path (it holds a ``/`` or a ``.``) counts on its own too.
+    *roots* are the prefixes that spell the repo root in the text. After one
+    (group ``lead``), a retired path counts where its last name ends (group
+    ``led``). Without one (group ``old``), a bare directory name counts only
+    before a ``/``; a name that is plainly a path (it holds a ``/`` or a
+    ``.``) counts on its own too.
     """
-    alternatives = []
+    end = r"(?![\w.-])"
+    led = []
+    unled = []
     for move in sorted(table, key=lambda move: len(move.old), reverse=True):
         old = re.escape(move.old)
-        if "/" in move.old or "." in move.old:
-            alternatives.append(rf"{old}(?=/|[\"'\s,\]}})]|$)")
-        else:
-            alternatives.append(rf"{old}(?=/)")
-    if not alternatives:
+        led.append(old + end)
+        unled.append(old + (end if "/" in move.old or "." in move.old else "(?=/)"))
+    if not unled:
         return None
-    return re.compile(rf"(?<![\w.$/-])(?P<dot>\./)?(?P<old>{'|'.join(alternatives)})")
+    lead = "|".join(re.escape(prefix) for prefix in roots)
+    return re.compile(
+        rf"(?<![\w.$/-])(?:(?P<lead>{lead})(?P<led>{'|'.join(led)})|(?P<old>{'|'.join(unled)}))"
+    )
 
 
 def _names_retired(text: str, table: Sequence[RootMove]) -> bool:
-    pattern = _token_pattern(tuple(table))
+    pattern = _token_pattern(tuple(table), _COMMAND_ROOTS)
     return pattern is not None and pattern.search(text) is not None
 
 
 def _pipeline_edits(root: Path, table: Sequence[RootMove]) -> list[LineEdit]:
-    """The root pipeline file's lines that name a retired path, rewritten."""
+    """The root pipeline file's lines that name a retired path, rewritten.
+
+    A retired path counts on its own and after a prefix that spells the repo
+    root (:data:`_PIPELINE_ROOTS`).
+    """
     file = root / repo_layout.entry(_PIPELINE_KEY).path
-    pattern = _token_pattern(tuple(table))
+    pattern = _token_pattern(tuple(table), _PIPELINE_ROOTS)
     if pattern is None or not file.is_file():
         return []
     try:
@@ -1050,12 +1065,12 @@ def _pipeline_edits(root: Path, table: Sequence[RootMove]) -> list[LineEdit]:
     for number, line in enumerate(lines, start=1):
         if line.lstrip().startswith("#"):
             continue
-        new = pattern.sub(
-            lambda match: (
-                (match["dot"] or "") + (successor_of(match["old"], table) or match["old"])
-            ),
-            line,
-        )
+
+        def moved(match: re.Match[str]) -> str:
+            old = match["led"] or match["old"]
+            return (match["lead"] or "") + (successor_of(old, table) or old)
+
+        new = pattern.sub(moved, line)
         if new != line:
             edits.append(LineEdit(file=target, line=number, old=line, new=new))
     return edits

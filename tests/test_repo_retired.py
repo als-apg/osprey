@@ -373,6 +373,47 @@ def test_pipeline_and_dockerignore_lines_are_edited(tmp_path: Path) -> None:
     ]
 
 
+def _pipeline_lines(tmp_path: Path, script: list[str]) -> tuple[Path, dict[int, str]]:
+    """A repo whose pipeline runs *script*; each rewritten line by its number."""
+    root = _repo(tmp_path)
+    _write(root, "rules/a.md")
+    body = "".join(f"    - {command}\n" for command in script)
+    _write(root, ".gitlab-ci.yml", f"job:\n  script:\n{body}")
+    edits = find_retired_root(root).line_edits
+    assert {edit.file.name for edit in edits} <= {".gitlab-ci.yml"}
+    return root, {edit.line: edit.new.strip() for edit in edits}
+
+
+@pytest.mark.parametrize("project_dir", ["$CI_PROJECT_DIR", "${CI_PROJECT_DIR}"])
+def test_a_pipeline_path_under_the_project_directory_variable_is_rewritten(
+    tmp_path: Path, project_dir: str
+) -> None:
+    _, rewritten = _pipeline_lines(
+        tmp_path,
+        [
+            f"sh {project_dir}/scripts/verify.sh",
+            f'ls "{project_dir}/data/facility" {project_dir}/services',
+            f"cp {project_dir}/osprey.service /etc/systemd/user/",
+            f"cat '{project_dir}/ci-extra.yml'; ls {project_dir}/build/scripts",
+            f"ls {project_dir}/scriptsets {project_dir}/data/other {project_dir}",
+            f"ls /srv{project_dir}/scripts/ {project_dir}X/scripts/",
+        ],
+    )
+    assert rewritten == {
+        3: f"- sh {project_dir}/ops/scripts/verify.sh",
+        4: f'- ls "{project_dir}/facility" {project_dir}/ops/services',
+        5: f"- cp {project_dir}/ops/osprey.service /etc/systemd/user/",
+        6: f"- cat '{project_dir}/ops/ci-extra.yml'; ls {project_dir}/build/scripts",
+    }
+
+
+def test_the_project_directory_variable_is_a_root_only_in_the_pipeline(tmp_path: Path) -> None:
+    root = _repo(tmp_path)
+    _write(root, "rules/a.md")
+    _write(root, ".dockerignore", "$CI_PROJECT_DIR/scripts/\n")
+    assert find_retired_root(root).line_edits == ()
+
+
 def test_every_config_path_key_is_a_manifest_key() -> None:
     manifest = Path(__file__).parents[1] / "src/osprey/profiles/config_key_manifest.yml"
     keys = yaml.safe_load(manifest.read_text(encoding="utf-8"))["keys"]
