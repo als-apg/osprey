@@ -164,166 +164,6 @@ the render, never back into ``facility/``:
 ``osprey facility show`` prints the facility the tree builds and each view's
 path. What a scenario file holds is in :ref:`reference-scenario-files`.
 
-.. _profile-root-migration:
-
-A repository with entries at retired root paths
------------------------------------------------
-
-What the agent is told and runs with sits under ``agent/``, how the
-deployment is built and run under ``ops/``, the facility tree under
-``facility/`` and the web content under ``web/``. A repository that still holds
-one of these entries at a retired path is refused:
-
-.. list-table::
-   :header-rows: 1
-   :widths: 50 50
-
-   * - Retired path
-     - Current path
-   * - ``rules/``, ``skills/``, ``agents/``, ``commands/``,
-       ``output-styles/``, ``hooks/``, ``watchdogs/``, ``mcp_servers/``
-     - the same name under ``agent/``
-   * - ``web-terminal-context/``
-     - ``agent/context/``
-   * - ``data/code_review/``
-     - ``agent/code_review/``
-   * - ``services/``, ``project/``, ``scripts/``, ``osprey.service``,
-       ``ci-extra.yml``
-     - the same name under ``ops/``
-   * - ``data/.runtime/``
-     - ``var/runtime/``
-   * - ``data/<lane>_curve/``
-     - ``var/runtime/<lane>_curve/``
-   * - ``data/facility/``
-     - ``facility/``
-   * - ``data/canopy/library/``, ``data/canopy/collections/``,
-       ``data/canopy/theme/``
-     - the same name under ``web/canopy/``
-   * - ``data/landing/``
-     - ``web/landing/``
-
-``data/`` itself is gone: nothing reads it, and the render assembles
-``build/data/`` from ``facility/`` and ``web/`` alone. A profile that still
-carries the ``data:`` key is refused too.
-
-**Leftovers.** Whatever ``data/`` holds outside these paths, untracked and
-git-ignored files included, is a leftover: the refusal names each one under
-``Still in data/, place by hand``, and nothing moves it for you, since only you
-know where it belongs. Content the render must see goes under ``facility/``;
-the rest goes wherever you keep it. The ``data/README.md`` an earlier
-``osprey init`` wrote is deleted when you never edited it. The repository is
-refused until ``data/`` holds nothing.
-
-**A** ``data:`` **value other than** ``data``. When every profile document names
-the same one directory inside the repository, the facility and web content
-move out of that directory, and the ``data:`` line is deleted once it holds
-no leftovers. Any other value (outside the repository, several different
-values, a directory that holds or sits inside a live entry) moves nothing and
-is listed to check by hand: decide where the content goes, move it, and delete
-the line.
-
-The names a profile lists stay as they are: ``rules/facility`` in a ``rules:``
-list, ``osprey scaffold claim services/postgresql`` and every profile key name
-an artifact, not a directory. Only where the files sit changes.
-
-**The refusal.** ``osprey build``, ``osprey up``, ``osprey validate`` and every
-other command that reads the repository's sources stop before they read or
-write anything, the certificates under ``var/runtime/`` included, and print one
-block. ``osprey down``, ``osprey status`` and ``osprey logs`` keep working, so a
-running stack can still be stopped and watched. The block opens by naming the
-repository, and when the facility tree is retired as well it moves both. This
-one also holds a leftover, ``data/notes.md``:
-
-.. code-block:: text
-
-   # The deployment repo at /srv/my-facility still holds sources at retired paths; nothing was read.
-   # Paste this whole block to move them to their current paths, then place by hand what is listed below it; the repo is refused until both are done:
-   cd /srv/my-facility
-   git mv data/facility facility
-   mkdir -p agent
-   git mv rules agent/rules
-   git mv watchdogs agent/watchdogs
-   mkdir -p ops
-   git mv services ops/services
-   git mv scripts ops/scripts
-   git mv osprey.service ops/osprey.service
-   git mv ci-extra.yml ops/ci-extra.yml
-   mkdir -p web/canopy
-   git mv data/canopy/library web/canopy/library
-   mkdir -p web
-   git mv data/landing web/landing
-   perl -pi -e 's{    template: services/site_api}{    template: ops/services/site_api} if $. == 4' profile.yml
-   perl -pi -e 's{  facility_knowledge\.bundle_path: data/facility/knowledge}{  facility_knowledge.bundle_path: facility/knowledge} if $. == 9' profile.yml
-   perl -pi -e 's{        - data/landing/working-safely\.md}{        - web/landing/working-safely.md} if $. == 14' profile.yml
-   perl -pi -e 's{services/secret}{ops/services/secret} if $. == 1' .dockerignore
-   perl -ni -e 'print unless $. == 21 && m{^data: data\r?$}' profile.yml
-   rmdir data/canopy 2>/dev/null || true
-   rmdir data 2>/dev/null || true
-   # Host steps, once the files moved:
-   #   osprey build
-   # Check by hand; the paths inside these are not rewritten:
-   #   ops/ci-extra.yml
-   #   ops/services/site_api/Dockerfile
-   #   ops/scripts/ (operator scripts)
-   # Still in data/, place by hand:
-   #   data/notes.md
-   # Content the render must see goes under facility/.
-   osprey init --revalidate /srv/my-facility
-
-The lines that do not start with ``#`` are a script: paste the whole block into
-a shell, or pipe it to ``sh``. Tracked entries move with ``git mv``, so their
-history follows them; an entry whose successor already exists is merged into it
-file by file. The script also rewrites the profile values that name a moved
-path (a service ``template:``, ``config.code_review.prompt``,
-``config.facility_knowledge.bundle_path``, a landing notice, a lifecycle
-``cwd:``), rewrites the ``.gitlab-ci.yml`` and ``.dockerignore`` lines that name
-one, deletes the ``data:`` line, and deletes a CANOPY payload and wheels left
-at the repository root: a build stages them in ``build/``. In
-``.gitlab-ci.yml`` a moved path is rewritten where it is spelled as a path:
-with a directory (``scripts/verify.sh``), after ``./``, ``$CI_PROJECT_DIR/`` or
-``${CI_PROJECT_DIR}/``, or as an ``include`` or ``exists:`` value. A file at
-both its retired and its current path is named instead, with ``keep one,
-delete the other``. The script still moves everything else, the block then ends without
-the closing command, and ``osprey init --revalidate`` moves nothing until you
-have.
-
-Its last line runs ``osprey init --revalidate`` on the repository, which finds
-nothing left to move and does the rest of
-:ref:`--revalidate <cli-osprey-init-revalidate>`: the profile vocabulary and
-the preset changes. Pasted whole, the block leaves the tree
-``osprey init --revalidate`` alone would. Running that command yourself
-instead makes the same moves and edits in place, prints the same host steps
-and the same lists, and a second run finds nothing left to do.
-
-Neither route places a leftover. While one remains the repository stays
-refused, and the block's second line says so. A refusal that holds only
-leftovers or items to check by hand prints no script and no command: place
-what it lists, then run the command again.
-
-**Host steps.** Run each one the block prints, on every host the repository is
-deployed on. ``osprey build`` always; when ``osprey scaffold systemd`` wrote the
-unit, copy ``ops/osprey.service`` into ``~/.config/systemd/user/``, then
-``systemctl --user daemon-reload`` and ``systemctl --user enable --now
-osprey.service``: the unit keeps its name. When it wrote the boot hook, run
-``crontab -e`` and replace the ``osprey-boot-hook`` lines with the ones the
-block prints, which call ``ops/scripts/osprey-boot-hook.sh``.
-
-**Check by hand.** Paths inside moved files are not rewritten. Read
-``ops/ci-extra.yml``, every ``ops/services/<name>/Dockerfile`` and your operator
-scripts under ``ops/scripts/`` for a path that names a retired entry. A value
-the script cannot rewrite safely is listed too: a lifecycle ``run:`` command,
-an absolute or ``{project_root}``-anchored path, a value written across
-several lines. So is a ``.gitlab-ci.yml`` line that holds the bare name of a
-moved file, ``osprey.service`` or ``ci-extra.yml``, outside an ``include`` or
-``exists:`` value: in ``systemctl --user enable osprey.service`` it names the
-unit and stays, in ``cat ci-extra.yml`` it names the file and you change it. The
-entry gives the file, the line number and the new path.
-
-**Order.** Upgrade OSPREY in every deployment of the repository first, then
-move the repository and commit: an OSPREY that predates ``agent/`` and ``ops/``
-does not read the moved entries. For a facility tree in a machine repository,
-follow :ref:`the upgrade order <machine-repository-upgrade>`.
-
 
 Convention directories
 ======================
@@ -1293,6 +1133,112 @@ own edits are left alone, and anything you deleted stays deleted. A change you
 drop from the diff before committing is not offered again; to take it later,
 copy it from the preset by hand.
 
+.. _profile-root-migration:
+
+A repository at a retired layout
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+An upgrade can change where a deployment repository keeps its sources. A
+repository that still holds an entry at a retired path is refused until the
+entry is at its current one:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 50 50
+
+   * - Retired path
+     - Current path
+   * - ``rules/``, ``skills/``, ``agents/``, ``commands/``,
+       ``output-styles/``, ``hooks/``, ``watchdogs/``, ``mcp_servers/``
+     - the same name under ``agent/``
+   * - ``web-terminal-context/``
+     - ``agent/context/``
+   * - ``data/code_review/``
+     - ``agent/code_review/``
+   * - ``services/``, ``project/``, ``scripts/``, ``osprey.service``,
+       ``ci-extra.yml``
+     - the same name under ``ops/``
+   * - ``data/.runtime/``
+     - ``var/runtime/``
+   * - ``data/<lane>_curve/``
+     - ``var/runtime/<lane>_curve/``
+   * - ``data/facility/``
+     - ``facility/``
+   * - ``data/canopy/library/``, ``data/canopy/collections/``,
+       ``data/canopy/theme/``
+     - the same name under ``web/canopy/``
+   * - ``data/landing/``
+     - ``web/landing/``
+
+``data/`` itself is gone, and so is the profile's ``data:`` key: the render
+assembles ``build/data/`` from ``facility/`` and ``web/`` alone.
+
+Every command that reads the sources, ``osprey build``, ``osprey up`` and
+``osprey validate`` among them, stops before it reads or writes anything and
+prints the commands that move the repository. ``osprey down``,
+``osprey status`` and ``osprey logs`` keep working, so a running stack can still
+be stopped and watched. This repository also holds a file of its own,
+``data/notes.md``:
+
+.. code-block:: text
+
+   # The deployment repo at /srv/my-facility still holds sources at retired paths; nothing was read.
+   # Paste this whole block to move them to their current paths, then place by hand what is listed below it; the repo is refused until both are done:
+   cd /srv/my-facility
+   git mv data/facility facility
+   mkdir -p agent
+   git mv rules agent/rules
+   git mv watchdogs agent/watchdogs
+   mkdir -p ops
+   git mv services ops/services
+   git mv scripts ops/scripts
+   git mv osprey.service ops/osprey.service
+   git mv ci-extra.yml ops/ci-extra.yml
+   mkdir -p web/canopy
+   git mv data/canopy/library web/canopy/library
+   mkdir -p web
+   git mv data/landing web/landing
+   perl -pi -e 's{    template: services/site_api}{    template: ops/services/site_api} if $. == 4' profile.yml
+   perl -pi -e 's{  facility_knowledge\.bundle_path: data/facility/knowledge}{  facility_knowledge.bundle_path: facility/knowledge} if $. == 9' profile.yml
+   perl -pi -e 's{        - data/landing/working-safely\.md}{        - web/landing/working-safely.md} if $. == 14' profile.yml
+   perl -pi -e 's{services/secret}{ops/services/secret} if $. == 1' .dockerignore
+   perl -ni -e 'print unless $. == 21 && m{^data: data\r?$}' profile.yml
+   rmdir data/canopy 2>/dev/null || true
+   rmdir data 2>/dev/null || true
+   # Host steps, once the files moved:
+   #   osprey build
+   # Check by hand; the paths inside these are not rewritten:
+   #   ops/ci-extra.yml
+   #   ops/services/site_api/Dockerfile
+   #   ops/scripts/ (operator scripts)
+   # Still in data/, place by hand:
+   #   data/notes.md
+   # Content the render must see goes under facility/.
+   osprey init --revalidate /srv/my-facility
+
+Paste the block whole into a shell, or run ``osprey init --revalidate``, which
+makes the same moves and prints the same lists. Tracked files move with
+``git mv``, and the lines of ``profile.yml``, ``.gitlab-ci.yml`` and
+``.dockerignore`` that name a moved path are rewritten. Three lists are left to
+you:
+
+- **Host steps.** Run each on every host the repository is deployed on. Where
+  ``osprey scaffold systemd`` wrote the unit or the boot hook, the steps install
+  it again from ``ops/``.
+- **Check by hand.** Paths inside a moved file (your CI jobs, a service's
+  Dockerfile, your scripts) are not rewritten, and neither is a value that
+  cannot be rewritten safely, such as a lifecycle ``run:`` command.
+- **Still in data/.** Nothing chooses a place for a file of your own. Move what
+  the render must see under ``facility/`` and the rest wherever you keep it; the
+  repository is refused until ``data/`` holds nothing.
+
+A file at both its retired and its current path is named instead of moved: keep
+one and delete the other.
+
+Upgrade OSPREY on every host that deploys the repository before you commit the
+move: an older OSPREY does not read the moved entries. A machine repository
+shared by several deployments has :ref:`its own order <machine-repository-upgrade>`.
+
 
 What the build does
 ===================
@@ -1400,11 +1346,9 @@ are (see the table above), or into ``ops/project/`` for anything without one.
 source zone over one that is already there. To re-render the project, run
 ``osprey build`` in the repo: it wipes and re-renders ``build/`` and
 leaves the source zone alone. To replace the source zone itself from the
-preset, re-run ``osprey init --force`` — which replaces ``profile.yml``,
-``facility/``, ``web/``, ``tiers/``, ``apps/``, ``triggers.yml``, ``agent/context/``,
-``.env.example``, ``agent/watchdogs/`` and ``agent/code_review/``, losing any
-edit to them, and rewrites
-``.osprey/``. In ``providers.yml`` it resets the entries OSPREY ships and keeps the ones you added.
+preset, re-run ``osprey init --force``, which loses your edits to what it
+replaces: ``profile.yml``, the facility tree and the other entries its
+description in :doc:`/reference/cli` lists.
 
 **"already exists, is not empty, and is not an OSPREY deployment repo"** — a
 deployment repo is one directory that holds nothing else, so ``osprey init``

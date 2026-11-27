@@ -490,25 +490,17 @@ deployment root, and the paths the profile names.
     ``.dockerignore`` beside it
   - the ``facility/``, ``web/``, ``tiers/``, ``apps/``, ``profiles/`` and
     ``.osprey/`` directories
-  - the ``agent/`` directory whole, which groups what the agent is made of
-    (``agent/rules/``, ``agent/skills/``, ``agent/agents/``,
-    ``agent/commands/``, ``agent/output-styles/``, ``agent/hooks/``,
-    ``agent/context/``, ``agent/watchdogs/``, ``agent/code_review/``,
-    ``agent/mcp_servers/``); in a repo not yet migrated, the same directories
-    still at their former paths are protected too
-  - the ``ops/`` directory whole, which groups how the deployment is built and
-    run (``ops/ci-extra.yml``, ``ops/scripts/``, ``ops/services/``,
-    ``ops/project/``, ``ops/osprey.service``); in a repo not yet migrated, the
-    same entries still at their former paths are protected too
+  - ``agent/`` and ``ops/`` whole, and the same entries at their former paths
+    in a repository still at a :ref:`retired layout <profile-root-migration>`
 
 - **The agent record's directories** (``var/spool/``, ``var/agent_record/``,
   ``var/state/`` and ``var/archive/``) --- the spool the record is read from,
   the record itself, the services' own state and the daily archive. Together
   they hold the record of what was refused. A run that could rewrite them
   could erase or forge the evidence of its own refusal.
-- **The pre-upgrade audit files** --- the files a deployment kept before the
-  agent record. Nothing writes them, and they stay protected for the
-  same reason.
+- **The pre-upgrade audit files** --- the files a deployment
+  kept before the agent record. Nothing writes them, and they stay protected
+  for the same reason.
 - **The runtime certificates** (``var/runtime/``) --- the keys ``osprey up``
   mints for the containers it starts. A run that could replace them could
   swap the keys a running stack trusts.

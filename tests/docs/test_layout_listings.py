@@ -1,10 +1,8 @@
-"""Three listings the docs retype from the deployment-root tables state what the code holds.
+"""Two listings the docs retype from the deployment-root tables state what the code holds.
 
 - The ``--force`` entry of ``reference/cli.rst`` names exactly the entries
   ``osprey init --force`` replaces (discarded, merged, rewritten) and exactly the
   entries it never touches, in the order the computed ``--force`` help names them.
-- The "is already an OSPREY deployment repo" entry of ``how-to/build-profiles.rst``
-  names exactly the entries ``--force`` replaces, in the same order.
 - The profile-sources list of ``architecture/python-executor.rst`` holds exactly
   :data:`~osprey.mcp_server.python_executor.executor.PROFILE_SOURCE_ENTRIES` without
   the retired paths, which stay protected but are not listed for operators. The list
@@ -30,7 +28,6 @@ from osprey.mcp_server.python_executor.executor import PROFILE_SOURCE_ENTRIES
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _DOCS = _REPO_ROOT / "docs" / "source"
 _CLI_PAGE = _DOCS / "reference" / "cli.rst"
-_BUILD_PROFILES_PAGE = _DOCS / "how-to" / "build-profiles.rst"
 _EXECUTOR_PAGE = _DOCS / "architecture" / "python-executor.rst"
 
 #: One RST inline literal.
@@ -88,19 +85,6 @@ def _cli_force_listing(text: str) -> dict[str, list[str]]:
             m["literal"] if m["literal"] is not None else m["ci"]
             for m in _PRESERVED_TOKEN.finditer(preserved)
         ],
-    }
-
-
-def _build_profiles_force_listing(text: str) -> dict[str, list[str]]:
-    """The build-profiles page's ``--force`` sentence: replaced, rewritten and merged names."""
-    page = "build-profiles.rst"
-    paragraph = _paragraph(text, '**"is already an OSPREY deployment repo"**')
-    return {
-        "replaced": _literals(_between(paragraph, "which replaces", ", losing any edit", page)),
-        "rewritten": _literals(_between(paragraph, "edit to them, and rewrites", ". In ``", page)),
-        "merged": _literals(
-            _between(paragraph, "In ", " it resets the entries OSPREY ships", page)
-        ),
     }
 
 
@@ -199,17 +183,6 @@ def _cli_drift(
     ]
 
 
-def _build_profiles_drift(
-    page: Mapping[str, list[str]], replaced: Mapping[str | None, list[str]]
-) -> list[str]:
-    where = "how-to/build-profiles.rst --force"
-    return [
-        *_sequence_drift(page["replaced"], replaced[None], where, "replaced"),
-        *_sequence_drift(page["rewritten"], replaced["rewritten"], where, "rewritten"),
-        *_sequence_drift(page["merged"], replaced["merged"], where, "merged"),
-    ]
-
-
 def _protected_drift(page: Sequence[str], entries: Sequence[str]) -> list[str]:
     where = "architecture/python-executor.rst profile sources"
     listed = {_top_level(name) for name in page}
@@ -229,10 +202,6 @@ def _cli_page() -> dict[str, list[str]]:
     return _cli_force_listing(_CLI_PAGE.read_text(encoding="utf-8"))
 
 
-def _build_profiles_page() -> dict[str, list[str]]:
-    return _build_profiles_force_listing(_BUILD_PROFILES_PAGE.read_text(encoding="utf-8"))
-
-
 def _executor_page() -> list[str]:
     return _protected_listing(_EXECUTOR_PAGE.read_text(encoding="utf-8"))
 
@@ -243,15 +212,6 @@ def test_the_cli_force_entry_names_what_init_replaces_and_preserves() -> None:
         _replaced_by_wording(_replaced_rows(), init_cmd.REPLACED_WORDING),
         init_cmd.PRESERVED_BY_FORCE,
         _scaffolded_names(),
-    )
-
-    assert drift == []
-
-
-def test_the_build_profiles_force_sentence_names_what_init_replaces() -> None:
-    drift = _build_profiles_drift(
-        _build_profiles_page(),
-        _replaced_by_wording(_replaced_rows(), init_cmd.REPLACED_WORDING),
     )
 
     assert drift == []
@@ -288,7 +248,7 @@ def _one_convention_and_one_zone_row(
 
 
 @pytest.mark.parametrize("pick", [0, 1], ids=["convention source", "zone entry"])
-def test_a_replaced_entry_dropped_from_the_code_is_reported_on_both_pages(pick: int) -> None:
+def test_a_replaced_entry_dropped_from_the_code_is_reported_on_the_cli_page(pick: int) -> None:
     rows = _replaced_rows()
     dropped = _one_convention_and_one_zone_row(rows)[pick]
     grouped = _replaced_by_wording(
@@ -297,10 +257,8 @@ def test_a_replaced_entry_dropped_from_the_code_is_reported_on_both_pages(pick: 
     name = repo_layout.listing_name(dropped)
 
     cli = _cli_drift(_cli_page(), grouped, init_cmd.PRESERVED_BY_FORCE, _scaffolded_names())
-    build = _build_profiles_drift(_build_profiles_page(), grouped)
 
     assert any("cli.rst" in line and name in line and "does not" in line for line in cli), cli
-    assert any("build-profiles.rst" in line and name in line for line in build), build
 
 
 @pytest.mark.parametrize("pick", [0, 1], ids=["convention source", "zone entry"])
@@ -319,27 +277,25 @@ def test_a_preserved_entry_dropped_from_the_code_is_reported(pick: int) -> None:
     assert any(dropped in line and "never-touches" in line for line in drift), drift
 
 
-def test_an_entry_the_code_gains_is_reported_missing_from_each_force_listing() -> None:
+def test_an_entry_the_code_gains_is_reported_missing_from_the_force_listing() -> None:
     grouped = _replaced_by_wording(_replaced_rows(), init_cmd.REPLACED_WORDING)
     grouped[None] = [*grouped[None], _PLANTED]
 
     cli = _cli_drift(
         _cli_page(), grouped, [*init_cmd.PRESERVED_BY_FORCE, _PLANTED], _scaffolded_names()
     )
-    build = _build_profiles_drift(_build_profiles_page(), grouped)
 
     assert f"reference/cli.rst --force: {_PLANTED} is missing from the discarded list" in cli
     assert f"reference/cli.rst --force: {_PLANTED} is missing from the never-touches list" in cli
-    assert (
-        f"how-to/build-profiles.rst --force: {_PLANTED} is missing from the replaced list" in build
-    )
 
 
 def test_a_reordered_force_table_is_reported() -> None:
     grouped = _replaced_by_wording(_replaced_rows(), init_cmd.REPLACED_WORDING)
     grouped[None] = list(reversed(grouped[None]))
 
-    assert any("orders" in line for line in _build_profiles_drift(_build_profiles_page(), grouped))
+    drift = _cli_drift(_cli_page(), grouped, init_cmd.PRESERVED_BY_FORCE, _scaffolded_names())
+
+    assert any("orders" in line for line in drift)
 
 
 @pytest.mark.parametrize("pick", [0, 1], ids=["convention source", "zone entry"])

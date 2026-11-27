@@ -75,12 +75,10 @@ filled and the fixes applied. Both are described in full under
 
 A tree that still holds a file at a retired path, such as ``classes.yaml`` in
 place of ``vocabulary/classes.yaml`` or ``scenarios/`` in place of
-``simulation/scenarios/``, is refused before anything is read. The refusal is a
-block to paste into a shell: ``#`` comments, then the ``mkdir``, ``git mv`` and
-``mv`` lines that move each file to its current path, and the edit of every
-``deck:`` value that names ``decks/``. A file at both paths is named instead;
-keep one. ``osprey init --revalidate`` makes the same moves and prints the diff
-(:ref:`the retired paths <cli-osprey-init-revalidate>`).
+``simulation/scenarios/``, is refused before anything is read, with the commands
+that move each file and edit every ``deck:`` value that names ``decks/``
+(:ref:`profile-root-migration`). ``osprey init --revalidate`` makes the same
+moves (:ref:`the retired paths <cli-osprey-init-revalidate>`).
 
 Identity
 ========

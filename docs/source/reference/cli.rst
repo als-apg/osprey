@@ -191,18 +191,9 @@ a diff to review and commit.
 Every root entry at a retired path is moved under ``agent/``, ``ops/`` or
 ``var/``, and ``data/`` is dissolved: ``data/facility/`` moves to
 ``facility/``, ``data/landing/`` and ``data/canopy/`` to ``web/`` (``git mv``
-where tracked). The profile values, pipeline lines and ``.dockerignore`` lines
-that name a moved path are rewritten, the ``data:`` line is deleted, and the
-host steps and the files to check by hand are printed
-(:ref:`profile-root-migration`). A pipeline line that holds only the bare name
-of a moved file (``systemctl --user enable osprey.service``) is not rewritten;
-it is listed to check by hand. A ``data:`` line is kept, and listed to check
-by hand, when it names no single directory inside the repository, when that
-directory still holds leftovers, or when the key spans several lines.
-Whatever ``data/`` still holds is listed under "Left for you to do by hand",
-one entry per line, after ``# Still in data/, place by hand:``; content the
-render must see goes under ``facility/``. Nothing picks a destination for it,
-and the repository stays refused until ``data/`` holds nothing.
+where tracked). The lines that name a moved path are rewritten, and what stays
+with you is printed under "Left for you to do by hand"
+(:ref:`profile-root-migration`).
 
 Each facility tree the profile and its variants build from is moved off its
 retired paths, relative to ``facility/`` (``git mv`` where tracked):
@@ -227,8 +218,7 @@ A ``deck:`` value in ``simulation/models.yaml`` that begins ``decks/`` is
 rewritten to begin ``simulation/decks/``. A file at both a retired path and its
 current path stops the run before anything is written; keep one. A tree in
 another repository, such as a mounted machine repository, is not touched: the
-commands that move it are printed under "Left for you to do by hand". Run them
-there and commit, then commit the new submodule commit in the deployment
+commands that move it are printed under "Left for you to do by hand"
 (:ref:`upgrade order <machine-repository-upgrade>`).
 
 The step is one-way: an older OSPREY refuses the revalidated repository. To go

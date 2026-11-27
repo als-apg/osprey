@@ -16,7 +16,7 @@ What goes where
 
    example-machine/              the machine repository
      profile.yml                 its VA-only setup
-     facility/              the machine facts
+     facility/                   the machine facts
        identity.yaml  records/  limits.yaml  imported/<layer>/
        vocabulary/  provenance/  simulation/
 
@@ -99,15 +99,15 @@ fix, on:
 Upgrade
 =======
 
-Upgrade OSPREY in every deployment that mounts the machine repository before
-the machine repository changes. An OSPREY that moves a facility path refuses a
-machine still at the retired path, naming the commands that move it; an older
-OSPREY reads a moved machine without the moved files, and says nothing.
+When an upgrade moves a facility path, upgrade OSPREY in
+every deployment that mounts the machine repository before the machine
+repository changes: an older OSPREY reads a moved machine without the moved
+files, and says nothing.
 
 #. In each mounting deployment, upgrade OSPREY and run
    ``osprey init --revalidate``. It leaves the machine as it is and prints the
    commands that move it under "Left for you to do by hand"; its builds refuse
-   the machine until it moves.
+   the machine until it moves (:ref:`profile-root-migration`).
 #. In the machine repository, upgrade OSPREY, run
    ``osprey init --revalidate`` (or the printed commands) and commit.
 #. In each deployment, commit the new submodule commit.
