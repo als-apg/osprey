@@ -510,6 +510,38 @@ def test_a_descriptor_records_each_declared_shape() -> None:
     }
 
 
+def test_a_shape_stated_in_numpy_integers_is_declared() -> None:
+    """A size is any integral number >= 0, stored as a plain ``int``."""
+    data_keys = {
+        "wave": {"dtype": "array", "shape": [np.int64(1024)]},
+        "image": {"shape": [np.uint16(2), 3]},
+        "ragged": {"shape": [np.int32(4), None]},
+    }
+    expected = {"wave": [1024], "image": [2, 3], "ragged": [4, None]}
+    recorder = LiveRowRecorder()
+    recorder("start", _start_doc("run-1"))
+    recorder("descriptor", _descriptor_doc(data_keys))
+
+    recorded = live_rows.get("run-1")["shapes"]
+    declared = live_rows.declared_shapes(_descriptor_doc(data_keys))
+
+    assert recorded == expected
+    assert declared == expected
+    for shapes in (recorded, declared):
+        for shape in shapes.values():
+            assert all(size is None or type(size) is int for size in shape)
+
+
+@pytest.mark.parametrize(
+    "shape",
+    [[True], [np.True_], [-1], [np.int64(-1)], [1024.0], [np.float64(2)], ["1024"]],
+)
+def test_a_shape_size_that_is_not_an_integral_number_declares_none(shape: list) -> None:
+    descriptor = _descriptor_doc({"wave": {"dtype": "array", "shape": shape}})
+
+    assert live_rows.declared_shapes(descriptor) == {}
+
+
 def test_a_later_descriptor_adds_shapes_and_never_clears_them() -> None:
     recorder = LiveRowRecorder()
     recorder("start", _start_doc("run-1"))

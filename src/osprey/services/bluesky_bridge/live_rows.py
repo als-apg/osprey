@@ -71,6 +71,7 @@ run, not the run itself.
 from __future__ import annotations
 
 import logging
+import operator
 import os
 import sys
 from collections import OrderedDict
@@ -208,16 +209,17 @@ def declared_shapes(descriptor: Any) -> dict[str, list[int | None]]:
     """The shapes one descriptor document declares, by data key.
 
     A data key declares a shape when its ``shape`` is a list whose every entry
-    is an integer >= 0, or ``None`` for a ragged axis; ``[]`` is a scalar. Any
-    other entry, and any malformed descriptor, declares none.
+    is an integral number >= 0 (any value ``operator.index`` accepts other than
+    a bool), stored as an ``int``, or ``None`` for a ragged axis; ``[]`` is a
+    scalar. Any other entry, and any malformed descriptor, declares none.
     """
     data_keys = descriptor.get("data_keys") if isinstance(descriptor, dict) else None
     if not isinstance(data_keys, dict):
         return {}
     return {
-        column: list(key["shape"])
+        column: shape
         for column, key in data_keys.items()
-        if isinstance(key, dict) and _is_shape(key.get("shape"))
+        if isinstance(key, dict) and (shape := _shape(key.get("shape"))) is not None
     }
 
 
@@ -247,10 +249,25 @@ def merge_objects(held: dict[str, list[str]], declared: dict[str, list[str]]) ->
         columns.extend(key for key in keys if key not in columns)
 
 
-def _is_shape(shape: Any) -> bool:
-    return isinstance(shape, list) and all(
-        size is None or (type(size) is int and size >= 0) for size in shape
-    )
+def _shape(shape: Any) -> list[int | None] | None:
+    """*shape* as plain ``int`` sizes and ``None`` ragged axes, or ``None`` if it is not one."""
+    if not isinstance(shape, list):
+        return None
+    sizes: list[int | None] = []
+    for size in shape:
+        if size is None:
+            sizes.append(None)
+            continue
+        if isinstance(size, bool):
+            return None
+        try:
+            number = operator.index(size)
+        except TypeError:
+            return None
+        if number < 0:
+            return None
+        sizes.append(number)
+    return sizes
 
 
 def json_cell(value: Any) -> Any:
