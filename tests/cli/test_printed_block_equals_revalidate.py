@@ -269,6 +269,15 @@ def test_both_routes_leave_the_same_index_and_status(routes: Routes) -> None:
             assert _git(block, *args) == _git(revalidated, *args), (block, args)
 
 
+def test_another_repository_records_the_moves_made_in_it(routes: Routes) -> None:
+    """A tracked file moved inside a nested repository is a rename there, not a loss."""
+    for rel in routes.others:
+        for copy in (routes.block, routes.revalidated):
+            status = _git(copy / rel, "status", "--porcelain=v1", "-uall").splitlines()
+            assert any(line.startswith("R") for line in status), (copy, status)
+            assert [line for line in status if line.startswith((" D", "??"))] == [], copy
+
+
 def test_both_routes_finish_the_migration(routes: Routes) -> None:
     for repo in (routes.block, routes.revalidated):
         assert find_retired_root(repo).empty, repo

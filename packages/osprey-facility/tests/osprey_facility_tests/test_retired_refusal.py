@@ -30,6 +30,7 @@ from osprey_facility.errors import (
 from osprey_facility.layers.list import import_list
 from osprey_facility.retired import (
     LineEdit,
+    Move,
     find_retired,
     move_script,
     place_moves,
@@ -455,6 +456,39 @@ def test_the_rendered_script_moves_edits_and_deletes_in_one_block(tmp_path: Path
     assert (root / "conf.yaml").read_text(encoding="utf-8") == "first\nkeep: group/new/a.txt\n"
     assert not (root / "stale").exists()
     assert not (root / "gone").exists()
+
+
+def test_a_move_inside_a_nested_repository_runs_in_that_repository(tmp_path: Path) -> None:
+    outer = _repository(tmp_path / "outer", commit=False)
+    _write(outer, "keep.txt")
+    nested = _repository(outer / "old/tree", commit=False)
+    _write(nested, "a.txt")
+    _write(nested, "untracked.txt")
+    _git(nested, "add", "a.txt")
+    _git(nested, "commit", "-q", "-m", "seed")
+    _git(outer, "add", "keep.txt")
+    _git(outer, "commit", "-q", "-m", "seed")
+    moves = [
+        Move(root=outer, old="old/tree", new="tree", is_dir=True, merge=False),
+        Move(root=outer / "tree", old="a.txt", new="group/a.txt", is_dir=False, merge=False),
+        Move(
+            root=outer / "tree", old="untracked.txt", new="group/b.txt", is_dir=False, merge=False
+        ),
+    ]
+
+    script = render_script(moves, (), ())
+
+    assert script == [
+        f"cd {outer.resolve()}",
+        "mv old/tree tree",
+        "mkdir -p tree/group",
+        "git -C tree mv a.txt group/a.txt",
+        "mv tree/untracked.txt tree/group/b.txt",
+        "rmdir old 2>/dev/null || true",
+    ]
+    _run("\n".join(script) + "\n", tmp_path / "elsewhere")
+    assert "R  a.txt -> group/a.txt" in _git(outer / "tree", "status", "--porcelain")
+    assert (outer / "tree/group/b.txt").is_file()
 
 
 def test_a_tracked_delete_git_refuses_is_removed_all_the_same(tmp_path: Path) -> None:

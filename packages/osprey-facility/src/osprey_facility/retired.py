@@ -518,6 +518,8 @@ def render_script(
     line_edits: Iterable[tuple[Path, LineEdit]],
     deletes: Iterable[tuple[Path, str]],
     line_deletes: Iterable[tuple[Path, LineDelete]] = (),
+    *,
+    after: Iterable[Move] = (),
 ) -> list[str]:
     """POSIX shell lines that carry out *moves*, then the line edits and line deletes, then *deletes*.
 
@@ -534,7 +536,9 @@ def render_script(
     successor's parent immediately before it, unless that directory is
     already there; it is ``git mv`` when its source, followed back through
     the earlier moves of its block to where it lies before any move, is
-    tracked, else ``mv``. Then one ``perl -pi`` per line edit, one
+    tracked, else ``mv``. A source tracked by a repository nested inside the
+    block's moves with ``git -C <that repository> mv``, so the nested
+    repository records the move. Then one ``perl -pi`` per line edit, one
     ``perl -ni`` per line delete (the last lines of a file first, so the line
     numbers hold), ``git rm -r`` for each tracked deleted path (``rm -r`` when
     git refuses, as it does over a local change) and ``rm -r`` for the rest,
@@ -548,6 +552,9 @@ def render_script(
             occurrence of *old* on its line with *new*, both taken literally.
         deletes: ``(root, path)`` pairs naming what to remove.
         line_deletes: ``(root, delete)`` pairs naming whole lines to remove.
+        after: Moves another script makes before this one runs. They get no
+            command here; each of *moves* is followed back through them too,
+            to where its source lies before any move.
 
     Returns:
         The script lines, empty when there is nothing to do.
@@ -566,6 +573,8 @@ def render_script(
             blocks[key] = _Block(top=key, in_git=top is not None)
         return blocks[key]
 
+    for move in after:
+        block_for(move.root).follow(move)
     for move in moves:
         block_for(move.root).add_move(move)
     for root, edit in line_edits:
@@ -594,6 +603,12 @@ class _Block:
     rmdirs: list[str] = field(default_factory=list)
     made: list[Path] = field(default_factory=list)
     moved: list[tuple[Path, Path]] = field(default_factory=list)
+    repositories: dict[Path, Path | None] = field(default_factory=dict)
+
+    def follow(self, move: Move) -> None:
+        """Take *move* as made before this block runs: later moves are traced back through it."""
+        root = move.root.resolve()
+        self.moved.append((root / move.old, root / move.new))
 
     def add_move(self, move: Move) -> None:
         root = move.root.resolve()
@@ -603,12 +618,7 @@ class _Block:
         if parent != self.top and parent not in self.made and not self._standing(parent):
             self.made.append(parent)
             self.moves.append(f"mkdir -p {shlex.quote(_relative(parent, self.top))}")
-        before = self._before(source)
-        tracked = self.in_git and self._tracked(_relative(before, self.top))
-        verb = "git mv" if tracked else "mv"
-        old = _relative(source, self.top)
-        new = _relative(target, self.top)
-        self.moves.append(f"{verb} {shlex.quote(old)} {shlex.quote(new)}")
+        self.moves.append(self._move_command(source, target))
         self.moved.append((source, target))
         for directory in move.vacated():
             _append_once(self.rmdirs, _relative(directory, self.top))
@@ -628,7 +638,7 @@ class _Block:
         resolved = root.resolve()
         target = _relative(resolved / relative, self.top)
         remove = f"rm -r -- {shlex.quote(target)}"
-        if self.in_git and self._tracked(target):
+        if self.in_git and _tracked(self.top, target):
             remove = f"git rm -r -q -- {shlex.quote(target)} || {remove}"
         self.deletes.append(remove)
         for directory in (resolved / relative).parents:
@@ -636,13 +646,48 @@ class _Block:
                 _append_once(self.rmdirs, _relative(directory, self.top))
 
     def render(self) -> list[str]:
-        lines = [f"cd {shlex.quote(str(self.top))}"]
-        lines.extend(self.moves)
-        lines.extend(self.edits)
-        lines.extend(self.deletes)
         deepest_first = sorted(self.rmdirs, key=lambda path: path.count("/"), reverse=True)
-        lines.extend(f"rmdir {shlex.quote(path)} 2>/dev/null || true" for path in deepest_first)
-        return lines
+        commands = [
+            *self.moves,
+            *self.edits,
+            *self.deletes,
+            *(f"rmdir {shlex.quote(path)} 2>/dev/null || true" for path in deepest_first),
+        ]
+        return [f"cd {shlex.quote(str(self.top))}", *commands] if commands else []
+
+    def _move_command(self, source: Path, target: Path) -> str:
+        """The command that moves *source* to *target*: ``git mv`` where git tracks the source.
+
+        The source is judged where it lies before any move, by the repository
+        that holds it there. For a repository nested inside this block's, the
+        command runs in it (``git -C``), where the earlier moves leave it, so
+        its own index follows the move.
+        """
+        before = self._before(source)
+        nested = self._nested_repository(before)
+        if nested is not None:
+            here = self._after(nested)
+            inside = here in source.parents and here in target.parents
+            if inside and _tracked(nested, _relative(before, nested)):
+                git = f"git -C {shlex.quote(_relative(here, self.top))} mv"
+                old, new = _relative(source, here), _relative(target, here)
+                return f"{git} {shlex.quote(old)} {shlex.quote(new)}"
+            tracked = False
+        else:
+            tracked = self.in_git and _tracked(self.top, _relative(before, self.top))
+        verb = "git mv" if tracked else "mv"
+        old, new = _relative(source, self.top), _relative(target, self.top)
+        return f"{verb} {shlex.quote(old)} {shlex.quote(new)}"
+
+    def _nested_repository(self, path: Path) -> Path | None:
+        """The top of a repository nested inside this block's that holds *path* below its top."""
+        directory = path if path.is_dir() else path.parent
+        if directory not in self.repositories:
+            self.repositories[directory] = repository_root(directory)
+        top = self.repositories[directory]
+        if top is None or top == path or self.top not in top.parents:
+            return None
+        return top
 
     def _standing(self, directory: Path) -> bool:
         """True when *directory* is there now and no earlier move takes it away."""
@@ -659,12 +704,12 @@ class _Block:
                 path = source / path.relative_to(target)
         return path
 
-    def _tracked(self, relative: str) -> bool:
-        try:
-            result = _git(self.top, "ls-files", "--error-unmatch", "--", relative)
-        except OSError:
-            return False
-        return result.returncode == 0
+    def _after(self, path: Path) -> Path:
+        """*path*, as it lies now, followed through this block's earlier moves."""
+        for source, target in self.moved:
+            if path == source or source in path.parents:
+                path = target / path.relative_to(source)
+        return path
 
 
 #: Characters a Perl pattern inside ``s{...}{...}`` reads as other than themselves.
@@ -692,6 +737,15 @@ def _git(directory: Path, *args: str) -> subprocess.CompletedProcess[str]:
         text=True,
         check=False,
     )
+
+
+def _tracked(top: Path, relative: str) -> bool:
+    """True when the repository at *top* tracks *relative*."""
+    try:
+        result = _git(top, "ls-files", "--error-unmatch", "--", relative)
+    except OSError:
+        return False
+    return result.returncode == 0
 
 
 def _relative(path: Path, top: Path) -> str:

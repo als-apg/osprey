@@ -99,7 +99,7 @@ import json
 import re
 import shutil
 import subprocess
-from collections.abc import Iterable, Iterator
+from collections.abc import Iterable, Iterator, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass, field, replace
 from pathlib import Path, PurePosixPath
@@ -139,7 +139,7 @@ from osprey_facility.retired import (
     LineEdit,
     Move,
     RetiredLayout,
-    move_script,
+    deck_line_edits,
     render_script,
     repository_root,
 )
@@ -1364,9 +1364,10 @@ class _RootPlan:
         deletes: What is removed with the moves (stale generated copies at
             the root, the shipped data README, what is pruned from a
             dissolved directory), repo-relative.
-        elsewhere_steps: The commands for every source in another
-            repository, which run before any step that reads the tree
-            where the moves leave it.
+        elsewhere_moves: The moves of every source in another repository,
+            left to the person.
+        elsewhere_steps: The commands that make *elsewhere_moves*, which run
+            before any step that reads the tree where the moves leave it.
         manual_steps: The leftovers to place, the host steps and what to
             check by hand.
     """
@@ -1376,6 +1377,7 @@ class _RootPlan:
     line_deletes: tuple[LineDelete, ...] = ()
     originals: dict[str, str] = field(default_factory=dict)
     deletes: tuple[str, ...] = ()
+    elsewhere_moves: tuple[Move, ...] = ()
     elsewhere_steps: tuple[str, ...] = ()
     manual_steps: tuple[str, ...] = ()
 
@@ -1413,7 +1415,7 @@ def _plan_retired(root: Path, documents: dict[str, Any]) -> tuple[_RootPlan, _Fa
         for plan in plans
         if plan.facility_roots is not None and plan.facility is not None
     ]
-    return root_plan, _plan_facility(root, plans[0].layout, facilities)
+    return root_plan, _plan_facility(root, plans[0].layout, facilities, root_plan.elsewhere_moves)
 
 
 def _plan_root(layout: RetiredRoot) -> _RootPlan:
@@ -1478,6 +1480,7 @@ def _plan_root(layout: RetiredRoot) -> _RootPlan:
         line_deletes=layout.line_deletes,
         originals=originals,
         deletes=(*layout.shipped, *layout.deletes),
+        elsewhere_moves=tuple(there),
         elsewhere_steps=tuple(elsewhere_steps),
         manual_steps=tuple(manual),
     )
@@ -1656,15 +1659,19 @@ def _plan_facility(
     root: Path,
     layout: RetiredRoot,
     facilities: Iterable[tuple[FacilityRoots, RetiredLayout]],
+    root_elsewhere: Sequence[Move] = (),
 ) -> _FacilityPlan:
     """Plan the move of every facility tree the deployment builds from off its retired paths.
 
     Each of *facilities* (the roots, and what the tree at them holds) names
     its paths where they lie once *layout*'s root moves are done; which
-    repository a tree is in is decided where it lies now. A tree inside the deployment and in its git repository (or, without
-    one, in no repository) is moved here, after the root moves. Any other
-    tree (a mounted machine repository, a submodule) is left as it is, and
-    the commands that move it become manual steps.
+    repository a tree is in is decided where it lies now. A tree inside the
+    deployment and in its git repository (or, without one, in no repository)
+    is moved here, after the root moves. Any other tree (a mounted machine
+    repository, a submodule) is left as it is, and the commands that move it
+    become manual steps. Those commands run after the ones that make
+    *root_elsewhere*, the root moves left to the person, and each is chosen
+    where its source lies before them.
 
     Raises:
         BuildProfileError: A file is present at a retired path and at its
@@ -1737,7 +1744,10 @@ def _plan_facility(
             f"# {', '.join(elsewhere)} lies outside this repository and still holds facility "
             f"sources at retired paths; nothing there was moved. Run these commands to move them:"
         )
-        manual.extend(move_script(RetiredLayout(tuple(there), tuple(edits_there), ())))
+        elsewhere_layout = RetiredLayout(tuple(there), tuple(edits_there), ())
+        manual.extend(
+            render_script(there, deck_line_edits(elsewhere_layout), (), after=root_elsewhere)
+        )
     return _FacilityPlan(tuple(here), tuple(edits_here), tuple(trees), tuple(manual))
 
 
