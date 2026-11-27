@@ -23,6 +23,13 @@ A validator this module computes is a *hub tag*, spelled ``"h-<digest>"``
 (:func:`is_hub_tag`). The proxy keeps a request whose ``If-None-Match`` names
 one from reaching the backend as a conditional request: the backend never
 issued that tag, and the answer is compared here.
+
+A backend is not trusted to say what the hub computed. An ``ETag`` of a
+backend that is spelled like a hub tag is dropped before anything else reads
+it, whether a tag is the hub's is recorded where the tag is made
+(``Kept.ours``) and never read back from its spelling, and the gzipped copies
+of relayed bodies are kept by a digest this module takes of the body it is
+about to send, never by a string a backend or a browser supplied.
 """
 
 from __future__ import annotations
@@ -87,10 +94,7 @@ _STATIC_TYPES = frozenset(
 
 def is_hub_tag(if_none_match: str | None) -> bool:
     """Whether an ``If-None-Match`` header names a validator this module computed."""
-    return any(
-        tag.strip().removeprefix("W/").startswith(_HUB_TAG_PREFIX)
-        for tag in (if_none_match or "").split(",")
-    )
+    return any(_claims_hub(tag) for tag in (if_none_match or "").split(","))
 
 
 def is_static_type(base_type: str) -> bool:
@@ -104,13 +108,31 @@ def _is_compressible(base_type: str) -> bool:
     return base_type.startswith("text/") or base_type in _COMPRESSIBLE_TYPES
 
 
-def _tag(body: bytes) -> str:
-    return f'{_HUB_TAG_PREFIX}{hashlib.sha256(body).hexdigest()[:32]}"'
+def _digest(body: bytes) -> str:
+    return hashlib.sha256(body).hexdigest()
 
 
-def _compressed_tag(tag: str) -> str:
-    """The validator of the gzipped form of what *tag* validates."""
-    if tag.startswith(_HUB_TAG_PREFIX):
+def _tag(body: bytes, digest: str | None = None) -> str:
+    return f'{_HUB_TAG_PREFIX}{(digest or _digest(body))[:32]}"'
+
+
+def _claims_hub(tag: str) -> bool:
+    """Whether *tag*, strong or weak, is spelled as only this module's tags are."""
+    spelled = tag.strip()
+    if spelled[:2].upper() == "W/":
+        spelled = spelled[2:].lstrip()
+    return spelled.startswith(_HUB_TAG_PREFIX)
+
+
+def _compressed_tag(tag: str, ours: bool) -> str:
+    """The validator of the gzipped form of what *tag* validates.
+
+    Args:
+        tag: The validator of the bytes before compression.
+        ours: Whether this module computed *tag*; stated by the caller that
+            made the tag, not read from how the tag is spelled.
+    """
+    if ours:
         return f'{tag[:-1]}-gz"'
     # A backend's own tag names the bytes it sent, not their gzipped form.
     return tag if tag.startswith("W/") else f"W/{tag}"
@@ -143,6 +165,8 @@ class Kept:
         packed: Their gzipped form; ``None`` when it is not worth sending, or
             not yet made (``pack_tried`` says which).
         pack_tried: Whether ``packed`` was decided.
+        ours: Whether this module computed ``tag`` from ``body``. A tag a
+            backend issued is relayed, never treated as the hub's.
     """
 
     signature: tuple[int, int] | None
@@ -150,6 +174,7 @@ class Kept:
     tag: str
     packed: bytes | None = None
     pack_tried: bool = False
+    ours: bool = False
 
     @property
     def size(self) -> int:
@@ -194,7 +219,10 @@ class _Keep:
 
 #: The hub's own files, by ``(path, variant)``.
 _FILES = _Keep()
-#: The gzipped form of relayed bodies, by their hub tag.
+#: The gzipped form of relayed bodies, by ``(digest, length)`` of the body
+#: itself, both taken here. Gzip is a pure function of the body, so one entry
+#: can only ever answer for the bytes it was made from, whatever backend,
+#: content type or validator they arrived with.
 _PACKED = _Keep()
 
 
@@ -211,7 +239,7 @@ def _answer(
     """*kept* as a response: ``304`` to a matching validator, gzipped where accepted."""
     compress = kept.packed is not None and _accepts_gzip(request_headers)
     if kept.tag:
-        headers["etag"] = _compressed_tag(kept.tag) if compress else kept.tag
+        headers["etag"] = _compressed_tag(kept.tag, kept.ours) if compress else kept.tag
     if kept.pack_tried and kept.packed is not None:
         varies = [part.strip() for part in headers.get("vary", "").split(",") if part.strip()]
         if "accept-encoding" not in {part.lower() for part in varies} and "*" not in varies:
@@ -222,7 +250,7 @@ def _answer(
         and etag_matches(
             request_headers.get("if-none-match"),
             kept.tag.removeprefix("W/"),
-            _compressed_tag(kept.tag).removeprefix("W/"),
+            _compressed_tag(kept.tag, kept.ours).removeprefix("W/"),
         )
     ):
         return Response(status_code=304, headers=headers)
@@ -244,7 +272,9 @@ def _read_file(
     if transform is not None:
         body = transform(body)
     packed = _pack(body) if pack and len(body) >= MIN_COMPRESS_BYTES else None
-    return Kept(signature=signature, body=body, tag=_tag(body), packed=packed, pack_tried=True)
+    return Kept(
+        signature=signature, body=body, tag=_tag(body), packed=packed, pack_tried=True, ours=True
+    )
 
 
 async def serve_hub_file(
@@ -339,11 +369,20 @@ async def shape_relayed(
     plain = status_code == 200 and "content-range" not in lowered
     static = plain and method == "GET" and is_static_type(base_type)
 
+    if "etag" in lowered and _claims_hub(headers[lowered["etag"]]):
+        # Only this module issues hub tags. A backend that sends one is not
+        # believed: the tag is gone before anything below can read it.
+        drop("etag")
+
     tag = ""
+    ours = False
+    digest: str | None = None
     if static and len(body) <= _MAX_DIGEST_BYTES:
         upstream_tag = headers[lowered["etag"]] if "etag" in lowered else ""
         if rewritten or not upstream_tag:
-            tag = _tag(body)
+            digest = _digest(body)
+            tag = _tag(body, digest)
+            ours = True
             drop("etag")
             if rewritten:
                 # The body follows the rewrite as well as the backend's file.
@@ -371,19 +410,21 @@ async def shape_relayed(
         and _accepts_gzip(request_headers)
     ):
         pack_tried = True
-        held = _PACKED.get(tag) if tag.startswith(_HUB_TAG_PREFIX) else None
+        # Kept only for a body digested here, under that digest.
+        key = (digest, len(body)) if ours and digest is not None else None
+        held = _PACKED.get(key) if key is not None else None
         if held is not None:
             packed = held.packed
         else:
             packed = await asyncio.to_thread(_pack, body)
-            if tag.startswith(_HUB_TAG_PREFIX) and packed is not None:
-                _PACKED.put(tag, Kept(None, b"", tag, packed, True))
-    kept = Kept(None, body, tag, packed, pack_tried)
+            if key is not None and packed is not None:
+                _PACKED.put(key, Kept(None, b"", "", packed, True))
+    kept = Kept(None, body, tag, packed, pack_tried, ours)
     if not tag and "etag" in lowered and packed is not None:
         # A backend's tag on an answer this module does not validate still
         # names the bytes before compression.
         name = lowered["etag"]
-        headers[name] = _compressed_tag(headers[name])
+        headers[name] = _compressed_tag(headers[name], ours=False)
     return _answer(
         request_headers,
         method,

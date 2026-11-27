@@ -488,3 +488,126 @@ class TestRelayedPagesAndApiAnswers:
 
         assert "etag" not in resp.headers
         assert resp.headers["cache-control"] == NEVER_STORED
+
+
+# ---------------------------------------------------------------------------
+# A backend cannot pass for the hub
+# ---------------------------------------------------------------------------
+
+
+async def _relayed(body: bytes, *, etag: str | None = None, content_type="text/css", gzip_ok=True):
+    """One untouched backend answer through ``shape_relayed``, as a browser gets it."""
+    from starlette.datastructures import Headers
+
+    return await panel_answers.shape_relayed(
+        Headers({"accept-encoding": "gzip" if gzip_ok else "identity"}),
+        "GET",
+        body=body,
+        status_code=200,
+        headers={"ETag": etag} if etag is not None else {},
+        media_type=content_type,
+        rewritten=False,
+        default_cache_control=NEVER_STORED,
+    )
+
+
+def _sent(response) -> bytes:
+    body = bytes(response.body)
+    return gzip.decompress(body) if response.headers.get("content-encoding") == "gzip" else body
+
+
+FIRST_SHEET = b".first { color: red; }\n" * 200
+OTHER_SHEET = b".other { color: blue; }\n" * 200
+
+
+class TestABackendCannotPassForTheHub:
+    @pytest.mark.parametrize(
+        "spelling",
+        ['"h-{d}"', 'W/"h-{d}"', 'w/"h-{d}"', ' W/ "h-{d}"', '"h-{d}-gz"', '"h-anything"'],
+    )
+    async def test_a_backend_tag_spelled_as_the_hubs_is_not_relayed(self, spelling):
+        # The tag the hub would give FIRST_SHEET, claimed for another body.
+        claimed = spelling.format(d=panel_answers._tag(FIRST_SHEET)[3:-1])
+
+        resp = await _relayed(OTHER_SHEET, etag=claimed)
+
+        assert resp.headers["etag"] == panel_answers._compressed_tag(
+            panel_answers._tag(OTHER_SHEET), ours=True
+        )
+        assert _sent(resp) == OTHER_SHEET
+
+    async def test_a_claimed_hub_tag_is_never_served_the_body_that_tag_names(self):
+        first = await _relayed(FIRST_SHEET)  # the hub tags it and keeps its gzipped copy
+        assert _sent(first) == FIRST_SHEET
+        plain_tag = panel_answers._tag(FIRST_SHEET)
+
+        for claimed in (plain_tag, first.headers["etag"], f"W/{plain_tag}"):
+            resp = await _relayed(OTHER_SHEET, etag=claimed)
+            assert _sent(resp) == OTHER_SHEET, claimed
+
+    async def test_a_claimed_hub_tag_plants_nothing_for_the_body_that_tag_names(self):
+        claimed = panel_answers._tag(FIRST_SHEET)
+        planted = await _relayed(OTHER_SHEET, etag=claimed)
+        assert _sent(planted) == OTHER_SHEET
+
+        resp = await _relayed(FIRST_SHEET)
+
+        assert _sent(resp) == FIRST_SHEET
+
+    async def test_a_claimed_hub_tag_is_dropped_from_an_answer_that_is_not_validated(self):
+        resp = await _relayed(b"{}" * 2000, etag='"h-anything"', content_type="application/json")
+
+        assert "etag" not in resp.headers
+        assert _sent(resp) == b"{}" * 2000
+
+    async def test_a_backends_own_tag_keeps_nothing(self):
+        resp = await _relayed(FIRST_SHEET, etag='"backend-1"')
+
+        assert resp.headers["etag"] == 'W/"backend-1"'
+        assert not panel_answers._PACKED._held
+
+    async def test_one_backend_tag_on_two_bodies_sends_each_its_own(self):
+        first = await _relayed(FIRST_SHEET, etag='"same"')
+        other = await _relayed(OTHER_SHEET, etag='"same"')
+
+        assert (_sent(first), _sent(other)) == (FIRST_SHEET, OTHER_SHEET)
+
+    async def test_two_bodies_never_share_a_kept_copy(self):
+        await _relayed(FIRST_SHEET)
+        await _relayed(OTHER_SHEET)
+        await _relayed(FIRST_SHEET, content_type="text/javascript")
+
+        held = panel_answers._PACKED._held
+        assert set(held) == {
+            (panel_answers._digest(FIRST_SHEET), len(FIRST_SHEET)),
+            (panel_answers._digest(OTHER_SHEET), len(OTHER_SHEET)),
+        }
+        for (digest, _length), kept in held.items():
+            assert panel_answers._digest(gzip.decompress(kept.packed)) == digest
+
+    async def test_bodies_that_agree_in_the_short_tag_are_still_kept_apart(self, monkeypatch):
+        """The key is the whole digest and the length, not the tag sent to the browser."""
+        monkeypatch.setattr(panel_answers, "_tag", lambda _body, _digest=None: '"h-collides"')
+
+        first = await _relayed(FIRST_SHEET)
+        other = await _relayed(OTHER_SHEET)
+
+        assert first.headers["etag"] == other.headers["etag"]
+        assert (_sent(first), _sent(other)) == (FIRST_SHEET, OTHER_SHEET)
+
+    def test_through_the_proxy_a_claimed_hub_tag_is_replaced(self, app_and_client):
+        app, client = app_and_client
+        claimed = panel_answers._tag(FIRST_SHEET)
+        _backend(app, body=OTHER_SHEET, content_type="image/svg+xml", headers={"etag": claimed})
+
+        resp = client.get("/panel/my-dash/mark.svg")
+
+        assert resp.content == OTHER_SHEET
+        assert resp.headers["etag"].strip('"').removesuffix("-gz") == (
+            panel_answers._tag(OTHER_SHEET).strip('"')
+        )
+
+    def test_is_hub_tag_reads_weak_forms_in_any_case(self):
+        assert panel_answers.is_hub_tag('w/"h-abc"')
+        assert panel_answers.is_hub_tag('"other", W/ "h-abc-gz"')
+        assert not panel_answers.is_hub_tag('"backend-h-abc"')
