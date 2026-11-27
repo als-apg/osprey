@@ -230,7 +230,10 @@ The file has four lists:
   within the command's ``timeout_s``; then its readback settles. When the
   status never leaves ``idle`` and the readback already sits at the target,
   the move is done. When the readback is elsewhere, or the positioner has no
-  separate readback, the move fails: the start had no effect. The command is
+  separate readback, the move fails: the start had no effect. Either way, the
+  start counts as having had no effect only once the command's ``timeout_s``
+  has passed with the status still ``idle``, so a move to where the stage
+  already sits takes that long before it passes. The command is
   no device of its own, and neither is the command it names as
   ``stopped_by``.
 - **Triggerables** are commands a plan fires and waits for. There is one per
