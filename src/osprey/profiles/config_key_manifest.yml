@@ -2950,8 +2950,10 @@ keys:
       The build states data/facility/ariel/vocabulary.yml when the facility
       ships that file; a stated value is the profile's own file, and one that
       is not a file while the vocabulary is on is refused at build.
-      Config-relative, resolved against the project root of config.yml — the
-      same rule as `facility_knowledge.bundle_path` and the qmd mirror. Enabled
+      Config-relative: a path inside the render's facility tree, as the build
+      states it, is the render's copy beside config.yml; any other resolves
+      against the project root of config.yml — the same rule as
+      `facility_knowledge.bundle_path` and the qmd mirror. Enabled
       with no value here is a validate() error rather than a silent no-op, and
       a file that fails to load is stored as a keyed error, never swallowed.
       Listed in `osprey.facility.settings`.

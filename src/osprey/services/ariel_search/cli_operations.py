@@ -311,7 +311,7 @@ def check_vocabulary(
     """
     from osprey.services.ariel_search.config import VocabularyConfig
     from osprey.services.ariel_search.vocabulary import load_vocabulary
-    from osprey.utils.config_paths import resolve_config_relative_path
+    from osprey.utils.config_paths import resolve_facility_file_path
 
     block = config_dict.get("vocabulary")
     if not isinstance(block, dict):
@@ -336,7 +336,7 @@ def check_vocabulary(
         if not resolved.is_absolute():
             resolved = (Path.cwd() / resolved).resolve()
     elif vocabulary_config.path:
-        resolved = resolve_config_relative_path(vocabulary_config.path, config_dir)
+        resolved = resolve_facility_file_path(vocabulary_config.path, config_dir)
     else:
         return {
             "status": "error",

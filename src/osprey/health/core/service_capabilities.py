@@ -255,7 +255,8 @@ def _render_drift(files: list[Path], cwd: Path | None) -> int | None:
     """How many bundle files differ from the build manifest, or ``None`` when untracked.
 
     The manifest keys are relative to the render; the bundle is served from the
-    project root, where the same relative path names the file the build copied.
+    project root, so each file is looked up under the path the build copies it
+    to (:func:`_rendered_key`).
     """
     if cwd is None:
         return None
@@ -272,16 +273,30 @@ def _render_drift(files: list[Path], cwd: Path | None) -> int | None:
     differing = 0
     for path in files:
         try:
-            key = str(path.resolve().relative_to(project_root))
+            key = path.resolve().relative_to(project_root).as_posix()
         except ValueError:
             continue
-        expected = checksums.get(key)
+        expected = checksums.get(_rendered_key(key))
         if expected is None:
             continue
         tracked += 1
         if f"sha256:{sha256_file(path)}" != expected:
             differing += 1
     return differing if tracked else None
+
+
+def _rendered_key(key: str) -> str:
+    """The render's path for the file at *key* below the project root.
+
+    A file inside a source the build copies into the render is keyed where the
+    copy lands; any other path is keyed as it is.
+    """
+    from osprey.repo_layout import rendered_sources
+
+    for source in rendered_sources():
+        if key.startswith(f"{source.source_rel}/"):
+            return f"{source.render_rel}/{key[len(source.source_rel) + 1 :]}"
+    return key
 
 
 def _age(seconds: float) -> str:

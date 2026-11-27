@@ -21,7 +21,7 @@ import click
 from osprey.facility.views.benchmarks import BENCHMARK_DATASET_KEY, QUERY_SOURCES
 from osprey.repo_layout import display_path, entry, render_path
 from osprey.simulation import DEFAULT_SCENARIOS_KEY
-from osprey.utils.config_paths import resolve_config_relative_path
+from osprey.utils.config_paths import render_facility_relative, resolve_config_relative_path
 from osprey_connectors.simulation.servers import server_addresses
 from osprey_connectors.simulation.state import STILL_SCENARIO
 from osprey_connectors.types import LIVE_STANDIN, VIRTUAL_ACCELERATOR
@@ -455,17 +455,27 @@ def _check_vocabulary_path(inputs: _Inputs) -> None:
     enabled = inputs.stated(VOCABULARY_ENABLED_KEY)
     if stated is None or not (enabled is True or (enabled is None and inputs.vocabulary_shipped)):
         return
-    # Resolved as ARIEL resolves it from the host render's config.yml: a
-    # relative path anchors on the project root, an absolute one is itself.
-    if (
-        not isinstance(stated, str)
-        or not resolve_config_relative_path(stated, inputs.project_root / BUILD_DIR_NAME).is_file()
-    ):
+    if not isinstance(stated, str) or not _stated_vocabulary_is_a_file(inputs, stated):
         raise _refusal(
             VOCABULARY_PATH_KEY,
             f"`{stated}` is not a file",
             f"set `{VOCABULARY_PATH_KEY}` to a vocabulary file, or remove it",
         )
+
+
+def _stated_vocabulary_is_a_file(inputs: _Inputs, stated: str) -> bool:
+    """Whether the file ARIEL will read for a stated vocabulary path is there.
+
+    Judged as ARIEL resolves the path from the host render's ``config.yml``. A
+    relative path inside the render's facility tree names the render's copy of
+    a facility file, which this build writes from the tree, so the tree is
+    where it is looked for. Any other relative path anchors on the project
+    root, and an absolute one is itself.
+    """
+    in_tree = render_facility_relative(stated)
+    if in_tree is not None:
+        return any((root / in_tree).is_file() for root in (inputs.content_dir, inputs.facility_dir))
+    return resolve_config_relative_path(stated, inputs.project_root / BUILD_DIR_NAME).is_file()
 
 
 def _derive_vocabulary_path(inputs: _Inputs) -> Any:

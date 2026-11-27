@@ -15,7 +15,7 @@ from urllib.parse import urlsplit
 
 from osprey.ariel_attachment_view import attachment_view_enabled
 from osprey.port_layout import default_port
-from osprey.utils.config_paths import resolve_config_relative_path
+from osprey.utils.config_paths import resolve_facility_file_path
 from osprey.utils.seconds import positive_seconds
 
 from .attachments import DEFAULT_MAX_ATTACHMENT_MB
@@ -786,9 +786,9 @@ class VocabularyConfig:
         enabled: Whether a vocabulary is configured at all. With it false
             nothing is loaded and no query is expanded, even when ``path`` names
             a file that does not exist.
-        path: The ``vocabulary.yml`` to load. A relative value resolves against
-            the directory holding the config file the caller loaded (see
-            :func:`~osprey.utils.config_paths.resolve_config_relative_path`).
+        path: The ``vocabulary.yml`` to load. A relative value resolves from
+            the config file the caller loaded (see
+            :func:`~osprey.utils.config_paths.resolve_facility_file_path`).
         expand_by_default: Whether a request that names no ``expand_query``
             preference gets expansion. The per-request argument overrides it.
         canonical_to_acronym: Whether a canonical phrase also expands to the
@@ -1201,9 +1201,9 @@ class ARIELConfig:
                 ``ariel.database.uri`` unset, the DSN is derived from it — see
                 :func:`resolve_ariel_dsn`.
             config_dir: Directory holding the config.yml this dictionary came
-                from. A relative ``ariel.vocabulary.path`` resolves against the
-                project root derived from it, so every process reading the
-                same config finds the same file.
+                from. A relative ``ariel.vocabulary.path`` resolves from it
+                (:func:`~osprey.utils.config_paths.resolve_facility_file_path`),
+                so every process reading the same config finds the same file.
                 Keyword-only with a None default: callers that never name a
                 config-relative path are unaffected, and None falls back to the
                 shared helper's own rule.
@@ -1289,7 +1289,7 @@ class ARIELConfig:
         vocabulary_errors: list[str] = []
         vocabulary_warnings: list[str] = []
         if vocabulary.enabled and vocabulary.path:
-            resolved = resolve_config_relative_path(vocabulary.path, config_dir)
+            resolved = resolve_facility_file_path(vocabulary.path, config_dir)
             loaded_vocabulary, load_errors, vocabulary_warnings = load_vocabulary(
                 resolved,
                 canonical_to_acronym=vocabulary.canonical_to_acronym,

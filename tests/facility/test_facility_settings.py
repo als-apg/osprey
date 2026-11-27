@@ -267,6 +267,23 @@ def test_a_stated_vocabulary_path_that_is_not_a_file_is_refused(tmp_path: Path) 
     )
 
 
+def test_a_stated_path_to_the_renders_copy_is_judged_in_the_tree(tmp_path: Path) -> None:
+    """The path the build states is one a profile may state: the render's copy
+    of a file the tree ships, which no directory at the project root holds."""
+    facility_dir = _tree(tmp_path, vocabulary=True)
+    assert not (tmp_path / VOCABULARY_SOURCE).exists()
+
+    assert _fill(facility_dir, {VOCABULARY_PATH_KEY: VOCABULARY_SOURCE}) == {
+        VOCABULARY_ENABLED_KEY: True
+    }
+
+    absent = VOCABULARY_SOURCE.replace("vocabulary.yml", "absent.yml")
+    with pytest.raises(FacilityBuildError) as stop:
+        _fill(facility_dir, {VOCABULARY_PATH_KEY: absent})
+    assert stop.value.record_id == VOCABULARY_PATH_KEY
+    assert f"`{absent}` is not a file" in str(stop.value)
+
+
 def test_a_stated_vocabulary_path_that_is_not_a_string_is_refused(tmp_path: Path) -> None:
     profile = {VOCABULARY_PATH_KEY: 7}
 
