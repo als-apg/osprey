@@ -15,6 +15,7 @@ from typing import Any
 import pytest
 import yaml
 
+from osprey.repo_layout import watchdogs_source_dir
 from osprey.services.watchdog.definitions import load_profile_watchdogs, load_watchdogs
 from osprey_connectors.errors import BuildProfileError
 
@@ -34,12 +35,18 @@ def _agent(**keys: Any) -> dict[str, Any]:
     return {"engine": "agent", "tools": ["mcp__controls__channel_read"], **keys}
 
 
-def _files(base: Path, *names: str) -> Path:
+def _files(base: Path, *names: str, watchdogs_dir: Path | None = None) -> Path:
+    """Write each watchdog's instructions under *watchdogs_dir*, the render's by default."""
     for name in names:
-        directory = base / "watchdogs" / name
+        directory = (watchdogs_dir or base / "watchdogs") / name
         directory.mkdir(parents=True)
         (directory / "instructions.md").write_text(f"Judge as {name}.\n", encoding="utf-8")
     return base
+
+
+def _source_files(base: Path, *names: str) -> Path:
+    """Write each watchdog's instructions where a profile's sources hold them."""
+    return _files(base, *names, watchdogs_dir=watchdogs_source_dir(base))
 
 
 def _rendered() -> dict[str, Any]:
@@ -196,7 +203,7 @@ def test_a_broken_rendered_block_is_refused_not_skipped(block: Any, tmp_path: Pa
 
 
 def test_a_profile_loads_every_watchdog_enabled_or_not(tmp_path: Path) -> None:
-    _files(tmp_path, "off", "unstated", "on", "agent-off")
+    _source_files(tmp_path, "off", "unstated", "on", "agent-off")
     _profile(
         tmp_path,
         {
@@ -216,7 +223,7 @@ def test_a_profile_loads_every_watchdog_enabled_or_not(tmp_path: Path) -> None:
 
 def test_disabled_watchdogs_load_only_from_the_profile(tmp_path: Path) -> None:
     block = {"off": _decision(enabled=False)}
-    _files(tmp_path, "off")
+    _source_files(tmp_path, "off")
     _profile(tmp_path, block)
 
     assert load_watchdogs({"watchdogs": block}, tmp_path) == ()
@@ -225,7 +232,7 @@ def test_disabled_watchdogs_load_only_from_the_profile(tmp_path: Path) -> None:
 
 def test_a_profile_is_read_for_its_block_alone(tmp_path: Path) -> None:
     """Replay comes before enabling, so nothing else about the build is demanded."""
-    _files(tmp_path, "on")
+    _source_files(tmp_path, "on")
     _profile(tmp_path, {"on": _decision(enabled=True)})
 
     assert [d.name for d in load_profile_watchdogs(tmp_path)] == ["on"]
@@ -253,7 +260,7 @@ def test_a_missing_profile_is_refused(tmp_path: Path) -> None:
 def test_a_profile_watchdog_naming_the_image_tool_is_refused(tmp_path: Path) -> None:
     """A judge reads text only, so naming the knowledge server's image tool is an error."""
     _profile(
-        _files(tmp_path, "viewer"),
+        _source_files(tmp_path, "viewer"),
         {"viewer": _agent(tools=["mcp__osprey_facility_knowledge__view_asset"])},
     )
 
@@ -272,7 +279,7 @@ def test_a_profile_watchdog_naming_the_whole_knowledge_server_loads(
     tmp_path: Path, entry: str
 ) -> None:
     """The run refuses the image tool under these entries; the definition itself is fine."""
-    _profile(_files(tmp_path, "reader"), {"reader": _agent(tools=[entry])})
+    _profile(_source_files(tmp_path, "reader"), {"reader": _agent(tools=[entry])})
 
     [definition] = load_profile_watchdogs(tmp_path)
     assert definition.tools == (entry,)

@@ -38,6 +38,7 @@ import click
 import yaml
 
 from osprey.port_layout import PORT_BASE_CONFIG_KEY
+from osprey.repo_layout import entry
 from osprey_connectors.errors import BuildProfileError
 from osprey_connectors.logger import get_logger
 from osprey_connectors.safety_file import atomic_replace
@@ -556,7 +557,7 @@ def resolve_build_document(
 
     Raises:
         BuildProfileError: For mutual-exclusion violations, missing files,
-        invalid YAML, a ``data:`` tree in preset mode, or validation failures.
+        invalid YAML, or validation failures.
     """
     if profile_path is not None and preset is not None:
         raise BuildProfileError("Pass either a profile path or --preset, not both.")
@@ -595,18 +596,6 @@ def resolve_build_document(
             excluded_artifacts=frozenset(),
             inherited_preset=preset,
         )
-
-        # Checked after extends resolution so no injection path escapes: the
-        # preset itself, a --set pair, or an extends parent. A preset
-        # has no profile directory to anchor a data tree against (profile_dir is
-        # the bundled package dir), so carrying one is always a mistake.
-        if raw.get("data") is not None:
-            raise BuildProfileError(
-                f"Profile key 'data' is not supported with --preset (got {raw['data']!r}). "
-                f"A preset carries no profile directory to resolve the data tree against. "
-                f"Materialize the preset first — 'osprey init DIR --preset {preset}' — "
-                f"then build from that directory."
-            )
     else:
         assert profile_path is not None  # narrows for type-checkers
         if not profile_path.exists():
@@ -703,7 +692,7 @@ def preset_authored_config(preset: str) -> dict[str, Any]:
 #: :mod:`~osprey.cli.deploy_scaffold_templates`, which renders the name into the
 #: CI pipeline; :data:`osprey.cli.repo_resolver.PROFILE_FILENAME` is the same
 #: name in its role as the discovery marker.
-PROFILE_FILENAME = "profile.yml"
+PROFILE_FILENAME = entry("profile.yml").path
 
 
 def write_back_cli_overrides(

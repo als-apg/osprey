@@ -305,13 +305,10 @@ class TestBuildPhases:
             # The default record: every build renders agent-record from it.
             agent_record = AgentRecordConfig()
 
-            def resolved_data_root(self, profile_dir: Path) -> Path:
-                return profile_dir / "data"
-
             def resolved_facility_roots(self, profile_dir: Path) -> FacilityRoots:
-                # No `machine:`: one facility tree under `data:`, as
+                # No `machine:`: one facility tree beside the profile, as
                 # BuildProfile resolves it.
-                return FacilityRoots.single(self.resolved_data_root(profile_dir) / "facility")
+                return FacilityRoots.single(profile_dir / "facility")
 
         class _Resolved:
             profile = _Profile()

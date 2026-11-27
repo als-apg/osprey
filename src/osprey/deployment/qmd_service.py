@@ -19,7 +19,7 @@ Config shape, as it appears in a project's ``config.yml``::
             index: prebuilt
             index_dir: /srv/qmd/papers-index
           - name: ascc
-            source: ./data/ascc
+            source: ./corpora/ascc
             embed: false                     # keyword index only
 
 One sidecar per corpus

@@ -325,11 +325,10 @@ def _deployment(
     same login and names it nowhere.
     """
     repo = tmp_path / "repo"
-    (repo / "data").mkdir(parents=True, exist_ok=True)
     root_config = dict(root)
     if layer_dir == "shared":
         root_config["modules.web_terminals.shared"] = ["logbook"]
-    root_doc: dict[str, Any] = {"name": "Facility", "data": "data", "config": root_config}
+    root_doc: dict[str, Any] = {"name": "Facility", "config": root_config}
     if base is not None:
         _write_yaml(repo / "base.yml", {"name": "Base", "config": dict(base)})
         root_doc = {"extends": "base.yml", **root_doc}

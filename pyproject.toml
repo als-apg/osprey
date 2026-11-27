@@ -237,11 +237,12 @@ dependencies = [
     # names only a stable connectors release already on PyPI.
     "osprey-connectors>=2026.11.16",
     # The facility description (facility.json, its schema, the layers that build
-    # it). Versions on its own osprey-facility-v* tags (see its pyproject.toml)
-    # and stays backward-compatible, so a floor and no ceiling, as for
-    # osprey-connectors: the floor names a stable release already on PyPI whose
-    # tag is reachable from main.
-    "osprey-facility>=2026.11.0",
+    # it). Versions on its own osprey-facility-v* tags (see its pyproject.toml).
+    # A floor names a stable release already on PyPI whose tag is reachable
+    # from main, as for osprey-connectors. No floor while the framework reads
+    # facility modules no such release carries: the floor returns with the
+    # next osprey-facility release.
+    "osprey-facility",
     # pyAML control-system backend over the connector; versions with this repo's
     # own calendar stream (same v-tags, same describe), so the floor is the last
     # stable framework release tag, which any same-checkout build satisfies.
@@ -1317,6 +1318,7 @@ name = "The framework reaches the facility description only through its public m
 #   `osprey_facility.records` | framework job: `osprey.apps.sdk`, `osprey.channel_roster`, `osprey.cli`, `osprey.facility.settings`, `osprey.facility.views`, `osprey.interfaces`, `osprey.mcp_server`, `osprey.runtime`, `osprey.services.ariel_search`
 #   `osprey_facility.references` | framework job: `osprey.interfaces.ariel`, `osprey.interfaces.okf_panel`, `osprey.mcp_server.ariel`, `osprey.services.ariel_search`
 #   `osprey_facility.relations` | framework job: `osprey.cli.facility_cmd`, `osprey.facility.views`
+#   `osprey_facility.retired` | framework job: `osprey.cli`, `osprey.repo_retired`
 #   `osprey_facility.render` | framework job: `osprey.apps.sdk`, `osprey.cli.build_cmd`, `osprey.cli.facility_cmd`, `osprey.facility.views`
 #   `osprey_facility.roots` | framework job: `osprey.cli`, `osprey.facility.bundled`
 #   `osprey_facility.scenarios` | framework job: `osprey.facility.views`, `osprey.simulation.apply`
@@ -1324,6 +1326,7 @@ name = "The framework reaches the facility description only through its public m
 #   `osprey_facility.served` | framework job: `osprey.cli`, `osprey.facility.settings`, `osprey.facility.views`
 #   `osprey_facility.sessions` | framework job: `osprey.agent_runner`, `osprey.interfaces.web_terminal`, `osprey.registry`, `osprey.simulation`
 #   `osprey_facility.simulated` | framework job: `osprey.facility.views`
+#   `osprey_facility.source_tree` | framework job: `osprey.cli`, `osprey.facility`, `osprey.mcp_server.python_executor`, `osprey.registry`, `osprey.simulation`
 #   `osprey_facility.sources` | framework job: `osprey.facility.views`
 #   `osprey_facility.start` | framework job: `osprey.facility.settings`
 #   `osprey_facility.validate` | framework job: `osprey.cli`, `osprey.facility.views`, `osprey.mcp_server.channel_finder_graph`, `osprey.registry`

@@ -773,7 +773,6 @@ class ConfigKeyGuard:
                 yaml.safe_dump(
                     {
                         "extends": host,
-                        "data": "data",
                         "config": {"modules.web_terminals.shared": shared},
                     }
                 )

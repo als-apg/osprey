@@ -1,7 +1,7 @@
 """Core of ``osprey scaffold pull`` — copying a preset's packaged content out.
 
 A deployment starts from a preset's packaged content — the app template's
-``data/`` and the facility the preset names, landing under ``data/facility/`` —
+``web/`` and the facility the preset names, landing under ``facility/`` —
 and all of it is a starting point rather than a fixture: a facility replaces the
 example knowledge base with its own, keeps the channel-database examples as a
 shape reference, and adds to the web-terminal context. ``scaffold pull`` is how
@@ -20,6 +20,9 @@ import shutil
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Literal
+
+from osprey import repo_layout
+from osprey_facility import source_tree
 
 from .templates.preset_data import PresetData
 
@@ -46,13 +49,10 @@ def list_pullable_paths(source: PresetData, subtree: str | None = None) -> list[
 
     The listing excludes what a pull could never usefully produce: the
     root-level build machinery (:data:`_ROOT_ONLY_EXCLUDED_NAMES` and the
-    ``.j2`` sources), bytecode caches at any depth, and — inside ``data/`` — whatever the packaged-data copy
-    already drops, read from
-    :func:`~.profile_cmd._data_copy_ignore` rather than restated here so the
-    two can never disagree about what a wheel actually ships.
+    ``.j2`` sources) and bytecode caches at any depth.
 
     Directories come first because they are what an operator usually wants to
-    name: pulling ``data/facility/knowledge/`` is the common case, and pulling a
+    name: pulling ``facility/knowledge/`` is the common case, and pulling a
     single file the exception. Both groups are sorted, so the order is stable
     across releases and machines.
 
@@ -76,11 +76,7 @@ def list_pullable_paths(source: PresetData, subtree: str | None = None) -> list[
             message lists the template's top-level entries, which is what a
             caller needs to correct the path.
     """
-    from .profile_cmd import _data_copy_ignore
-
     app_root = source.app_root
-    data_root = source.app_data
-    data_ignore = _data_copy_ignore(data_root)
 
     directories: list[str] = []
     files: list[str] = []
@@ -88,11 +84,8 @@ def list_pullable_paths(source: PresetData, subtree: str | None = None) -> list[
     def visit(directory: Path) -> None:
         names = sorted(entry.name for entry in directory.iterdir())
         at_root = directory == app_root
-        ignored: set[str] = set()
-        if directory == data_root or data_root in directory.parents:
-            ignored = data_ignore(str(directory), names)
         for name in names:
-            if name in ignored or name == _BYTECODE_CACHE:
+            if name == _BYTECODE_CACHE:
                 continue
             path = directory / name
             if at_root and not path.is_dir() and _is_root_machinery(name):
@@ -108,12 +101,10 @@ def list_pullable_paths(source: PresetData, subtree: str | None = None) -> list[
     # The facility and the files the template takes from another one, listed
     # where they land.
     for relative in source.placed_files():
-        files.append(f"data/{relative}")
+        files.append(relative)
         for parent in PurePosixPath(relative).parents:
-            if parent.name and f"data/{parent.as_posix()}/" not in directories:
-                directories.append(f"data/{parent.as_posix()}/")
-    if any(entry.startswith("data/") for entry in files) and "data/" not in directories:
-        directories.append("data/")
+            if parent.name and f"{parent.as_posix()}/" not in directories:
+                directories.append(f"{parent.as_posix()}/")
     directories.sort()
     files.sort()
 
@@ -154,7 +145,7 @@ PullActionKind = Literal["written", "updated", "unchanged", "refused", "skipped"
 #: documents are demo content a facility replaces, while the ``index.md`` files
 #: are the structure it keeps, so a plain pull produces a skeleton and
 #: ``--with-content`` produces the worked example.
-_KNOWLEDGE_ROOT = "data/facility/knowledge"
+_KNOWLEDGE_ROOT = repo_layout.display_path("facility", source_tree.path("knowledge"))
 _KNOWLEDGE_INDEX_NAME = "index.md"
 
 
@@ -194,7 +185,7 @@ def plan_pull(
 
     The rules, keyed on each file's template-relative path:
 
-    1. Under ``data/facility/knowledge/``, anything not named ``index.md`` is
+    1. Under ``facility/knowledge/``, anything not named ``index.md`` is
        ``skipped`` unless ``with_content``, leaving the structure without the
        demo documents. A request that resolves to exactly one such file is
        ``refused`` instead, because skipping it would do nothing at all.
@@ -229,7 +220,12 @@ def plan_pull(
         ValueError: If ``rel_path`` names nothing pullable in this template,
             propagated from :func:`list_pullable_paths` with its list of
             top-level entries.
+        RetiredRootRefused: If the deployment holds anything at a retired
+            root path, whatever ``rel_path`` names.
+        RetiredLayoutRefused: If the deployment's facility tree holds a source
+            at a retired path, whatever ``rel_path`` names.
     """
+    refuse_retired_layouts(repo_root)
     candidates = [
         entry for entry in list_pullable_paths(source, rel_path) if not entry.endswith("/")
     ]
@@ -237,7 +233,7 @@ def plan_pull(
     # no-op for the entire command, so it is reported as a refusal instead.
     only_one = len(candidates) == 1
 
-    placed = {f"data/{relative}": path for relative, path in source.placed_files().items()}
+    placed = source.placed_files()
     actions: list[PullAction] = []
     for relative in candidates:
         origin = placed.get(relative, source.app_root / relative)
@@ -323,6 +319,33 @@ def _target_refusal(repo_root: Path, target: Path) -> str | None:
     if target.is_dir():
         return "a directory already stands where this file would go"
     return None
+
+
+def refuse_retired_layouts(repo_root: Path) -> None:
+    """Stop when the deployment, or its facility tree, holds anything at a retired path.
+
+    The root is checked first, before the profile is read. The facility roots
+    are then the ones the build reads, resolved from the profile; a profile
+    that does not resolve leaves the tree a pull writes into,
+    ``facility/``, as the one checked.
+
+    Raises:
+        RetiredRootRefused: If the repo holds something at a retired root path.
+        RetiredLayoutRefused: If a checked facility root holds a source at a
+            retired path.
+    """
+    from osprey.repo_retired import refuse_retired_layout
+    from osprey_connectors.errors import BuildProfileError
+    from osprey_facility.errors import FacilityBuildError
+    from osprey_facility.retired import refuse_retired
+
+    from .facility_cmd import _facility_roots, _main_profile
+
+    refuse_retired_layout(repo_root)
+    try:
+        _facility_roots(_main_profile(repo_root)[0], repo_root)
+    except (BuildProfileError, FacilityBuildError, OSError, ValueError, RuntimeError):
+        refuse_retired(repo_root / repo_layout.entry("facility").path, repo=repo_root)
 
 
 # ---------------------------------------------------------------------------

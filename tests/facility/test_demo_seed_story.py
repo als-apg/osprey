@@ -29,7 +29,7 @@ ARCHIVE_CADENCES_S = (10.0, 60.0)
 def seeds() -> dict[str, dict[str, Any]]:
     """The committed seeds, keyed by address."""
     document: dict[str, dict[str, Any]] = read_yaml(
-        (TREE / "seeds.yaml").read_text(encoding="utf-8")
+        (TREE / "simulation" / "seeds.yaml").read_text(encoding="utf-8")
     )
     return document
 

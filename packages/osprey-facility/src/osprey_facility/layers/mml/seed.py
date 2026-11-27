@@ -6,7 +6,7 @@ that does not exist yet, opening it with the facility import's header
 (:data:`osprey_facility.layers.HEADER`). A file that exists is never rewritten,
 whoever wrote it.
 
-What :func:`seed_once` writes, relative to ``data/facility/``:
+What :func:`seed_once` writes, relative to ``facility/``:
 
 * ``limits.yaml``: one record per setpoint whose field states a ``Range``,
   holding the band as stated (:func:`band`). A setpoint a model wires carries
@@ -16,20 +16,20 @@ What :func:`seed_once` writes, relative to ``data/facility/``:
   whose ``Range`` lacks a finite edge carries ``writable: false`` beside
   whichever edge is stated, and the import names it: the channel is refused
   until a person bands it.
-* ``seeds.yaml``: the nominal the export states for each channel no model
+* ``simulation/seeds.yaml``: the nominal the export states for each channel no model
   wires. A wired channel starts from its deck, so its nominal is not written
   and the import says how many it skipped.
-* ``measurement/<model>.yaml``: for each model that carries wiring, the groups
+* ``simulation/measurement/<model>.yaml``: for each model that carries wiring, the groups
   and instruments its wiring names, every measurement kind they allow
   (:func:`osprey_facility.kinds.builtin_kinds`) and pyAML's step and
   settle keys (:data:`TUNING`). ``quad`` and ``sext`` list the families the
   export tags as tune and chromaticity correctors; the import names the
   wired families each leaves out, and a role it does not write.
-* ``classes.yaml``: one row per class of the mapping the vocabulary lacks,
+* ``vocabulary/classes.yaml``: one row per class of the mapping the vocabulary lacks,
   each declared branch ahead of the classes that extend it.
 * ``identity.yaml``: the mapping's ``facility:`` block, which is then removed
   from ``mapping.yaml``; every other line of the mapping stays as written.
-* ``scenarios/readout.yaml``: the readout the export states for each device's
+* ``simulation/scenarios/readout.yaml``: the readout the export states for each device's
   ``Monitor`` reading, as a scenario a deployer applies by choice (:func:`_readout`).
   A value at its identity (gain 1, offset 0, roll 0, crunch 0, polarity 1) is
   not written. An offset the family's ``monitor_inverse`` is seen to hold is
@@ -52,11 +52,11 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from osprey_facility import source_tree
 from osprey_facility.errors import ImportStop
 from osprey_facility.layers import HEADER
 from osprey_facility.layers.mml.decks import FREQUENCY, KICK
 from osprey_facility.layers.mml.mapping import (
-    LAYER_DIR,
     MAPPING_FILE,
     MONITOR_FIELD,
     PHYSICS_UNITS,
@@ -86,14 +86,15 @@ __all__ = [
     "seed_once",
 ]
 
-LIMITS_FILE = "limits.yaml"
-READOUT_FILE = "scenarios/readout.yaml"
-SEEDS_FILE = "seeds.yaml"
-CLASSES_FILE = "classes.yaml"
-IDENTITY_FILE = "identity.yaml"
+#: The files the import seeds once, each where its slot is authored.
+LIMITS_FILE = source_tree.path("limits")
+READOUT_FILE = source_tree.keyed_file("scenarios", "readout")
+SEEDS_FILE = source_tree.path("seeds")
+CLASSES_FILE = source_tree.path("classes")
+IDENTITY_FILE = source_tree.path("identity")
 
 #: The directory of the per-model measurement files.
-MEASUREMENT_DIR = "measurement"
+MEASUREMENT_DIR = source_tree.path("measurement")
 
 #: pyAML's step and settle keys: counts, the fit order, sleeps in s, and the
 #: corrector (rad), quadrupole (1/m), sextupole (1/m**2) and RF (Hz) steps.
@@ -188,15 +189,15 @@ def seed_once(
     Args:
         exports: What the import read.
         mapping: The layer's mapping, every slot decided.
-        facility_dir: The ``data/facility`` directory.
+        facility_dir: The ``facility`` directory.
         views: The judged families that carry channel records, in the order
             the importer wrote their channels.
 
     Returns:
         The files written and the lines to print.
     """
-    models = _load(facility_dir / LAYER_DIR / "models.yaml") or []
-    group_of = _group_of(_load(facility_dir / LAYER_DIR / "groups.yaml") or [])
+    models = _load(facility_dir / source_tree.layer_entry("mml", "models")) or []
+    group_of = _group_of(_load(facility_dir / source_tree.layer_entry("mml", "groups")) or [])
     wired = {str(record["address"]) for model in models for record in model.get("wiring") or ()}
     claims = _claims(views, mapping)
     seeded = Seeded()
@@ -228,7 +229,7 @@ def seed_once(
         carried.setdefault(view.system, set()).add(view.raw_name)
     for entry in models:
         model = by_name.get(str(entry.get("name")))
-        path = facility_dir / MEASUREMENT_DIR / f"{entry.get('name')}.yaml"
+        path = facility_dir / source_tree.keyed_file("measurement", str(entry.get("name")))
         if model is None or not entry.get("wiring") or path.exists():
             continue
         document, lines = _measurement(

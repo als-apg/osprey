@@ -39,7 +39,9 @@ from pathlib import Path
 from typing import Any
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-SCENARIO = REPO_ROOT / "src/osprey/templates/facilities/example/scenarios/demo-history.yaml"
+SCENARIO = (
+    REPO_ROOT / "src/osprey/templates/facilities/example/simulation/scenarios/demo-history.yaml"
+)
 #: The session authored: three turns, two reads and an approved write, so the
 #: transcript carries the approval hook's attachment line too.
 SESSION_SLUG = "sector-3-corrector-nudge"

@@ -61,7 +61,7 @@ def without_policy(
 ) -> tuple[dict[str, Any], list[Any]]:
     facility = tmp_path_factory.mktemp("no-policy") / "facility"
     shutil.copytree(EXAMPLE, facility)
-    (facility / "policy.yaml").unlink()
+    (facility / "provenance" / "policy.yaml").unlink()
     return _build(facility)
 
 
@@ -75,10 +75,10 @@ def _device(document: dict[str, Any], device_id: str) -> dict[str, Any]:
 
 
 def test_the_example_ships_appendix_a_with_its_policy() -> None:
-    assert (EXAMPLE / "documents.yaml").is_file()
+    assert (EXAMPLE / "provenance" / "documents.yaml").is_file()
     assert (EXAMPLE / "records" / "relations.yaml").is_file()
     assert not (EXAMPLE / "imported").exists()
-    text = (EXAMPLE / "policy.yaml").read_text(encoding="utf-8")
+    text = (EXAMPLE / "provenance" / "policy.yaml").read_text(encoding="utf-8")
     assert text.splitlines()[0] == BUNDLED_HEADER
     assert yaml.safe_load(text) == POLICY
 
@@ -131,10 +131,10 @@ def test_without_the_policy_the_rack_claims_are_contested(
 
 def test_a_fresh_init_stays_wholly_bundled(tmp_path: Path) -> None:
     project = init_project(tmp_path, "demo", "demo")
-    facility = project / "data" / "facility"
-    assert (facility / "documents.yaml").is_file()
+    facility = project / "facility"
+    assert (facility / "provenance" / "documents.yaml").is_file()
     assert (facility / "records" / "relations.yaml").is_file()
-    assert (facility / "policy.yaml").is_file()
+    assert (facility / "provenance" / "policy.yaml").is_file()
     kinds = classify(facility, TEMPLATE_ROOT)
     assert kinds.wholly_bundled
     assert kinds.name == "example"

@@ -1,8 +1,8 @@
 """The mml layer's importer writing record sources under ``imported/mml/``.
 
 Each case copies a fixture tree's mapping to
-``data/facility/imported/mml/mapping.yaml`` and imports the tree's exports
-into a fresh ``data/facility/``. The cases that only read a clean import of a
+``facility/imported/mml/mapping.yaml`` and imports the tree's exports
+into a fresh ``facility/``. The cases that only read a clean import of a
 whole tree share the run's one import of it (``mml_imported``), and the parse
 of its records.
 """
@@ -45,11 +45,11 @@ TREES: dict[str, tuple[str, ...]] = {
 
 #: The authored files the spear3 import seeds beside the layer's records.
 SEEDED = (
-    "classes.yaml",
+    "vocabulary/classes.yaml",
     "identity.yaml",
     "limits.yaml",
-    "measurement/StorageRing.yaml",
-    "seeds.yaml",
+    "simulation/measurement/StorageRing.yaml",
+    "simulation/seeds.yaml",
 )
 
 _LTB_TWISS = {
@@ -61,7 +61,7 @@ _LTB_TWISS = {
 
 
 def _facility(tmp_path: Path, tree: str) -> Path:
-    facility = tmp_path / "data" / "facility"
+    facility = tmp_path / "facility"
     target = facility / MAPPING_FILE
     target.parent.mkdir(parents=True)
     shutil.copyfile(FIXTURES / tree / MAPPING_FILE, target)
@@ -642,7 +642,7 @@ def test_a_channel_is_described_by_its_device_and_its_field_sentence(
 
 
 def test_a_readback_several_setpoints_share_pairs_none_of_them(tmp_path: Path) -> None:
-    facility = tmp_path / "data" / "facility"
+    facility = tmp_path / "facility"
     (facility / MAPPING_FILE).parent.mkdir(parents=True)
     shutil.copyfile(FIXTURES / "paired" / MAPPING_FILE, facility / MAPPING_FILE)
     import_mml([FIXTURES / "paired" / "quokka.ring.ao.json"], facility)

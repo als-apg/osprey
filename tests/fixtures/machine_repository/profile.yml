@@ -4,11 +4,10 @@
 # archive, with no agent services: building and serving it needs no provider
 # key. It is an ordinary profile, not a materialized one, so `osprey validate`
 # checks it as written. The start set is not stated here: the scenarios marked
-# `start: true` in data/facility/scenarios/ are the machine's start set.
+# `start: true` in data/facility/simulation/scenarios/ are the machine's start set.
 extends: hello-world
 name: Example Machine
 project_name: example-machine
-data: data
 
 virtual_accelerator:
   port: 5064

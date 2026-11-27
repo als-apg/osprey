@@ -18,7 +18,7 @@ from osprey_connectors.simulation.state import read_active_state, resolve_active
 from osprey_connectors.simulation.view import VIEW_RELPATH, SimulatorView
 from tests.va.e2e import conftest as e2e_conftest
 
-SHIPPED_NOMINAL = e2e_conftest.PRESET_FACILITY_DIR / "scenarios" / "nominal.yaml"
+SHIPPED_NOMINAL = e2e_conftest.PRESET_FACILITY_DIR / "simulation" / "scenarios" / "nominal.yaml"
 
 
 @pytest.fixture(scope="module")

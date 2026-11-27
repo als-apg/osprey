@@ -153,7 +153,7 @@ def test_every_bundled_preset_renders_its_pinned_hook_files(preset: str, tmp_pat
     """An equality check over the render, so a hook file only moves on purpose."""
     from osprey.cli.build_profile_presets import _nearest_preset_value
     from osprey.cli.templates.manager import TemplateManager
-    from tests._preset_data import bundle_data_root
+    from tests._preset_data import bundle_source_root
 
     artifact_keys = ("hooks", "rules", "skills", "agents", "output_styles", "web_panels")
     document = _resolved_document(preset)
@@ -168,7 +168,7 @@ def test_every_bundled_preset_renders_its_pinned_hook_files(preset: str, tmp_pat
         data_bundle=bundle,
         context={"channel_finder_mode": "hierarchical"},
         artifacts=artifacts,
-        data_root=bundle_data_root(bundle),
+        repo_root=bundle_source_root(bundle),
     )
 
     hooks_dir = project / ".claude" / "hooks"
@@ -191,7 +191,7 @@ def _render(tmp_path: Path, preset: str, drop: tuple[str, ...] = ()) -> Path:
     from osprey.cli.build_profile_presets import _nearest_preset_value
     from osprey.cli.templates.manager import TemplateManager
     from osprey.cli.templates.manifest import load_template_manifest
-    from tests._preset_data import bundle_data_root
+    from tests._preset_data import bundle_source_root
 
     bundle = _nearest_preset_value(preset, "app_template")
     selection = load_template_manifest(preset)
@@ -203,7 +203,7 @@ def _render(tmp_path: Path, preset: str, drop: tuple[str, ...] = ()) -> Path:
         data_bundle=bundle,
         context={"channel_finder_mode": "hierarchical"},
         artifacts=artifacts,
-        data_root=bundle_data_root(bundle),
+        repo_root=bundle_source_root(bundle),
     )
 
 

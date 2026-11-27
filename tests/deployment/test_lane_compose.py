@@ -820,12 +820,10 @@ def test_each_lane_mounts_its_own_curve_certificate_directory(two_lane: dict[str
         )
     }
     assert mounts == {
-        "bluesky-bridge": ["./data/.runtime/bluesky_curve/bridge:/app/curve:ro"],
-        "queueserver": ["./data/.runtime/bluesky_curve/queueserver:/app/curve:ro"],
-        "bluesky-live-bridge": ["./data/.runtime/bluesky_live_curve/bridge:/app/curve:ro"],
-        "bluesky-live-queueserver": [
-            "./data/.runtime/bluesky_live_curve/queueserver:/app/curve:ro"
-        ],
+        "bluesky-bridge": ["./var/runtime/bluesky_curve/bridge:/app/curve:ro"],
+        "queueserver": ["./var/runtime/bluesky_curve/queueserver:/app/curve:ro"],
+        "bluesky-live-bridge": ["./var/runtime/bluesky_live_curve/bridge:/app/curve:ro"],
+        "bluesky-live-queueserver": ["./var/runtime/bluesky_live_curve/queueserver:/app/curve:ro"],
     }
 
 
@@ -1310,12 +1308,11 @@ def test_each_lane_gets_its_own_curve_certificate_set(env_path: Path) -> None:
     one = _bluesky_curve_paths(env_path.parent, "bluesky")
     two = _bluesky_curve_paths(env_path.parent, "bluesky_live")
     assert (
-        one["bridge"].relative_to(env_path.parent).as_posix()
-        == "data/.runtime/bluesky_curve/bridge"
+        one["bridge"].relative_to(env_path.parent).as_posix() == "var/runtime/bluesky_curve/bridge"
     )
     assert (
         two["bridge"].relative_to(env_path.parent).as_posix()
-        == "data/.runtime/bluesky_live_curve/bridge"
+        == "var/runtime/bluesky_live_curve/bridge"
     )
     for role in ("proxy_secret", "publisher_secret", "proxy_public", "publisher_public"):
         assert one[role].is_file() and two[role].is_file(), role
@@ -1330,9 +1327,9 @@ def test_a_single_lane_deploy_provisions_only_the_historical_directory(
 
     _ensure_bluesky_document_plane_certs(ONE_LANE_CONFIG, env_path=env_path)
 
-    assert (env_path.parent / "data" / ".runtime" / "bluesky_curve").is_dir()
-    assert not (env_path.parent / "data" / ".runtime" / "bluesky_live_curve").exists()
-    assert not (env_path.parent / "data" / ".runtime" / "bluesky_va_curve").exists()
+    assert (env_path.parent / "var" / "runtime" / "bluesky_curve").is_dir()
+    assert not (env_path.parent / "var" / "runtime" / "bluesky_live_curve").exists()
+    assert not (env_path.parent / "var" / "runtime" / "bluesky_va_curve").exists()
 
 
 def test_each_lane_gets_its_own_control_socket_keypair(env_path: Path) -> None:

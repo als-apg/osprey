@@ -59,7 +59,7 @@ screen anywhere in a ring stops the circulating beam.
 
 A BPM's positions carry no gate, and no storage ring channel does: the SR01C
 screen and the paddle count sit in BTS. This module writes every ``gate`` key
-of ``seeds.yaml``; the runtime reads the inputs as written and does no ordering.
+of ``simulation/seeds.yaml``; the runtime reads the inputs as written and does no ordering.
 """
 
 from __future__ import annotations
@@ -75,6 +75,7 @@ import _transfer
 import _tree
 
 from osprey_connectors.simulation.values import is_waveform
+from osprey_facility import source_tree
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "demo_seeds"))
 
@@ -823,7 +824,7 @@ _GATE_KEY = "gate"
 def _merge_seeds(
     path: Path, entries: dict[str, dict[str, Any]], gate_seeds: dict[str, dict[str, Any]]
 ) -> None:
-    """Set the owned keys in ``seeds.yaml``, written as ``reseed`` writes it.
+    """Set the owned keys in ``simulation/seeds.yaml``, written as ``reseed`` writes it.
 
     Each of ``entries`` gets its ``_SEED_KEYS`` replaced; every entry outside the
     storage ring loses its ``gate`` and the addresses of ``gate_seeds`` get theirs. The
@@ -863,7 +864,7 @@ def write_sources(tree: Path) -> None:
     The septa's, the booster's, the stand-ins' and the transfer lines' places,
     devices, channels and groups go into ``records/``, the places and groups
     with the hand-authored text of ``PLACE_TEXT`` and ``GROUP_TEXT``, and their
-    seed keys and the gate chain into ``seeds.yaml``; every other record keeps
+    seed keys and the gate chain into ``simulation/seeds.yaml``; every other record keeps
     its text.
     """
     records = tree / "records"
@@ -877,7 +878,7 @@ def write_sources(tree: Path) -> None:
     for name, emitted in emitters:
         _tree.merge(records / f"{name}.yaml", emitted, "id", ordered=True)
     _merge_seeds(
-        tree / "seeds.yaml",
+        tree / source_tree.path("seeds"),
         {**seeds(), **booster_seeds(), **_standin.seeds(), **_transfer.seeds()},
         gates(tree),
     )

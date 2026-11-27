@@ -54,11 +54,36 @@ def canopy_installed() -> bool:
     return importlib.util.find_spec(CANOPY_PACKAGE) is not None
 
 
-def _run(module: str, *args: str) -> int:
-    """Run ``python -I -m <module> <args>`` under this interpreter; its exit status."""
+def check_environment() -> dict[str, str]:
+    """The environment each check runs CANOPY in."""
+    return {**os.environ, IGNORED_NAMES_ENV: " ".join(DEPLOYMENT_IGNORED_NAMES)}
+
+
+def _command(module: str, *args: str) -> list[str]:
+    """``python -I -m <module> <args>`` under this interpreter."""
+    return [sys.executable, "-I", "-m", module, *args]
+
+
+def library_command() -> list[str]:
+    """What the library check runs, from the deployment directory."""
+    library = LIBRARY_SUBPATH.as_posix()
+    return _command(f"{CANOPY_PACKAGE}.report", library, "--served-at", "library", "--check")
+
+
+def collections_command() -> list[str]:
+    """What the collections check runs, from the deployment directory."""
+    return _command(
+        f"{CANOPY_PACKAGE}.collections_cli",
+        FACILITY_COLLECTIONS_SUBPATH.as_posix(),
+        "--library",
+        LIBRARY_SUBPATH.as_posix(),
+    )
+
+
+def _run(command: Sequence[str]) -> int:
+    """Run *command* in :func:`check_environment`; its exit status."""
     sys.stdout.flush()
-    env = {**os.environ, IGNORED_NAMES_ENV: " ".join(DEPLOYMENT_IGNORED_NAMES)}
-    return subprocess.call([sys.executable, "-I", "-m", module, *args], env=env)
+    return subprocess.call(list(command), env=check_environment())
 
 
 def check_library() -> int:
@@ -66,8 +91,7 @@ def check_library() -> int:
     if not canopy_installed():
         print(LIBRARY_NOT_INSTALLED)
         return 0
-    library = LIBRARY_SUBPATH.as_posix()
-    return _run(f"{CANOPY_PACKAGE}.report", library, "--served-at", "library", "--check")
+    return _run(library_command())
 
 
 def check_collections() -> int:
@@ -78,12 +102,7 @@ def check_collections() -> int:
     if not Path(FACILITY_COLLECTIONS_SUBPATH).is_dir():
         print(NO_COLLECTIONS)
         return 0
-    return _run(
-        f"{CANOPY_PACKAGE}.collections_cli",
-        FACILITY_COLLECTIONS_SUBPATH.as_posix(),
-        "--library",
-        LIBRARY_SUBPATH.as_posix(),
-    )
+    return _run(collections_command())
 
 
 CHECKS = {"library": check_library, "collections": check_collections}

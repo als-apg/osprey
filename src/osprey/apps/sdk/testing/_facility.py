@@ -1,8 +1,10 @@
-"""Minimal synthetic ``data/facility`` trees: what an application's tests build a facility from.
+"""Minimal synthetic ``facility/`` trees: what an application's tests build a facility from.
 
-A tree is a mapping of path (relative to ``data/facility``) to content: a string
+A tree is a mapping of path (relative to ``facility/``) to content: a string
 is written as it is, a ``Deck`` is saved as a pyAT lattice file, anything else
 is dumped as YAML. Every factory returns a fresh tree, so a test may edit it.
+The models file and the decks sit where ``osprey_facility.source_tree`` puts
+them; a test indexes them as ``tree[source_tree.path("models")]``.
 
 Two base trees:
 
@@ -20,6 +22,8 @@ from pathlib import Path
 from typing import Any
 
 import yaml
+
+from osprey_facility import source_tree
 
 __all__ = [
     "BPM",
@@ -45,6 +49,10 @@ READING = {"attribute": "PolynomB", "index": 0}
 
 #: The initial conditions of the single-pass model.
 LINE_TWISS = {"beta": [5.0, 3.0], "alpha": [0.0, 0.0]}
+
+_MODELS = source_tree.path("models")
+_SR_DECK = f"{source_tree.path('decks')}/sr.json"
+_LINE_DECK = f"{source_tree.path('decks')}/line.json"
 
 
 @dataclass(frozen=True)
@@ -151,11 +159,11 @@ def deck_tree() -> dict[str, Any]:
             {"id": "BPM1:X", "on": {"device": "SR/BPM1"}},
             {"id": "LQ:SP", "role": "setpoint", "on": {"device": "LINE/Q1"}},
         ],
-        "models.yaml": [
+        _MODELS: [
             {
                 "name": "SR",
                 "engine": "pyat",
-                "deck": "decks/sr.json",
+                "deck": _SR_DECK,
                 "wiring": [
                     {
                         "address": "QF:SP",
@@ -169,23 +177,23 @@ def deck_tree() -> dict[str, Any]:
             {
                 "name": "LINE",
                 "engine": "pyat",
-                "deck": "decks/line.json",
+                "deck": _LINE_DECK,
                 "settings": {"pyat": {"solve": "single_pass", "twiss_in": dict(LINE_TWISS)}},
                 "wiring": [{"address": "LQ:SP", "element": "Q1", "engine": dict(SETTING)}],
             },
         ],
-        "decks/sr.json": sr_deck(),
-        "decks/line.json": line_deck(),
+        _SR_DECK: sr_deck(),
+        _LINE_DECK: line_deck(),
     }
 
 
-def model(tree: Mapping[str, Any], name: str, file: str = "models.yaml") -> dict[str, Any]:
+def model(tree: Mapping[str, Any], name: str, file: str = _MODELS) -> dict[str, Any]:
     """The model record named ``name`` in one models file of a tree.
 
     Args:
         tree: The tree.
         name: The model's name.
-        file: The models file.
+        file: The models file; the facility tree's own by default.
 
     Returns:
         The record itself, for the caller to edit.
@@ -197,7 +205,7 @@ def write_tree(root: Path, tree: Mapping[str, Any]) -> Path:
     """Write a tree under ``root``.
 
     Args:
-        root: The ``data/facility`` directory to create.
+        root: The ``facility/`` directory to create.
         tree: Path to content.
 
     Returns:

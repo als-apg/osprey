@@ -8,7 +8,7 @@ decide whether the refusal is trustworthy:
 - a comment-only edit to ``profile.yml`` is NOT drift — a check that fires on
   cosmetics trains operators to reach for ``--as-built`` reflexively, which
   costs the refusal all of its value;
-- an edit anywhere in the ``data/`` tree IS drift — the profile YAML is
+- an edit anywhere in the ``facility/`` tree IS drift — the profile YAML is
   untouched in exactly the case a facility changes its channel database, and a
   fingerprint blind to that would let ``up`` deploy last week's data while
   reporting itself in sync (SC-3);
@@ -24,6 +24,7 @@ from pathlib import Path
 
 import pytest
 
+from osprey import repo_layout
 from osprey.deployment import staleness
 from osprey.deployment.staleness import DriftState
 from osprey.utils.workspace import TIERS_DIRNAME
@@ -39,7 +40,6 @@ PROFILE_YAML = """\
 # The facility's build profile.
 name: Exemplar
 provider: anthropic
-data: data
 """
 
 
@@ -66,10 +66,12 @@ def _write_manifest(repo: Path, **creation: object) -> Path:
 
 @pytest.fixture
 def repo(tmp_path):
-    """A minimal three-zone repo: profile at root, data beside it, build/ rendered."""
+    """A minimal three-zone repo: profile at root, facility beside it, build/ rendered."""
     root = tmp_path / "exemplar"
     _write(root / "profile.yml", PROFILE_YAML)
-    _write(root / "data" / "channel_databases" / "als.json", '{"channels": []}\n')
+    _write(
+        root / repo_layout.entry("facility").path / "records" / "channels.yaml", "channels: []\n"
+    )
     _write(root / "build" / "config.yml", "project: exemplar\nprotected_paths: []\n")
     _write_manifest(root)
     return root
@@ -90,8 +92,7 @@ def test_comment_only_profile_edit_is_clean(repo):
         "# The facility's build profile.\n"
         "# Reviewed 2026-08-10 — no functional change.\n"
         "name: Exemplar\n"
-        "provider: anthropic   # which model answers\n"
-        "data: data\n",
+        "provider: anthropic   # which model answers\n",
         encoding="utf-8",
     )
 
@@ -108,26 +109,29 @@ def test_data_tree_edit_is_drift(repo):
     The profile YAML is byte-identical here. Only the tree it names moved —
     which is what a facility editing its channel database actually does.
     """
-    _write(repo / "data" / "channel_databases" / "als.json", '{"channels": ["SR:BPM1"]}\n')
+    _write(
+        repo / repo_layout.entry("facility").path / "records" / "channels.yaml",
+        "channels: [SR:BPM1]\n",
+    )
 
     report = staleness.check_drift(repo)
 
     assert report.state is DriftState.DRIFT
     assert report.refuses
-    assert report.changed_keys == ("data/",)
+    assert report.changed_keys == (f"{repo_layout.entry('facility').path}/",)
     assert "--as-built" in report.remedy
 
 
 def test_runtime_minted_material_is_not_drift(repo):
-    """#716: a successful start must not mark its own build OUT OF DATE.
+    """A successful start must not mark its own build OUT OF DATE.
 
-    ``osprey up`` mints CURVE key material under ``data/.runtime/`` after the
+    ``osprey up`` mints CURVE key material under ``var/runtime/`` after the
     manifest was stamped — exactly what happens on every deployment with a
     Bluesky lane. The scaffolded systemd unit runs a bare ``osprey up -d``, so
     if this reads as drift, the stack refuses to come back after a reboot.
     """
     _write(
-        repo / "data" / ".runtime" / "bluesky_curve" / "bridge" / "proxy.key_secret",
+        repo / "var" / "runtime" / "bluesky_curve" / "bridge" / "proxy.key_secret",
         "minted-by-osprey-up\n",
     )
 
@@ -188,15 +192,15 @@ def test_layer_delta_edit_names_the_delta(repo):
 
 def test_convention_directory_edit_names_that_directory(repo):
     """Each convention directory is its own input, so each is its own name."""
-    _write(repo / "agents" / "beamline.md", "# beamline\n")
+    _write(repo / "agent" / "agents" / "beamline.md", "# beamline\n")
     _write_manifest(repo)
 
-    _write(repo / "agents" / "beamline.md", "# beamline ops\n")
+    _write(repo / "agent" / "agents" / "beamline.md", "# beamline ops\n")
 
     report = staleness.check_drift(repo)
 
     assert report.state is DriftState.DRIFT
-    assert report.changed_keys == ("agents/",)
+    assert report.changed_keys == ("agent/agents/",)
 
 
 def _name_triggers(repo: Path, triggers: str) -> None:
@@ -239,7 +243,10 @@ def test_material_change_is_named_once(repo):
     Reporting it beside the input that explains it would say the same edit
     twice, once vaguely — which is how the old message read.
     """
-    _write(repo / "data" / "channel_databases" / "als.json", '{"channels": ["SR:BPM1"]}\n')
+    _write(
+        repo / repo_layout.entry("facility").path / "records" / "channels.yaml",
+        "channels: [SR:BPM1]\n",
+    )
 
     assert staleness.MATERIAL_DISPLAY not in staleness.check_drift(repo).changed_keys
 
@@ -486,7 +493,7 @@ def test_an_empty_protected_path_list_is_clean(repo):
 
 
 def test_a_populated_protected_path_list_is_clean(repo):
-    _render_config(repo, "project: exemplar\nprotected_paths:\n  - data/tiers\n")
+    _render_config(repo, "project: exemplar\nprotected_paths:\n  - plans/shared\n")
 
     assert staleness.check_drift(repo).state is DriftState.CLEAN
 
@@ -494,7 +501,7 @@ def test_a_populated_protected_path_list_is_clean(repo):
 @pytest.mark.parametrize(
     "config",
     [
-        "project: exemplar\nprotected_paths: data/tiers\n",
+        "project: exemplar\nprotected_paths: plans/shared\n",
         "project: exemplar\nprotected_paths:\n  - 7\n",
         "project: exemplar\nprotected_paths:\n  - ''\n",
         "project: exemplar\nprotected_paths:\n",

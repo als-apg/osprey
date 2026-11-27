@@ -11,9 +11,9 @@ The layout is the four-zone repo — one directory, four kinds of content::
     als-exemplar/
     │  ═ SOURCE — tracked, user-edited ═══════════════
     ├── profile.yml  providers.yml  triggers.yml  README.md
-    ├── data/  tiers/  web-terminal-context/
-    ├── .gitignore  .env.example  .env.shared  ci-extra.yml
-    ├── .gitlab-ci.yml  scripts/verify.sh   (with_ci=True only)
+    ├── facility/  web/  tiers/  agent/context/
+    ├── .gitignore  .env.example  .env.shared  ops/ci-extra.yml
+    ├── .gitlab-ci.yml  ops/scripts/verify.sh   (with_ci=True only)
     │  ═ SECRETS — ignored, durable ══════════════════
     ├── .env                       (only with ``seed_env=True``)
     │  ═ OUTPUT — ignored, disposable ════════════════
@@ -31,7 +31,7 @@ Two variants, and which one a caller wants is not a matter of taste:
 ``osprey init --preset demo`` leaves the ``deploy:`` block a
 commented stub, and with no deployment coordinates there is nothing to render a
 CI pipeline from — so the repo carries neither ``.gitlab-ci.yml`` nor
-``scripts/verify.sh``. This is the shape Task 2.1 compares ``init``'s emission
+``ops/scripts/verify.sh``. This is the shape Task 2.1 compares ``init``'s emission
 against, byte for byte.
 
 ``with_ci=True`` fills the coordinates in and adds the pipeline pair — the
@@ -68,12 +68,11 @@ sentinels and expanded at materialization, so a byte-comparison against a live
 ``str.format``/``%`` because the YAML carries literal ``${VAR:-default}`` shell
 expansions.
 
-``providers.yml``, ``triggers.yml`` and ``data/README.md`` are the fourth,
-fifth and sixth things not frozen. Init copies the packaged provider catalog,
-the packaged tutorial trigger file and the preset's data README into the repo
-verbatim, so the fixture reads all three rather than holding a second copy of
-any; see :func:`packaged_providers_yml`, :func:`packaged_tutorial_triggers_yml`
-and :func:`packaged_data_readme_md`.
+``providers.yml`` and ``triggers.yml`` are the fourth and fifth things not
+frozen. Init copies the packaged provider catalog and the packaged tutorial
+trigger file into the repo verbatim, so the fixture reads both rather than
+holding a second copy of either; see :func:`packaged_providers_yml` and
+:func:`packaged_tutorial_triggers_yml`.
 
 Usage::
 
@@ -100,6 +99,8 @@ from unittest.mock import patch
 
 import pytest
 import yaml
+
+from osprey.repo_layout import display_path
 
 #: Directory name of the exemplar deployment. One repo is one deployment and the
 #: directory name is the deployment name, so this is also the compose project
@@ -146,7 +147,7 @@ STATE_DIRS: tuple[str, ...] = ("var/agent_data",)
 IGNORED_ZONE_PATTERNS: tuple[str, ...] = ("/build/", "/var/", "/.env*")
 
 #: Source files that must be executable once written.
-EXECUTABLE_FILES: frozenset[str] = frozenset({"scripts/verify.sh"})
+EXECUTABLE_FILES: frozenset[str] = frozenset({"ops/scripts/verify.sh"})
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -160,12 +161,13 @@ PROFILE_YML = r"""# Als Exemplar — OSPREY deployment repo
 #   +--------------+  osprey   +--------------+  osprey  +----------------+
 #   |    SOURCE    |  build    |    build/    |    up    |   DEPLOYMENT   |
 #   | profile.yml  +---------->| config.yml   +--------->| agent CLI/web  |
-#   | data/  ...   |           | .mcp.json  … |          | + containers   |
+#   | facility/ …  |           | .mcp.json  … |          | + containers   |
 #   +--------------+           +--------------+          +----------------+
 #          ^                                                     |
 #          +---- edit -> osprey build -> osprey up --------------+
 #
-#   SOURCE   yours to edit, kept in git: this file, data/, tiers/, apps/
+#   SOURCE   yours to edit, kept in git: this file, facility/, agent/, web/,
+#            ops/, tiers/, apps/
 #   RECORD   .osprey/, what the presets produced. Kept in git. Not edited
 #   SECRETS  .env, your API keys. Not in git. Rebuilds never touch it
 #   OUTPUT   build/, generated. Never edit it; deleting it is safe
@@ -385,7 +387,7 @@ agent_record:
 # ── Watchdogs ────────────────────────────────────────────────────────────────
 # Independent judges of each prompt, off until you turn them on. This one sends
 # the session to an outside model, so read the how-to before setting `enabled`.
-# Its instructions are in watchdogs/guard-circumvention/instructions.md.
+# Its instructions are in agent/watchdogs/guard-circumvention/instructions.md.
 watchdogs:
   guard-circumvention:
     engine: decision
@@ -788,10 +790,10 @@ config:
   # to the words the logbook prose contains, so a search typed in shorthand
   # finds the entries about it. Plain dictionary matching, every rewrite
   # reported back as `expanded_terms`. The build turns it on when the facility
-  # ships data/facility/ariel/vocabulary.yml. The file is read once at startup;
+  # ships facility/ariel/vocabulary.yml. The file is read once at startup;
   # a broken one fails loudly there (panel in CONFIGURATION INVALID mode,
   # search 503, MCP server refuses to start). Check edits with
-  # `osprey ariel vocab-check data/facility/ariel/vocabulary.yml`.
+  # `osprey ariel vocab-check facility/ariel/vocabulary.yml`.
   # Whether a search that expresses no preference gets expansion. The
   # per-request `expand_query` argument overrides it either way.
   ariel.vocabulary.expand_by_default: true
@@ -941,7 +943,7 @@ config:
   # facility_knowledge server, `osprey knowledge` and the KNOWLEDGE tab.
   # Relative to the project root. Replace with your own bundle once you have
   # customised the example content.
-  facility_knowledge.bundle_path: data/facility/knowledge
+  facility_knowledge.bundle_path: facility/knowledge
   # osprey:panel-port okf
   # The KNOWLEDGE tab's own web server. It launches when `okf` is in
   # `web_panels:` above, on this deployment's knowledge slot. Uncomment to
@@ -1188,7 +1190,7 @@ config:
   # collection's Orbit, RF thermal and Septum pulse carry their own views.
   # A `*_default_query` here would give the bare tools a view as well.
   # web.panels.canopy.trace_default_query: pv=SR:DIAG:BPM:03:POSITION:X&range=-1h
-  # The screen CANOPY opens on, by its id in data/canopy/library/screens.
+  # The screen CANOPY opens on, by its id in web/canopy/library/screens.
   web.panels.canopy.home_screen: facility/overview
   # Ceiling in bytes on the live-value buffers one user's CANOPY keeps in
   # memory (256 MB).
@@ -1196,7 +1198,7 @@ config:
   # A colour theme for CANOPY, as a path relative to the project root
   # (absolute accepted). Unset keeps CANOPY's own theme. This one gives the
   # screens OSPREY's light and dark colours.
-  web.panels.canopy.theme_file: data/canopy/theme/osprey.json
+  web.panels.canopy.theme_file: web/canopy/theme/osprey.json
   # Custom panels are `web.panels.<id>.*` keys here; the built-in tabs are
   # switched by `web_panels:` above. `rewrite_json_paths` opts a backend's
   # JSON bootstrap endpoints into the reverse proxy's path rewrite. The proxy
@@ -1298,12 +1300,12 @@ config:
       # Each file below becomes one collapsible section at the bottom of the
       # landing page, in this order. The file's `# H1` is the section label, so
       # adding a section means adding a markdown file and listing it here.
-      # `data/landing/working-safely.md` ships with this preset and is yours to
+      # `web/landing/working-safely.md` ships with this preset and is yours to
       # rewrite; add your own for local procedures, contacts or shift handover.
       # Drop this key entirely and you get OSPREY's built-in safety notice
       # instead; set it to [] for no notices at all.
       notices:
-        - data/landing/working-safely.md
+        - web/landing/working-safely.md
       # The line under everything. Set to "" for no footer.
       footer: OSPREY multi-user web terminal stack. Experimental system. Proceed with caution.
       groups:
@@ -1382,7 +1384,7 @@ config:
   # Container runtime `osprey up` uses: auto (Docker first, then Podman),
   # docker, or podman. CONTAINER_RUNTIME in the environment overrides it.
   container_runtime: auto
-  # Models the simulator serves, named from data/facility/models.yaml. null
+  # Models the simulator serves, named from facility/simulation/models.yaml. null
   # serves every model; [texture] serves no physics.
   simulation.models:
   # Seconds between the simulator's ticks; must be greater than 0.
@@ -1491,13 +1493,6 @@ deploy_services: true
 panel_presets: {}
 # Bundled template rendered as CLAUDE.md, the agent's instructions.
 claude_md_template: CLAUDE.md.j2
-
-# --- Facility data tree ------------------------------------------------------
-# Path (relative to this profile) of the data tree the build copies. `osprey
-# init` materializes it from the preset's packaged tree and sets this key; a
-# layer under tiers/ inherits it and resolves it against this
-# profile's directory. Full replacement, not a fallback.
-data: data
 @DEPLOY_BLOCK@
 # --- Facility MCP servers ----------------------------------------------------
 # Your own MCP servers, injected into the build's .mcp.json next to the
@@ -1506,7 +1501,7 @@ data: data
 # "http"; "sse" is the legacy event-stream wire and needs an explicit url.
 # Tool names under permissions are bare — `allow` runs them unprompted, `ask`
 # prompts the operator on every call.
-# A Python server's package lives at mcp_servers/<package>/ beside this file;
+# A Python server's package lives at agent/mcp_servers/<package>/ beside this file;
 # the build copies it to build/_mcp_servers/<package>/ for `-m <package>`.
 #
 # mcp_servers:
@@ -2184,29 +2179,6 @@ def packaged_tutorial_triggers_yml() -> str:
 TRIGGERS_YML = packaged_tutorial_triggers_yml()
 
 
-def packaged_data_readme_md() -> str:
-    """The preset's packaged ``data/README.md``, which ``osprey init`` copies verbatim.
-
-    Read rather than frozen, for the same reason the provider catalog and the
-    trigger file are: the package owns this file's content, so a copy here
-    would prove only that someone remembered to update two places. What the
-    byte comparison downstream is for is that init copies the README through
-    unchanged, and that is what reading it here asserts.
-
-    Resolved from the preset's packaged composition, the tree ``osprey init``
-    copies into ``data/``, so the exemplar and the emission it is compared
-    against read one file.
-    """
-    from tests._preset_data import preset_data
-
-    return (preset_data("demo").app_data / "README.md").read_text(encoding="utf-8")
-
-
-#: The ``data/README.md`` the ``demo`` preset ships. Resolved at
-#: import, because :data:`BASE_SOURCE_FILES` is built at import.
-DATA_README_MD = packaged_data_readme_md()
-
-
 # ─────────────────────────────────────────────────────────────────────────────
 # SOURCE zone — git, secrets, README
 # ─────────────────────────────────────────────────────────────────────────────
@@ -2397,12 +2369,12 @@ in `profile.yml`, not the folder name.
 
 | What | Where | In git? | Kept? |
 | --- | --- | --- | --- |
-| Your settings | `profile.yml`, `data/`, `tiers/`, `apps/`, `watchdogs/` | yes | yes |
+| Your settings | `profile.yml`, `providers.yml`, `facility/`, `web/`, `tiers/`, `triggers.yml`, `agent/context/`, `agent/watchdogs/`, `agent/code_review/`, `agent/rules/` | yes | yes |
 | Your API keys | `.env` | no | yes |
 | Generated files | `build/` | no | no, safe to delete |
 | The agent's memory and record | `var/agent_data/`, `var/agent_record/` | no | yes |
 
-In full, the first row is: `profile.yml`, `providers.yml`, `data/`, `tiers/`, `apps/`, `.osprey/`, `triggers.yml`, `web-terminal-context/`, `.env.example`, `watchdogs/`, `rules/`, `.gitignore`, `.env.shared`, `README.md`, `ci-extra.yml`, `.gitlab-ci.yml`, `scripts/verify.sh`.
+In full, the first row is: `profile.yml`, `providers.yml`, `facility/`, `web/`, `tiers/`, `.osprey/`, `triggers.yml`, `agent/context/`, `.env.example`, `agent/watchdogs/`, `agent/code_review/`, `agent/rules/`, `.gitignore`, `.env.shared`, `README.md`, `ops/ci-extra.yml`.
 
 `build/` is generated from your settings every time you run `osprey build`.
 Deleting it is always safe: no settings, no keys and no agent memory live there.
@@ -2470,7 +2442,7 @@ at the end of `profile.yml` (which server, which CI system), then run:
 osprey scaffold ci
 ```
 
-That writes the pipeline files. Your own extra CI jobs go in `ci-extra.yml`,
+That writes the pipeline files. Your own extra CI jobs go in `ops/ci-extra.yml`,
 which nothing ever overwrites.
 
 ## Starting over
@@ -2497,7 +2469,7 @@ git clone <this repo> && tar xf state.tar.gz && osprey build && osprey up -d
 
 ### Adding an MCP server of your own
 
-Put the server's Python package at `mcp_servers/<name>/`. `osprey build` copies
+Put the server's Python package at `agent/mcp_servers/<name>/`. `osprey build` copies
 it to `build/_mcp_servers/<name>/`, and an entry under `mcp_servers:`
 in `profile.yml` says how to start it:
 
@@ -2589,7 +2561,7 @@ GITLAB_CI_YML = """\
 # makes re-emission safe, so a file without it is treated as hand-written and
 # left alone unless you pass --force.
 #
-# Facility-specific jobs go in ci-extra.yml, which this pipeline includes. That
+# Facility-specific jobs go in ops/ci-extra.yml, which this pipeline includes. That
 # file is yours — the scaffolder creates it once and never writes it again.
 #
 # Project-level CI/CD variables this pipeline reads (Settings -> CI/CD ->
@@ -2611,10 +2583,10 @@ include:
   # Facility-owned jobs. They run beside everything below and lose on every key
   # this file sets. Guarded by `exists` so a repo that deleted the file still
   # has a valid pipeline.
-  - local: ci-extra.yml
+  - local: ops/ci-extra.yml
     rules:
       - exists:
-          - ci-extra.yml
+          - ops/ci-extra.yml
 
 stages:
   - validate
@@ -2672,7 +2644,7 @@ render-build:
 # compose reads it, and .gitignore keeps it out of git — so the next deploy's
 # `git reset --hard` leaves it alone.
 #
-# `osprey up` runs scripts/verify.sh afterwards on its own — the deploy's
+# `osprey up` runs ops/scripts/verify.sh afterwards on its own — the deploy's
 # health report needs no job of its own.
 # -----------------------------------------------------------------------------
 deploy:
@@ -2715,13 +2687,13 @@ VERIFY_SH = """\
 # osprey-scaffold: deploy/verify
 # osprey-version: @OSPREY_VERSION@
 #
-# Emitted by `osprey scaffold ci` into the repo's scripts/ directory. `osprey
+# Emitted by `osprey scaffold ci` into the repo's ops/scripts/ directory. `osprey
 # up` runs it automatically, without --strict, once the containers are up; you
 # can also run it by hand from anywhere in the repo:
 #
-#   ./scripts/verify.sh                    # every group
-#   ./scripts/verify.sh containers         # one group
-#   ./scripts/verify.sh --strict           # exit 1 if anything is flagged
+#   ./ops/scripts/verify.sh                # every group
+#   ./ops/scripts/verify.sh containers     # one group
+#   ./ops/scripts/verify.sh --strict       # exit 1 if anything is flagged
 #
 # The containers group lists the compose project `osprey up` recorded in
 # var/deployment.json, with the runtime it recorded. Before the first
@@ -2786,8 +2758,8 @@ sys.exit(s.connect_ex(('$host', $port)))" 2>/dev/null; then
   fi
 }
 
-# The repo root: this script sits in scripts/ directly under it.
-REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# The repo root: this script sits in ops/scripts/ under it.
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 
 # What `osprey up` recorded it drove, as one "runtime<TAB>project" line. No
 # output and status 0 when there is no record; no output and status 3 when the
@@ -2946,10 +2918,9 @@ exit 0
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# SOURCE zone — data tree
+# SOURCE zone — facility and web trees
 # ─────────────────────────────────────────────────────────────────────────────
-# Hand-authored and deliberately small, except ``data/README.md``, which is
-# read from the package (:func:`packaged_data_readme_md`). The packaged bundle a
+# Hand-authored and deliberately small. The packaged bundle a
 # real `init` copies here is ~2 MB across ~60 files; a per-test tmp_path
 # materialization wants the *shape* — every path the profile and the build
 # reference — not the volume. Each file below is valid content of its real kind.
@@ -3086,7 +3057,7 @@ BASE_SOURCE_FILES: Mapping[str, str] = {
     ".env.example": ENV_EXAMPLE,
     ".env.shared": ENV_SHARED,
     "README.md": README_MD,
-    "ci-extra.yml": CI_EXTRA_YML,
+    "ops/ci-extra.yml": CI_EXTRA_YML,
     "triggers.yml": TRIGGERS_YML,
     "tiers/readonly.yml": TIER_READONLY_YML,
     "tiers/readwrite.yml": TIER_READWRITE_YML,
@@ -3096,28 +3067,27 @@ BASE_SOURCE_FILES: Mapping[str, str] = {
     "tiers/channel-finder.yml": SHARED_CHANNEL_FINDER_YML,
     # One context slot per person on the roster. A shared login is not a
     # person: its card has no per-user context, so it gets no slot.
-    "web-terminal-context/alice/.gitkeep": "",
-    "web-terminal-context/bob/.gitkeep": "",
-    "web-terminal-context/carol/.gitkeep": "",
-    "data/README.md": DATA_README_MD,
-    "data/facility/benchmarks/cross_paradigm/queries/tree_queries.json": BENCHMARK_QUERIES_JSON,
-    "data/facility/records/places.yaml": FACILITY_PLACES_YAML,
-    "data/facility/records/devices.yaml": FACILITY_DEVICES_YAML,
-    "data/facility/records/channels.yaml": FACILITY_CHANNELS_YAML,
-    "data/facility/scenarios/demo-history.yaml": "{}\n",
-    "data/facility/scenarios/rf-thermal.yaml": "{}\n",
-    "data/facility/knowledge/index.md": FK_INDEX_MD,
-    "data/facility/knowledge/subsystems/index.md": FK_SUBSYSTEMS_INDEX_MD,
-    "data/facility/knowledge/subsystems/vacuum.md": FK_VACUUM_MD,
-    "data/facility/knowledge/procedures/index.md": FK_PROCEDURES_INDEX_MD,
-    "data/facility/knowledge/procedures/vacuum-recovery.md": FK_VACUUM_RECOVERY_MD,
+    "agent/context/alice/.gitkeep": "",
+    "agent/context/bob/.gitkeep": "",
+    "agent/context/carol/.gitkeep": "",
+    "facility/benchmarks/channel_finder/tree_queries.json": BENCHMARK_QUERIES_JSON,
+    "facility/records/places.yaml": FACILITY_PLACES_YAML,
+    "facility/records/devices.yaml": FACILITY_DEVICES_YAML,
+    "facility/records/channels.yaml": FACILITY_CHANNELS_YAML,
+    "facility/simulation/scenarios/demo-history.yaml": "{}\n",
+    "facility/simulation/scenarios/rf-thermal.yaml": "{}\n",
+    "facility/knowledge/index.md": FK_INDEX_MD,
+    "facility/knowledge/subsystems/index.md": FK_SUBSYSTEMS_INDEX_MD,
+    "facility/knowledge/subsystems/vacuum.md": FK_VACUUM_MD,
+    "facility/knowledge/procedures/index.md": FK_PROCEDURES_INDEX_MD,
+    "facility/knowledge/procedures/vacuum-recovery.md": FK_VACUUM_RECOVERY_MD,
 }
 
 #: The scaffolded CI pipeline. Emitted only where the profile names deploy
 #: coordinates — there is nothing to render a pipeline from otherwise.
 CI_PIPELINE_FILES: Mapping[str, str] = {
     ".gitlab-ci.yml": GITLAB_CI_YML,
-    "scripts/verify.sh": VERIFY_SH,
+    "ops/scripts/verify.sh": VERIFY_SH,
 }
 
 _PRESET_HASH_SENTINEL = re.compile(r"@PRESET_HASH:((?:tiers/)?[a-z0-9-]+)@")
@@ -3212,7 +3182,7 @@ def packaged_providers_yml() -> str:
 
 
 #: Where the exemplar's screen library sits, repo-relative.
-CANOPY_LIBRARY_RELPATH = "data/canopy/library"
+CANOPY_LIBRARY_RELPATH = "web/canopy/library"
 
 
 def packaged_canopy_library() -> Path:
@@ -3221,10 +3191,10 @@ def packaged_canopy_library() -> Path:
     Read rather than frozen, as :func:`packaged_providers_yml` reads the
     catalog: the package owns the screens and their write-binding report, so
     the exemplar carries exactly what ``osprey init --preset demo``
-    puts into a deployment's ``data/``.
+    puts into a deployment's ``web/``.
     """
     bundle = importlib.resources.files("osprey.templates.apps.demo")
-    return Path(str(bundle)) / "data" / "canopy" / "library"
+    return Path(str(bundle)) / "web" / "canopy" / "library"
 
 
 def copy_canopy_library(root: Path) -> Path:
@@ -3268,7 +3238,7 @@ def expand_sentinels(text: str) -> str:
 
 
 def seeded_facility_rule(profile_text: str) -> str:
-    """``rules/facility.md`` as ``osprey init`` seeds it beside *profile_text*."""
+    """The facility rule as ``osprey init`` seeds it beside *profile_text*."""
     import tempfile
 
     from osprey.cli.build_persistence import ensure_profile_facility_rule
@@ -3277,7 +3247,7 @@ def seeded_facility_rule(profile_text: str) -> str:
     with tempfile.TemporaryDirectory() as scratch:
         root = Path(scratch)
         ensure_profile_facility_rule(root, enabled_agents=agents)
-        return (root / "rules" / "facility.md").read_text(encoding="utf-8")
+        return (root / display_path("rules", "facility.md")).read_text(encoding="utf-8")
 
 
 #: The name tests give the application they turn on: the shipped scaffold, as
@@ -3385,7 +3355,7 @@ def _exemplar_source_texts(*, with_ci: bool = False) -> dict[str, str]:
     files["providers.yml"] = packaged_providers_yml()
     # The facility description `osprey init` seeds for a profile selecting the
     # facility rule, rendered from the package for the same reason.
-    files["rules/facility.md"] = seeded_facility_rule(files["profile.yml"])
+    files[display_path("rules", "facility.md")] = seeded_facility_rule(files["profile.yml"])
     if with_ci:
         files.update(CI_PIPELINE_FILES)
     return files

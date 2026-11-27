@@ -280,7 +280,7 @@ and wiring), `seeds.json` (each monitor's absolute noise) and
 `decks/<model>.json`. It draws one panel per monitor of the lattice segment
 holding the reversed monitor, the reading against a kick of the corrector
 upstream of it, and writes
-`src/osprey/templates/facilities/example/scenarios/bpm-polarity/plots/corrector_bump_test.png`.
+`src/osprey/templates/facilities/example/simulation/scenarios/bpm-polarity/plots/corrector_bump_test.png`.
 Without `--simulator` it renders the view in-process first. A fixed noise seed
 makes a re-run write the same bytes on one host and the same picture on any.
 
@@ -318,8 +318,8 @@ committed file that differs. After a `write`, regenerate the library's report
 
 **Usage**:
 ```bash
-uv run --no-sync python scripts/facility_demo/facility_overview.py write --library src/osprey/templates/apps/demo/data/canopy/library
-uv run --no-sync python scripts/facility_demo/facility_overview.py check --library src/osprey/templates/apps/demo/data/canopy/library
+uv run --no-sync python scripts/facility_demo/facility_overview.py write --library src/osprey/templates/apps/demo/web/canopy/library
+uv run --no-sync python scripts/facility_demo/facility_overview.py check --library src/osprey/templates/apps/demo/web/canopy/library
 ```
 
 ---

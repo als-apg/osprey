@@ -3,7 +3,7 @@
 A deployment repo holds its ``profile.yml`` at the root and everything the
 profile implies around it. Two of those surrounding files are generated from
 the profile rather than written by hand: the CI pipeline at the repo root, and
-the post-deploy health check at ``scripts/verify.sh``. This module turns a
+the post-deploy health check at :data:`VERIFY_OUTPUT_PATH`. This module turns a
 profile into both files and puts them where they belong — both paths
 repo-relative, because the repo is the deployment: there is no project sibling
 to key them off.
@@ -47,6 +47,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
 
+from osprey.repo_layout import entry
 from osprey_connectors.errors import ConfigurationError
 from osprey_connectors.safety_file import atomic_replace
 
@@ -61,7 +62,7 @@ from .deploy_scaffold_templates import (
     CI_TEMPLATES,
     SYSTEMD_MARKER,
     SYSTEMD_TEMPLATE,
-    SYSTEMD_UNIT_NAME,
+    SYSTEMD_UNIT_PATH,
     VERIFY_MARKER,
     VERIFY_PATH,
     VERIFY_TEMPLATE,
@@ -79,7 +80,7 @@ from .repo_resolver import PROFILE_FILENAME
 #: else. Adding a platform therefore means three deliberate edits — a template,
 #: an entry here, and a marker of its own (:data:`CI_MARKER` is a single
 #: constant only because there is a single platform).
-CI_OUTPUT_NAMES: dict[str, str] = {"gitlab": ".gitlab-ci.yml"}
+CI_OUTPUT_NAMES: dict[str, str] = {"gitlab": entry(".gitlab-ci.yml").path}
 
 #: Where the health check is emitted, as path segments relative to the repo
 #: root. It lands in the source zone, beside the profile that renders it, and
@@ -97,9 +98,10 @@ VERIFY_OUTPUT_PATH: tuple[str, ...] = tuple(VERIFY_PATH.split("/"))
 #: it is installed in: a unit takes effect from ``~/.config/systemd/user/``, and
 #: writing there directly would put a generated file outside the repo and
 #: outside review, in a directory the operator's other units live in. It lands
-#: beside the profile instead, under the name ``systemctl`` will know it by, and
-#: the emitted header plus the verb's own output say to copy it across.
-SYSTEMD_OUTPUT_NAME: str = SYSTEMD_UNIT_NAME
+#: in the repo instead, at the ``osprey.service`` row's path and under the file
+#: name ``systemctl`` will know it by, and the emitted header plus the verb's own
+#: output say to copy it across.
+SYSTEMD_OUTPUT_NAME: str = SYSTEMD_UNIT_PATH
 
 #: Where the boot hook is emitted, as path segments relative to the repo root.
 #: Derived from the emitted script's own spelling of it
@@ -109,17 +111,16 @@ SYSTEMD_OUTPUT_NAME: str = SYSTEMD_UNIT_NAME
 #: root, so a second literal here could move the file out from under the line
 #: that installs it.
 #:
-#: Under ``scripts/`` rather than at the repo root, and deliberately so.
-#: :mod:`osprey.cli.profile_conventions` keeps ``_SOURCE_ZONE_ENTRIES``, the set
-#: of repo-root entries ``osprey build``'s unknown-root-entry warning knows
-#: about. A new root file would not be in it, so a build would warn about a file
-#: OSPREY itself told the operator to create — the exact thing that module's
-#: docstring says must not happen. ``scripts`` is already covered (it is where
-#: ``verify.sh`` lands), so emitting the hook there needs no edit to that table,
-#: nor to the python-executor write-guard that mirrors it.
+#: Under ``scripts/`` rather than at the repo root, and deliberately so. A file
+#: at the root would be an entry no row of :mod:`osprey.repo_layout` declares,
+#: so ``osprey build``'s unknown-root-entry warning would report a file OSPREY
+#: itself told the operator to create. Inside the ``scripts`` row it is that
+#: row's ``boot-hook`` child, beside the ``verify-script`` child: the known-root
+#: set and the python-executor write guard are both views of the declared rows,
+#: so a child needs no row of its own.
 BOOT_HOOK_OUTPUT_PATH: tuple[str, ...] = tuple(BOOT_HOOK_PATH.split("/"))
 
-#: The health check is meant to be runnable by hand (``./scripts/verify.sh``),
+#: The health check is meant to be runnable by hand (``./ops/scripts/verify.sh``),
 #: as its own header advertises. The post-up hook runs it through ``bash`` and
 #: would not care, but an operator following the header would. The boot hook is
 #: the same case one directory over: cron invokes the ``@reboot`` line its
@@ -319,7 +320,7 @@ def scaffold_systemd_unit(
 
     return [
         _emit(
-            repo_root / SYSTEMD_OUTPUT_NAME,
+            repo_root.joinpath(*SYSTEMD_OUTPUT_NAME.split("/")),
             unit_text,
             SYSTEMD_MARKER,
             mode=_REGULAR_MODE,

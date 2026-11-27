@@ -305,8 +305,8 @@ def render(tmp_path_factory: pytest.TempPathFactory) -> Path:
     pytest.importorskip("pyaml")
     root = tmp_path_factory.mktemp("pyaml-measure-result")
     tree = with_correctors(with_rf(measured_tree()))
-    tree["measurement/SR.yaml"]["kinds"] = ["orm", "dispersion", "trm"]
-    tree["measurement/SR.yaml"] |= {"corrector_delta": 1.0e-5, "frequency_delta": 100.0}
+    tree["simulation/measurement/SR.yaml"]["kinds"] = ["orm", "dispersion", "trm"]
+    tree["simulation/measurement/SR.yaml"] |= {"corrector_delta": 1.0e-5, "frequency_delta": 100.0}
     document, facility = built_document(root / "tree", tree)
     out = root / "render"
     out.mkdir()

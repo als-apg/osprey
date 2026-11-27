@@ -1,6 +1,6 @@
 """The files of a deployment's CANOPY screen library, and whether its report still covers them.
 
-A screen library (``data/canopy/library`` in a deployment) holds ``screens/``
+A screen library (``web/canopy/library`` in a deployment) holds ``screens/``
 and, beside it, the report CANOPY generates (``LIBRARY-REPORT.json`` and
 ``LIBRARY-REPORT.md``) and, when the deployment writes one, ``navigation.json``:
 the library's own ordering of its screens for the viewer's sidebar. This module

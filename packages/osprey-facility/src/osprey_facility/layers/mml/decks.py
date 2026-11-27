@@ -88,10 +88,10 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
+from osprey_facility import source_tree
 from osprey_facility.errors import ImportStop
 from osprey_facility.layers.mml.mapping import (
     KICK,
-    LAYER_DIR,
     EngineBlock,
     MappingError,
     Model,
@@ -147,8 +147,8 @@ HARMONIC_KEY = "HarmonicNumber"
 #: The pass method every served cavity runs on.
 CAVITY_PASS = "RFCavityPass"  # noqa: S105 -- names a tracking pass method, holds no secret
 
-#: Where the layer's decks live, relative to ``data/facility/``.
-DECKS_DIR = f"{LAYER_DIR}/decks"
+#: Where the layer's decks live, relative to ``facility/``.
+DECKS_DIR = source_tree.layer_entry("mml", "decks")
 
 #: The key pyAT stamps its own version into, dropped from every written deck.
 AT_VERSION_KEY = "at_version"
@@ -778,7 +778,7 @@ def write_deck(deck: Any, facility_dir: Path, model: str) -> Path:
 
     Args:
         deck: The deck to write, as :func:`served_deck` returned it.
-        facility_dir: The ``data/facility`` directory.
+        facility_dir: The ``facility`` directory.
         model: The model's name, which names the file.
 
     Returns:

@@ -24,7 +24,7 @@ from osprey_connectors.workspace import (
     agent_data_base_dir,
     resolve_shared_data_root,
 )
-from tests._preset_data import bundle_data_root
+from tests._preset_data import bundle_source_root
 from tests.cli._lifecycle_build import invoke_build
 from tests.cli._template_projects import create_project_with_manifest
 
@@ -52,7 +52,7 @@ class TestAgentModelLine:
             output_dir=tmp_path,
             data_bundle="demo",
             context={"default_provider": "anthropic", "channel_finder_mode": "hierarchical"},
-            data_root=bundle_data_root("demo"),
+            repo_root=bundle_source_root("demo"),
         )
 
         agents = sorted((project_dir / ".claude" / "agents").glob("*.md"))
@@ -69,7 +69,7 @@ class TestAgentModelLine:
             output_dir=tmp_path,
             data_bundle="demo",
             context={"channel_finder_mode": "hierarchical"},
-            data_root=bundle_data_root("demo"),
+            repo_root=bundle_source_root("demo"),
         )
 
         agents = sorted((project_dir / ".claude" / "agents").glob("*.md"))
@@ -92,7 +92,7 @@ class TestClaudeCodeIntegrationDefault:
             output_dir=tmp_path,
             data_bundle="demo",
             context={"channel_finder_mode": "hierarchical"},
-            data_root=bundle_data_root("demo"),
+            repo_root=bundle_source_root("demo"),
         )
 
         # All core files should exist
@@ -115,7 +115,7 @@ class TestClaudeCodeIntegrationDefault:
             output_dir=tmp_path,
             data_bundle="demo",
             context={"channel_finder_mode": "hierarchical"},
-            data_root=bundle_data_root("demo"),
+            repo_root=bundle_source_root("demo"),
         )
 
         assert (project_dir / ".mcp.json").exists()
@@ -135,7 +135,7 @@ class TestClaudeCodeFileContents:
             output_dir=tmp_path,
             data_bundle="demo",
             context={"channel_finder_mode": "hierarchical"},
-            data_root=bundle_data_root("demo"),
+            repo_root=bundle_source_root("demo"),
         )
 
     def test_mcp_json_is_valid_json(self, project_dir):
@@ -411,7 +411,7 @@ class TestClaudeCodeAcrossTemplates:
             output_dir=tmp_path,
             data_bundle=data_bundle,
             context={"channel_finder_mode": "hierarchical"},
-            data_root=bundle_data_root(data_bundle),
+            repo_root=bundle_source_root(data_bundle),
         )
 
         assert (project_dir / ".mcp.json").exists()
@@ -437,7 +437,7 @@ class TestClaudeCodeGitignore:
             output_dir=tmp_path,
             data_bundle="demo",
             context={"channel_finder_mode": "hierarchical"},
-            data_root=bundle_data_root("demo"),
+            repo_root=bundle_source_root("demo"),
         )
 
         gitignore = (project_dir / ".gitignore").read_text()
@@ -518,7 +518,7 @@ class TestChannelFinderAgent:
             output_dir=tmp_path,
             data_bundle="demo",
             context={"channel_finder_mode": "hierarchical"},
-            data_root=bundle_data_root("demo"),
+            repo_root=bundle_source_root("demo"),
         )
 
         agent_path = project_dir / ".claude" / "agents" / "channel-finder.md"
@@ -535,7 +535,7 @@ class TestChannelFinderAgent:
             output_dir=tmp_path,
             data_bundle="demo",
             context={"channel_finder_mode": "hierarchical"},
-            data_root=bundle_data_root("demo"),
+            repo_root=bundle_source_root("demo"),
         )
 
         content = (project_dir / ".claude" / "agents" / "channel-finder.md").read_text()
@@ -584,7 +584,7 @@ class TestChannelFinderAgent:
             output_dir=tmp_path,
             data_bundle="demo",
             context={"channel_finder_mode": mode},
-            data_root=bundle_data_root("demo"),
+            repo_root=bundle_source_root("demo"),
         )
 
         content = (project_dir / ".claude" / "agents" / "channel-finder.md").read_text()
@@ -602,7 +602,7 @@ class TestChannelFinderAgent:
             output_dir=tmp_path,
             data_bundle="demo",
             context={"channel_finder_mode": "hierarchical"},
-            data_root=bundle_data_root("demo"),
+            repo_root=bundle_source_root("demo"),
         )
         content = (project_dir / ".claude" / "agents" / "channel-finder.md").read_text()
         assert "submit_response" in content
@@ -619,7 +619,7 @@ class TestChannelFinderAgent:
             output_dir=tmp_path,
             data_bundle="demo",
             context={"channel_finder_mode": "hierarchical"},
-            data_root=bundle_data_root("demo"),
+            repo_root=bundle_source_root("demo"),
         )
 
         data = json.loads((project_dir / ".claude" / "settings.json").read_text())
@@ -638,7 +638,7 @@ class TestChannelFinderAgent:
             output_dir=tmp_path,
             data_bundle="demo",
             context={"channel_finder_mode": "hierarchical"},
-            data_root=bundle_data_root("demo"),
+            repo_root=bundle_source_root("demo"),
         )
 
         data = json.loads((project_dir / ".mcp.json").read_text())
@@ -653,7 +653,7 @@ class TestChannelFinderAgent:
             output_dir=tmp_path,
             data_bundle="demo",
             context={"channel_finder_mode": "hierarchical"},
-            data_root=bundle_data_root("demo"),
+            repo_root=bundle_source_root("demo"),
         )
 
         assert not (project_dir / ".claude" / "rules" / "channel_finding.md").exists()
@@ -745,7 +745,7 @@ class TestGraphParadigmRender:
             output_dir=tmp_path,
             data_bundle="demo",
             context={"channel_finder_mode": "graph"},
-            data_root=bundle_data_root("demo"),
+            repo_root=bundle_source_root("demo"),
         )
 
     def test_graph_render_tools_are_backed_by_permissions(self, tmp_path):
@@ -784,7 +784,7 @@ class TestLogbookSearchAgent:
             output_dir=tmp_path,
             data_bundle="demo",
             context={"channel_finder_mode": "hierarchical"},
-            data_root=bundle_data_root("demo"),
+            repo_root=bundle_source_root("demo"),
         )
         agent_path = project_dir / ".claude" / "agents" / "logbook-search.md"
         assert agent_path.exists()
@@ -800,7 +800,7 @@ class TestLogbookSearchAgent:
             output_dir=tmp_path,
             data_bundle="demo",
             context={"channel_finder_mode": "hierarchical"},
-            data_root=bundle_data_root("demo"),
+            repo_root=bundle_source_root("demo"),
         )
         content = (project_dir / ".claude" / "agents" / "logbook-search.md").read_text()
         assert "name: logbook-search" in content
@@ -818,7 +818,7 @@ class TestLogbookSearchAgent:
             output_dir=tmp_path,
             data_bundle="demo",
             context={"channel_finder_mode": "hierarchical"},
-            data_root=bundle_data_root("demo"),
+            repo_root=bundle_source_root("demo"),
         )
         content = (project_dir / ".claude" / "agents" / "logbook-search.md").read_text()
         assert "submit_response" in content
@@ -833,7 +833,7 @@ class TestLogbookSearchAgent:
             output_dir=tmp_path,
             data_bundle="demo",
             context={"channel_finder_mode": "hierarchical"},
-            data_root=bundle_data_root("demo"),
+            repo_root=bundle_source_root("demo"),
         )
         data = json.loads((project_dir / ".claude" / "settings.json").read_text())
         assert "Task(logbook-search)" in data["permissions"]["allow"]
@@ -850,7 +850,7 @@ class TestLogbookSearchAgent:
             output_dir=tmp_path,
             data_bundle="demo",
             context={"channel_finder_mode": "hierarchical"},
-            data_root=bundle_data_root("demo"),
+            repo_root=bundle_source_root("demo"),
         )
         content = (project_dir / "CLAUDE.md").read_text()
         assert "logbook-search" in content
@@ -869,7 +869,7 @@ class TestLogbookDeepResearchAgent:
             output_dir=tmp_path,
             data_bundle="demo",
             context={"channel_finder_mode": "hierarchical"},
-            data_root=bundle_data_root("demo"),
+            repo_root=bundle_source_root("demo"),
         )
         agent_path = project_dir / ".claude" / "agents" / "logbook-deep-research.md"
         assert agent_path.exists()
@@ -885,7 +885,7 @@ class TestLogbookDeepResearchAgent:
             output_dir=tmp_path,
             data_bundle="demo",
             context={"channel_finder_mode": "hierarchical"},
-            data_root=bundle_data_root("demo"),
+            repo_root=bundle_source_root("demo"),
         )
         content = (project_dir / ".claude" / "agents" / "logbook-deep-research.md").read_text()
         assert "name: logbook-deep-research" in content
@@ -904,7 +904,7 @@ class TestLogbookDeepResearchAgent:
             output_dir=tmp_path,
             data_bundle="demo",
             context={"channel_finder_mode": "hierarchical"},
-            data_root=bundle_data_root("demo"),
+            repo_root=bundle_source_root("demo"),
         )
         content = (project_dir / ".claude" / "agents" / "logbook-deep-research.md").read_text()
         assert "submit_response" in content
@@ -919,7 +919,7 @@ class TestLogbookDeepResearchAgent:
             output_dir=tmp_path,
             data_bundle="demo",
             context={"channel_finder_mode": "hierarchical"},
-            data_root=bundle_data_root("demo"),
+            repo_root=bundle_source_root("demo"),
         )
         data = json.loads((project_dir / ".claude" / "settings.json").read_text())
         assert "Task(logbook-deep-research)" in data["permissions"]["allow"]
@@ -933,7 +933,7 @@ class TestLogbookDeepResearchAgent:
             output_dir=tmp_path,
             data_bundle="demo",
             context={"channel_finder_mode": "hierarchical"},
-            data_root=bundle_data_root("demo"),
+            repo_root=bundle_source_root("demo"),
         )
         content = (project_dir / "CLAUDE.md").read_text()
         assert "logbook-deep-research" in content
@@ -954,7 +954,7 @@ class TestNeverFabricateDataRule:
             output_dir=tmp_path,
             data_bundle="demo",
             context={"channel_finder_mode": "hierarchical"},
-            data_root=bundle_data_root("demo"),
+            repo_root=bundle_source_root("demo"),
         )
 
         content = (project_dir / ".claude" / "rules" / "safety.md").read_text()
@@ -971,7 +971,7 @@ class TestNeverFabricateDataRule:
             output_dir=tmp_path,
             data_bundle="demo",
             context={"channel_finder_mode": "hierarchical"},
-            data_root=bundle_data_root("demo"),
+            repo_root=bundle_source_root("demo"),
         )
 
         content = (project_dir / "CLAUDE.md").read_text()
@@ -990,7 +990,7 @@ class TestChannelFinderAwareness:
             output_dir=tmp_path,
             data_bundle="demo",
             context={"channel_finder_mode": "hierarchical"},
-            data_root=bundle_data_root("demo"),
+            repo_root=bundle_source_root("demo"),
         )
 
         content = (project_dir / "CLAUDE.md").read_text()
@@ -1007,7 +1007,7 @@ class TestChannelFinderAwareness:
             output_dir=tmp_path,
             data_bundle="demo",
             context={"channel_finder_mode": "hierarchical"},
-            data_root=bundle_data_root("demo"),
+            repo_root=bundle_source_root("demo"),
         )
 
         content = (project_dir / "CLAUDE.md").read_text()
@@ -1044,7 +1044,7 @@ class TestUserOwnedSkipBehavior:
             output_dir=tmp_path,
             data_bundle="demo",
             context={"channel_finder_mode": "hierarchical"},
-            data_root=bundle_data_root("demo"),
+            repo_root=bundle_source_root("demo"),
         )
 
         target = project_dir / relative
@@ -1071,7 +1071,7 @@ class TestUserOwnedSkipBehavior:
             output_dir=tmp_path,
             data_bundle="demo",
             context={"channel_finder_mode": "hierarchical"},
-            data_root=bundle_data_root("demo"),
+            repo_root=bundle_source_root("demo"),
         )
 
         assert (project_dir / "CLAUDE.md").exists()
@@ -1096,7 +1096,7 @@ class TestUserOwnedSkipBehavior:
             output_dir=tmp_path,
             data_bundle="demo",
             context={"channel_finder_mode": "hierarchical"},
-            data_root=bundle_data_root("demo"),
+            repo_root=bundle_source_root("demo"),
         )
 
         assert not (project_dir / absent).exists()
@@ -1122,7 +1122,7 @@ class TestProviderEnvBlock:
             output_dir=tmp_path,
             data_bundle="demo",
             context={"default_provider": provider, "channel_finder_mode": "hierarchical"},
-            data_root=bundle_data_root("demo"),
+            repo_root=bundle_source_root("demo"),
         )
 
         data = json.loads((project_dir / ".claude" / "settings.json").read_text())
@@ -1146,7 +1146,7 @@ class TestProviderEnvBlock:
             output_dir=tmp_path,
             data_bundle="demo",
             context={"default_provider": "als-apg", "channel_finder_mode": "hierarchical"},
-            data_root=bundle_data_root("demo"),
+            repo_root=bundle_source_root("demo"),
         )
 
         config = yaml.safe_load((project_dir / "config.yml").read_text())
@@ -1166,7 +1166,7 @@ class TestProtocolAwareSafetyRules:
             output_dir=tmp_path,
             data_bundle="demo",
             context={"channel_finder_mode": "hierarchical"},
-            data_root=bundle_data_root("demo"),
+            repo_root=bundle_source_root("demo"),
         )
 
         # Set control_system.type to epics and regenerate
@@ -1202,7 +1202,7 @@ class TestProtocolAwareSafetyRules:
             output_dir=tmp_path,
             data_bundle="demo",
             context={"channel_finder_mode": "hierarchical"},
-            data_root=bundle_data_root("demo"),
+            repo_root=bundle_source_root("demo"),
         )
 
         config = yaml.safe_load((project_dir / "config.yml").read_text())
@@ -1235,7 +1235,7 @@ class TestProtocolAwareSafetyRules:
             output_dir=tmp_path,
             data_bundle="demo",
             context={"channel_finder_mode": "hierarchical"},
-            data_root=bundle_data_root("demo"),
+            repo_root=bundle_source_root("demo"),
         )
 
         config = yaml.safe_load((project_dir / "config.yml").read_text())
@@ -1269,7 +1269,7 @@ class TestProtocolAwareSafetyRules:
             output_dir=tmp_path,
             data_bundle="demo",
             context={"channel_finder_mode": "hierarchical"},
-            data_root=bundle_data_root("demo"),
+            repo_root=bundle_source_root("demo"),
         )
 
         config = yaml.safe_load((project_dir / "config.yml").read_text())
@@ -1303,7 +1303,7 @@ class TestProtocolAwareSafetyRules:
                 output_dir=tmp_path / protocol,
                 data_bundle="demo",
                 context={"channel_finder_mode": "hierarchical"},
-                data_root=bundle_data_root("demo"),
+                repo_root=bundle_source_root("demo"),
             )
             config = yaml.safe_load((project_dir / "config.yml").read_text())
             config.setdefault("control_system", {})["type"] = protocol
@@ -1335,7 +1335,7 @@ class TestControlSystemTransportContext:
             output_dir=tmp_path,
             data_bundle="demo",
             context={"channel_finder_mode": "hierarchical"},
-            data_root=bundle_data_root("demo"),
+            repo_root=bundle_source_root("demo"),
         )
 
         config = yaml.safe_load((project_dir / "config.yml").read_text())
@@ -1358,7 +1358,7 @@ class TestControlSystemTransportContext:
             output_dir=tmp_path,
             data_bundle="demo",
             context={"channel_finder_mode": "hierarchical"},
-            data_root=bundle_data_root("demo"),
+            repo_root=bundle_source_root("demo"),
         )
 
         config = yaml.safe_load((project_dir / "config.yml").read_text())
@@ -1385,7 +1385,7 @@ class TestGeneralizedRulesContent:
             output_dir=tmp_path,
             data_bundle="demo",
             context={"channel_finder_mode": "hierarchical"},
-            data_root=bundle_data_root("demo"),
+            repo_root=bundle_source_root("demo"),
         )
 
         content = (project_dir / ".claude" / "rules" / "safety.md").read_text()
@@ -1409,7 +1409,7 @@ class TestGeneralizedRulesContent:
             output_dir=tmp_path,
             data_bundle="demo",
             context={"channel_finder_mode": "hierarchical"},
-            data_root=bundle_data_root("demo"),
+            repo_root=bundle_source_root("demo"),
         )
 
         content = (project_dir / ".claude" / "rules" / "error-handling.md").read_text()
@@ -1431,7 +1431,7 @@ class TestGeneralizedRulesContent:
             output_dir=tmp_path,
             data_bundle="demo",
             context={"channel_finder_mode": "hierarchical"},
-            data_root=bundle_data_root("demo"),
+            repo_root=bundle_source_root("demo"),
         )
 
         content = (project_dir / ".claude" / "rules" / "error-handling.md").read_text()
@@ -1464,7 +1464,7 @@ class TestFacilityPermissions:
             output_dir=tmp_path,
             data_bundle="demo",
             context={"channel_finder_mode": "hierarchical"},
-            data_root=bundle_data_root("demo"),
+            repo_root=bundle_source_root("demo"),
         )
 
         config = yaml.safe_load((project_dir / "config.yml").read_text())
@@ -1516,7 +1516,7 @@ class TestFacilityPermissions:
             output_dir=tmp_path,
             data_bundle="demo",
             context={"channel_finder_mode": "hierarchical"},
-            data_root=bundle_data_root("demo"),
+            repo_root=bundle_source_root("demo"),
         )
         config = yaml.safe_load((project_dir / "config.yml").read_text())
         config.setdefault("control_system", {})["writes"] = "allowed"
@@ -1550,7 +1550,7 @@ class TestFacilityPermissions:
             output_dir=tmp_path,
             data_bundle="demo",
             context={"channel_finder_mode": "hierarchical"},
-            data_root=bundle_data_root("demo"),
+            repo_root=bundle_source_root("demo"),
         )
 
         data = json.loads((project_dir / ".claude" / "settings.json").read_text())
@@ -1586,7 +1586,7 @@ class TestDataVisualizationRuleGating:
             output_dir=tmp_path,
             data_bundle="demo",
             context={"channel_finder_mode": "hierarchical"},
-            data_root=bundle_data_root("demo"),
+            repo_root=bundle_source_root("demo"),
         )
 
         config = yaml.safe_load((project_dir / "config.yml").read_text())
@@ -1613,7 +1613,7 @@ class TestDataVisualizationRuleGating:
             output_dir=tmp_path,
             data_bundle="demo",
             context={"channel_finder_mode": "hierarchical"},
-            data_root=bundle_data_root("demo"),
+            repo_root=bundle_source_root("demo"),
         )
 
         config = yaml.safe_load((project_dir / "config.yml").read_text())
@@ -1657,7 +1657,7 @@ class TestDataVisualizerInteractiveDefault:
             output_dir=tmp_path,
             data_bundle="demo",
             context={"channel_finder_mode": "hierarchical"},
-            data_root=bundle_data_root("demo"),
+            repo_root=bundle_source_root("demo"),
         )
 
         agent_path = project_dir / ".claude" / "agents" / "data-visualizer.md"
@@ -1706,7 +1706,7 @@ class TestRenderContextDoesNotFork:
             output_dir=tmp_path,
             data_bundle="demo",
             context={"channel_finder_mode": "hierarchical"},
-            data_root=bundle_data_root("demo"),
+            repo_root=bundle_source_root("demo"),
         )
 
         expected = claude_code.config_derived_context({}, tmp_path)
@@ -1766,7 +1766,7 @@ class TestConfigDerivedKeysPrecedeServerResolution:
             output_dir=tmp_path,
             data_bundle="demo",
             context={"channel_finder_mode": "hierarchical"},
-            data_root=bundle_data_root("demo"),
+            repo_root=bundle_source_root("demo"),
         )
 
         monkeypatch.setattr(registry_mcp, "FRAMEWORK_SERVERS", self._framework_servers_with_probe())
@@ -1802,7 +1802,7 @@ class TestConfigDerivedKeysPrecedeServerResolution:
             output_dir=tmp_path,
             data_bundle="demo",
             context={"channel_finder_mode": "hierarchical"},
-            data_root=bundle_data_root("demo"),
+            repo_root=bundle_source_root("demo"),
         )
 
         assert captured["control_system_transport"]
@@ -1871,7 +1871,7 @@ class TestGraphdbConfiguredContextKey:
             output_dir=tmp_path,
             data_bundle="demo",
             context={"channel_finder_mode": "hierarchical"},
-            data_root=bundle_data_root("demo"),
+            repo_root=bundle_source_root("demo"),
         )
 
         config = yaml.safe_load((project_dir / "config.yml").read_text())
@@ -1894,7 +1894,7 @@ class TestGraphdbConfiguredContextKey:
             output_dir=tmp_path,
             data_bundle="demo",
             context={"channel_finder_mode": "hierarchical"},
-            data_root=bundle_data_root("demo"),
+            repo_root=bundle_source_root("demo"),
         )
         config = yaml.safe_load((project_dir / "config.yml").read_text())
 
@@ -1947,7 +1947,7 @@ class TestGraphdbConfiguredContextKey:
             output_dir=tmp_path,
             data_bundle="demo",
             context=context,
-            data_root=bundle_data_root("demo"),
+            repo_root=bundle_source_root("demo"),
         )
         if has_store:
             config_update_fields(
@@ -1965,7 +1965,7 @@ class TestGraphdbConfiguredContextKey:
                     yaml.safe_load((project_dir / "config.yml").read_text()), project_dir
                 ),
             },
-            data_root=bundle_data_root("demo"),
+            repo_root=bundle_source_root("demo"),
             force=True,
         )
 
@@ -2011,7 +2011,7 @@ class TestPhoebusBridgeDefaultContextKey:
             output_dir=tmp_path,
             data_bundle="demo",
             context={"channel_finder_mode": "hierarchical"},
-            data_root=bundle_data_root("demo"),
+            repo_root=bundle_source_root("demo"),
         )
         config = yaml.safe_load((project_dir / "config.yml").read_text())
 
@@ -2072,7 +2072,7 @@ class TestPhoebusAgentAccessContextKey:
             output_dir=tmp_path,
             data_bundle="demo",
             context={"channel_finder_mode": "hierarchical"},
-            data_root=bundle_data_root("demo"),
+            repo_root=bundle_source_root("demo"),
         )
         config = yaml.safe_load((project_dir / "config.yml").read_text())
 

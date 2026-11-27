@@ -1,7 +1,7 @@
 """SC9 acceptance: limits enforcement against the real container.
 
 The limits database is the view a build renders from the preset's
-``data/facility/limits.yaml``, loaded in the ``optional`` mode. Two correctors
+``facility/limits.yaml``, loaded in the ``optional`` mode. Two correctors
 are driven, each named by its slot in the served view's own corrector
 wiring, never by a device name written down here:
 

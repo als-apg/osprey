@@ -33,10 +33,13 @@ from osprey.cli.build_profile_load import ROOT_KIND_KEYS, TIER_KIND_KEYS
 from osprey.cli.build_profile_model import BuildProfile
 from osprey.cli.build_profile_resolve import resolve_build_document
 from osprey.cli.build_protected_paths import (
+    CONFIG_PATH_KEYS,
+    EXEMPT_CONFIG_KEYS,
     INPUT_ENUMERATION_KEYS,
     PROFILE_PATH_FIELDS,
     emit_protected_paths,
 )
+from osprey.repo_retired import PATH_KEYS
 from osprey.utils.workspace import TIERS_DIRNAME
 
 PRESET_DIR = Path(__file__).resolve().parents[2] / "src" / "osprey" / "profiles" / "presets"
@@ -327,6 +330,37 @@ def test_a_feed_key_is_never_also_exempt() -> None:
     assert not both, f"protected and exempt at once: {both}"
 
 
+# ── the keys a root move rewrites ─────────────────────────────────────────
+
+
+def _segments(key: str) -> list[str]:
+    """A key of either table as segments; ``*`` stands for any one of them."""
+    return ["*" if part.startswith("<") else part for part in key.replace("[]", ".*").split(".")]
+
+
+def _same_key(left: str, right: str) -> bool:
+    a, b = _segments(left), _segments(right)
+    return len(a) == len(b) and all(
+        "*" in pair or pair[0] == pair[1] for pair in zip(a, b, strict=True)
+    )
+
+
+@pytest.mark.parametrize("pattern", PATH_KEYS)
+def test_every_key_a_root_move_rewrites_is_decided(pattern: str) -> None:
+    """A key whose value follows a moved root names a path, so a table decides it."""
+    if pattern.startswith("config."):
+        key = pattern.removeprefix("config.").removesuffix(".*")
+        decided = [*(row.key for row in CONFIG_PATH_KEYS), *EXEMPT_CONFIG_KEYS]
+    else:
+        key = pattern
+        decided = [*FEEDS, *EXEMPT]
+
+    assert any(_same_key(key, candidate) for candidate in decided), (
+        f"{pattern} is rewritten when a deployment root moves, and no table of "
+        "build_protected_paths decides whether the build protects what it names"
+    )
+
+
 # ── the walk itself ──────────────────────────────────────────────────────
 
 
@@ -429,11 +463,8 @@ def composed_logins(tmp_path_factory: pytest.TempPathFactory) -> dict[str, Any]:
     person's login (a shared login may not grant writes, so composing every
     file as shared would refuse the ones that do)."""
     repo = tmp_path_factory.mktemp("logins")
-    (repo / "data").mkdir()
     logins = _login_presets()
-    (repo / "profile.yml").write_text(
-        yaml.safe_dump({"extends": LOGIN_HOST_PRESET, "data": "data"})
-    )
+    (repo / "profile.yml").write_text(yaml.safe_dump({"extends": LOGIN_HOST_PRESET}))
     (repo / TIERS_DIRNAME).mkdir()
     root = resolve_build_document(repo / "profile.yml", None)
     composed: dict[str, Any] = {"<root>": (repo, root)}

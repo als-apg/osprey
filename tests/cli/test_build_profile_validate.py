@@ -63,21 +63,6 @@ only has something to require once it is on.
 """
 
 
-pytestmark = pytest.mark.usefixtures("facility_data_tree")
-
-
-def _profile(**fields: Any) -> BuildProfile:
-    """A :class:`BuildProfile` carrying the keys every deployment must spell.
-
-    Only ``data:`` so far: it names the facility data tree a build copies, and
-    a profile without it is refused before any of the per-field rules below is
-    reached. A test that means to exercise the ``data:`` rules themselves
-    passes its own value; ``tests/cli/test_profile_data_key.py`` owns those.
-    """
-    fields.setdefault("data", "data")
-    return BuildProfile(**fields)
-
-
 def _errors(profile: BuildProfile, profile_dir: Path) -> list[str]:
     """Validate ``profile`` and return the individual accumulated failures."""
     with pytest.raises(BuildProfileError) as exc:
@@ -113,7 +98,7 @@ def _write_triggers(tmp_path: Path, name: str = "trig.yml") -> str:
 
 def test_validate_accumulates_every_failure_into_one_error(tmp_path: Path) -> None:
     """Four unrelated faults are reported together, not one raise per fault."""
-    profile = _profile(
+    profile = BuildProfile(
         name="",
         deploy_services="yes",  # type: ignore[arg-type]
         channel_finder_mode="in-context",
@@ -130,12 +115,12 @@ def test_validate_accumulates_every_failure_into_one_error(tmp_path: Path) -> No
 
 def test_valid_profile_validates_silently(tmp_path: Path) -> None:
     """A profile with no faults returns None rather than raising."""
-    assert _profile(name="x").validate(tmp_path) is None
+    assert BuildProfile(name="x").validate(tmp_path) is None
 
 
 def test_a_docker_url_probe_address_beside_web_terminals_is_refused(tmp_path: Path) -> None:
     """A web-terminal deployment probes MCP servers at the host address only."""
-    profile = _profile(
+    profile = BuildProfile(
         name="x",
         config={"modules.web_terminals.enabled": True, "health.auto.mcp.url_key": "docker_url"},
     )
@@ -149,7 +134,7 @@ def test_a_docker_url_probe_address_beside_web_terminals_is_refused(tmp_path: Pa
 
 def test_missing_name_is_rejected(tmp_path: Path) -> None:
     """An empty 'name' is a validation failure."""
-    assert _errors(_profile(name=""), tmp_path) == ["Profile 'name' is required"]
+    assert _errors(BuildProfile(name=""), tmp_path) == ["Profile 'name' is required"]
 
 
 @pytest.mark.parametrize(
@@ -161,7 +146,7 @@ def test_non_boolean_deploy_services_is_rejected(
 ) -> None:
     """deploy_services must be a bool, not silently coerced; the message names the
     offending type."""
-    profile = _profile(name="x", deploy_services=value)
+    profile = BuildProfile(name="x", deploy_services=value)
     assert _errors(profile, tmp_path) == [f"deploy_services must be a boolean (got {type_name})"]
 
 
@@ -169,9 +154,8 @@ def test_a_profile_tier_key_stops_naming_the_in_context_tag(tmp_path: Path) -> N
     """``tier`` is no profile key; the stop names what selects the subset."""
     from osprey_facility.errors import FacilityBuildError
 
-    (tmp_path / "data").mkdir(exist_ok=True)
     prof = tmp_path / "profile.yml"
-    prof.write_text("name: t\ndata: data\nchannel_finder_mode: in_context\ntier: 1\n")
+    prof.write_text("name: t\nchannel_finder_mode: in_context\ntier: 1\n")
     with pytest.raises(FacilityBuildError) as stop:
         resolve_build_profile(prof.resolve(), preset=None)
     assert stop.value.kind == "profile-invalid"
@@ -181,7 +165,7 @@ def test_a_profile_tier_key_stops_naming_the_in_context_tag(tmp_path: Path) -> N
 
 def test_unknown_channel_finder_mode_is_rejected(tmp_path: Path) -> None:
     """A channel_finder_mode outside the known paradigms is a typo, not a mode."""
-    profile = _profile(name="x", channel_finder_mode="in-context")
+    profile = BuildProfile(name="x", channel_finder_mode="in-context")
     (error,) = _errors(profile, tmp_path)
     assert "channel_finder_mode must be one of" in error
     assert "'in-context'" in error
@@ -192,18 +176,18 @@ def test_unknown_channel_finder_mode_is_rejected(tmp_path: Path) -> None:
 
 def test_wellformed_convention_dirs_validate(tmp_path: Path) -> None:
     """A profile whose convention directories are well shaped passes."""
-    (tmp_path / "rules").mkdir()
-    (tmp_path / "rules" / "facility-ops.md").write_text("# ops", encoding="utf-8")
-    (tmp_path / "project" / "docs").mkdir(parents=True)
-    (tmp_path / "project" / "docs" / "runbook.md").write_text("# run", encoding="utf-8")
-    _profile(name="x").validate(tmp_path)
+    (tmp_path / "agent" / "rules").mkdir(parents=True)
+    (tmp_path / "agent" / "rules" / "facility-ops.md").write_text("# ops", encoding="utf-8")
+    (tmp_path / "ops" / "project" / "docs").mkdir(parents=True)
+    (tmp_path / "ops" / "project" / "docs" / "runbook.md").write_text("# run", encoding="utf-8")
+    BuildProfile(name="x").validate(tmp_path)
 
 
 def test_misshapen_convention_source_is_rejected(tmp_path: Path) -> None:
     """A loose file where a directory-shaped convention expects a directory."""
-    (tmp_path / "skills").mkdir()
-    (tmp_path / "skills" / "loose.md").write_text("hi", encoding="utf-8")
-    (error,) = _errors(_profile(name="x"), tmp_path)
+    (tmp_path / "agent" / "skills").mkdir(parents=True)
+    (tmp_path / "agent" / "skills" / "loose.md").write_text("hi", encoding="utf-8")
+    (error,) = _errors(BuildProfile(name="x"), tmp_path)
     assert "skills/loose.md" in error
     assert "one directory per skill" in error
 
@@ -219,9 +203,9 @@ def test_reserved_mirror_path_is_rejected_naming_its_channel(
     tmp_path: Path, filename: str, body: str, channel: str
 ) -> None:
     """The project/ mirror may not write a path the build itself owns."""
-    (tmp_path / "project").mkdir()
-    (tmp_path / "project" / filename).write_text(body, encoding="utf-8")
-    (error,) = _errors(_profile(name="x"), tmp_path)
+    (tmp_path / "ops" / "project").mkdir(parents=True)
+    (tmp_path / "ops" / "project" / filename).write_text(body, encoding="utf-8")
+    (error,) = _errors(BuildProfile(name="x"), tmp_path)
     assert f"project/{filename}" in error
     assert channel in error
 
@@ -231,13 +215,13 @@ def test_reserved_mirror_path_is_rejected_naming_its_channel(
 
 def test_mcp_server_without_command_or_url_is_rejected(tmp_path: Path) -> None:
     """A server with neither transport declared cannot be launched."""
-    profile = _profile(name="x", mcp_servers={"empty": McpServerDef()})
+    profile = BuildProfile(name="x", mcp_servers={"empty": McpServerDef()})
     assert _errors(profile, tmp_path) == ["MCP server 'empty' missing 'command' or 'url'"]
 
 
 def test_mcp_server_with_url_only_validates(tmp_path: Path) -> None:
     """An HTTP server needs no command."""
-    profile = _profile(
+    profile = BuildProfile(
         name="x", mcp_servers={"http": McpServerDef(url="http://localhost:8020/mcp")}
     )
     profile.validate(tmp_path)
@@ -248,20 +232,22 @@ def test_mcp_server_with_url_only_validates(tmp_path: Path) -> None:
 
 def test_service_without_template_is_rejected(tmp_path: Path) -> None:
     """A service must name a template dir (or a bundled osprey.* template)."""
-    profile = _profile(name="x", services={"svc": ServiceDef(template="")})
+    profile = BuildProfile(name="x", services={"svc": ServiceDef(template="")})
     assert _errors(profile, tmp_path) == ["Service 'svc' missing 'template'"]
 
 
 def test_service_template_dir_not_found_is_rejected(tmp_path: Path) -> None:
     """A profile-relative template that is not a directory fails."""
-    profile = _profile(name="x", services={"svc": ServiceDef(template="services/svc")})
+    profile = BuildProfile(name="x", services={"svc": ServiceDef(template="services/svc")})
     (error,) = _errors(profile, tmp_path)
     assert error == f"Service 'svc' template dir not found: {tmp_path / 'services/svc'}"
 
 
 def test_unknown_bundled_template_is_refused(tmp_path: Path) -> None:
     """A bundled name OSPREY does not ship fails, naming the service and the value."""
-    profile = _profile(name="x", services={"nope": ServiceDef(template="osprey.no_such_service")})
+    profile = BuildProfile(
+        name="x", services={"nope": ServiceDef(template="osprey.no_such_service")}
+    )
     assert _errors(profile, tmp_path) == [
         "Service 'nope' template 'osprey.no_such_service' names no template OSPREY ships"
     ]
@@ -269,13 +255,15 @@ def test_unknown_bundled_template_is_refused(tmp_path: Path) -> None:
 
 def test_shipped_bundled_template_is_accepted(tmp_path: Path) -> None:
     """A bundled name OSPREY ships produces no failure."""
-    _profile(name="x", services={"db": ServiceDef(template="osprey.mongodb")}).validate(tmp_path)
+    BuildProfile(name="x", services={"db": ServiceDef(template="osprey.mongodb")}).validate(
+        tmp_path
+    )
 
 
 def test_service_template_dir_without_compose_is_rejected(tmp_path: Path) -> None:
     """A template dir that exists must still carry docker-compose.yml.j2."""
     (tmp_path / "services" / "svc").mkdir(parents=True)
-    profile = _profile(name="x", services={"svc": ServiceDef(template="services/svc")})
+    profile = BuildProfile(name="x", services={"svc": ServiceDef(template="services/svc")})
     assert _errors(profile, tmp_path) == [
         "Service 'svc' template dir missing docker-compose.yml.j2"
     ]
@@ -286,7 +274,7 @@ def test_service_template_dir_with_compose_validates(tmp_path: Path) -> None:
     svc_dir = tmp_path / "services" / "svc"
     svc_dir.mkdir(parents=True)
     (svc_dir / "docker-compose.yml.j2").write_text("services: {}", encoding="utf-8")
-    _profile(name="x", services={"svc": ServiceDef(template="services/svc")}).validate(tmp_path)
+    BuildProfile(name="x", services={"svc": ServiceDef(template="services/svc")}).validate(tmp_path)
 
 
 # --- lifecycle steps ------------------------------------------------------
@@ -294,7 +282,7 @@ def test_service_template_dir_with_compose_validates(tmp_path: Path) -> None:
 
 def test_lifecycle_step_missing_name_and_run_is_rejected(tmp_path: Path) -> None:
     """Both required step fields are reported, and the phase is named."""
-    profile = _profile(
+    profile = BuildProfile(
         name="x",
         lifecycle=LifecycleConfig(pre_build=[LifecycleStep(name="", run="")]),
     )
@@ -307,7 +295,7 @@ def test_lifecycle_step_missing_name_and_run_is_rejected(tmp_path: Path) -> None
 def test_lifecycle_steps_are_checked_in_every_phase(tmp_path: Path) -> None:
     """pre_build, post_build and validate steps all go through the same checks."""
     bad = [LifecycleStep(name="", run="echo hi")]
-    profile = _profile(
+    profile = BuildProfile(
         name="x",
         lifecycle=LifecycleConfig(pre_build=list(bad), post_build=list(bad), validate=list(bad)),
     )
@@ -320,7 +308,7 @@ def test_lifecycle_steps_are_checked_in_every_phase(tmp_path: Path) -> None:
 
 def test_lifecycle_step_absolute_cwd_is_rejected(tmp_path: Path) -> None:
     """A step cwd is resolved inside the built project, so it must be relative."""
-    profile = _profile(
+    profile = BuildProfile(
         name="x",
         lifecycle=LifecycleConfig(post_build=[LifecycleStep(name="s", run="echo hi", cwd="/tmp")]),
     )
@@ -331,7 +319,7 @@ def test_lifecycle_step_absolute_cwd_is_rejected(tmp_path: Path) -> None:
 
 def test_lifecycle_step_parent_traversal_cwd_is_rejected(tmp_path: Path) -> None:
     """A '..' component in a step cwd escapes the project dir."""
-    profile = _profile(
+    profile = BuildProfile(
         name="x",
         lifecycle=LifecycleConfig(
             validate=[LifecycleStep(name="s", run="echo hi", cwd="../elsewhere")]
@@ -344,7 +332,7 @@ def test_lifecycle_step_parent_traversal_cwd_is_rejected(tmp_path: Path) -> None
 
 def test_lifecycle_step_relative_cwd_validates(tmp_path: Path) -> None:
     """A plain relative cwd is accepted."""
-    profile = _profile(
+    profile = BuildProfile(
         name="x",
         lifecycle=LifecycleConfig(pre_build=[LifecycleStep(name="s", run="echo hi", cwd="sub")]),
     )
@@ -353,7 +341,7 @@ def test_lifecycle_step_relative_cwd_validates(tmp_path: Path) -> None:
 
 def test_lifecycle_step_non_positive_timeout_is_rejected(tmp_path: Path) -> None:
     """A zero or negative timeout would abort the step before it starts."""
-    profile = _profile(
+    profile = BuildProfile(
         name="x",
         lifecycle=LifecycleConfig(pre_build=[LifecycleStep(name="s", run="echo hi", timeout=0)]),
     )
@@ -367,12 +355,12 @@ def test_lifecycle_step_non_positive_timeout_is_rejected(tmp_path: Path) -> None
 
 def test_invalid_env_var_name_is_rejected(tmp_path: Path) -> None:
     """Required env var names must be upper-snake shell identifiers."""
-    profile = _profile(name="x", env=EnvConfig(required=["OK_VAR", "not-a-var"]))
+    profile = BuildProfile(name="x", env=EnvConfig(required=["OK_VAR", "not-a-var"]))
     assert _errors(profile, tmp_path) == ["Invalid env var name: not-a-var"]
 
 
 def test_an_env_var_name_with_a_trailing_newline_is_rejected(tmp_path: Path) -> None:
-    profile = _profile(name="x", env=EnvConfig(required=["OK_VAR\n"], pinned=["OK_PIN\n"]))
+    profile = BuildProfile(name="x", env=EnvConfig(required=["OK_VAR\n"], pinned=["OK_PIN\n"]))
     assert _errors(profile, tmp_path) == [
         "Invalid env var name: OK_VAR\n",
         "Invalid env.pinned var name: 'OK_PIN\\n'",
@@ -381,7 +369,7 @@ def test_an_env_var_name_with_a_trailing_newline_is_rejected(tmp_path: Path) -> 
 
 def test_pinned_env_var_names_are_held_to_the_required_pattern(tmp_path: Path) -> None:
     """``pinned`` names the same kind of thing as ``required``, one message per name."""
-    profile = _profile(name="x", env=EnvConfig(pinned=["OK_VAR", "not-a-var", "also bad"]))
+    profile = BuildProfile(name="x", env=EnvConfig(pinned=["OK_VAR", "not-a-var", "also bad"]))
     assert _errors(profile, tmp_path) == [
         "Invalid env.pinned var name: 'not-a-var'",
         "Invalid env.pinned var name: 'also bad'",
@@ -390,13 +378,13 @@ def test_pinned_env_var_names_are_held_to_the_required_pattern(tmp_path: Path) -
 
 def test_pinned_env_entries_that_are_not_strings_are_rejected(tmp_path: Path) -> None:
     """A YAML author who writes a bare number gets a name error, not a crash."""
-    profile = _profile(name="x", env=EnvConfig(pinned=[7]))  # type: ignore[list-item]
+    profile = BuildProfile(name="x", env=EnvConfig(pinned=[7]))  # type: ignore[list-item]
     assert _errors(profile, tmp_path) == ["Invalid env.pinned var name: 7"]
 
 
 def test_pinned_env_block_that_is_not_a_list_is_rejected(tmp_path: Path) -> None:
     """A scalar where a list belongs would otherwise validate character by character."""
-    profile = _profile(name="x", env=EnvConfig(pinned="OSPREY_TOKEN"))  # type: ignore[arg-type]
+    profile = BuildProfile(name="x", env=EnvConfig(pinned="OSPREY_TOKEN"))  # type: ignore[arg-type]
     assert _errors(profile, tmp_path) == ["env.pinned must be a list of env var names (got str)"]
 
 
@@ -423,7 +411,7 @@ def test_env_file_is_refused_as_an_unknown_key() -> None:
 
 def test_blank_and_non_string_dependencies_are_rejected(tmp_path: Path) -> None:
     """Each dependency must be a non-empty string spec."""
-    profile = _profile(name="x", dependencies=["numpy", "", 7])  # type: ignore[list-item]
+    profile = BuildProfile(name="x", dependencies=["numpy", "", 7])  # type: ignore[list-item]
     assert _errors(profile, tmp_path) == [
         "Dependency must be a non-empty string: ''",
         "Dependency must be a non-empty string: 7",
@@ -435,7 +423,7 @@ def test_blank_and_non_string_dependencies_are_rejected(tmp_path: Path) -> None:
 
 def test_invalid_requires_osprey_version_is_rejected(tmp_path: Path) -> None:
     """A non-PEP-440 specifier is caught at validate time, not at install time."""
-    profile = _profile(name="x", requires_osprey_version="latest")
+    profile = BuildProfile(name="x", requires_osprey_version="latest")
     (error,) = _errors(profile, tmp_path)
     assert error.startswith("Invalid requires_osprey_version specifier: 'latest'")
     assert "PEP 440" in error
@@ -443,7 +431,7 @@ def test_invalid_requires_osprey_version_is_rejected(tmp_path: Path) -> None:
 
 def test_valid_requires_osprey_version_validates(tmp_path: Path) -> None:
     """A PEP 440 specifier set passes."""
-    _profile(name="x", requires_osprey_version=">=0.12.0,<1.0").validate(tmp_path)
+    BuildProfile(name="x", requires_osprey_version=">=0.12.0,<1.0").validate(tmp_path)
 
 
 # --- default_panel / panel_presets membership -----------------------------
@@ -451,7 +439,7 @@ def test_valid_requires_osprey_version_validates(tmp_path: Path) -> None:
 
 def test_unknown_default_panel_is_rejected(tmp_path: Path) -> None:
     """A default_panel typo would silently fall back at runtime, so it fails here."""
-    profile = _profile(name="x", default_panel="areil")
+    profile = BuildProfile(name="x", default_panel="areil")
     (error,) = _errors(profile, tmp_path)
     assert error.startswith("Unknown default_panel 'areil'")
     assert "not in web_panels" in error
@@ -459,7 +447,7 @@ def test_unknown_default_panel_is_rejected(tmp_path: Path) -> None:
 
 def test_default_panel_declared_in_web_panels_is_known(tmp_path: Path) -> None:
     """A url-backed custom panel listed in web_panels is a valid default_panel."""
-    profile = _profile(
+    profile = BuildProfile(
         name="x",
         web_panels=["ops"],
         default_panel="ops",
@@ -472,14 +460,14 @@ def test_default_panel_declared_in_web_panels_is_known(tmp_path: Path) -> None:
 def test_default_panel_naming_a_selected_builtin_validates(tmp_path: Path) -> None:
     """A built-in panel id is accepted as default_panel once web_panels selects
     it — the selection is what shows the tab."""
-    _profile(name="x", web_panels=["ariel"], default_panel="ariel").validate(tmp_path)
+    BuildProfile(name="x", web_panels=["ariel"], default_panel="ariel").validate(tmp_path)
 
 
 def test_is_known_panel_id_means_a_tab_this_render_shows() -> None:
     """The shared membership predicate: selected, or universal — not merely
     built-in. A built-in the profile does not select renders no tab, so a
     ``default_panel`` naming it would fall back to the workspace silently."""
-    profile = _profile(name="x", web_panels=["okf"])
+    profile = BuildProfile(name="x", web_panels=["okf"])
     assert profile._is_known_panel_id("okf") is True
     assert profile._is_known_panel_id("artifacts") is True
     assert profile._is_known_panel_id("ariel") is False
@@ -487,7 +475,7 @@ def test_is_known_panel_id_means_a_tab_this_render_shows() -> None:
 
 
 def test_default_panel_naming_an_unselected_builtin_is_rejected(tmp_path: Path) -> None:
-    profile = _profile(name="x", web_panels=["okf"], default_panel="ariel")
+    profile = BuildProfile(name="x", web_panels=["okf"], default_panel="ariel")
     (error,) = _errors(profile, tmp_path)
     assert error.startswith("Unknown default_panel 'ariel'")
     assert "not in web_panels" in error
@@ -496,7 +484,7 @@ def test_default_panel_naming_an_unselected_builtin_is_rejected(tmp_path: Path) 
 def test_unknown_panel_presets_member_is_rejected(tmp_path: Path) -> None:
     """Preset members resolve through the same predicate as default_panel."""
     layout = {"split": "row", "items": [{"tabs": ["ariel"]}, {"tabs": ["areil"]}]}
-    profile = _profile(name="x", web_panels=["ariel"], panel_presets={"Ops": layout})
+    profile = BuildProfile(name="x", web_panels=["ariel"], panel_presets={"Ops": layout})
     (error,) = _errors(profile, tmp_path)
     assert error.startswith("Unknown panel_presets['Ops'] member 'areil'")
 
@@ -504,21 +492,23 @@ def test_unknown_panel_presets_member_is_rejected(tmp_path: Path) -> None:
 def test_an_authored_enabled_contradicting_the_selection_is_rejected(tmp_path: Path) -> None:
     """``web_panels`` is the selection; a ``config:`` line that says otherwise
     is two spellings of one fact disagreeing, refused like any other."""
-    profile = _profile(name="x", web_panels=["okf"], config={"web.panels.lattice.enabled": True})
+    profile = BuildProfile(
+        name="x", web_panels=["okf"], config={"web.panels.lattice.enabled": True}
+    )
     (error,) = _errors(profile, tmp_path)
     assert "web.panels.lattice.enabled: True" in error
     assert "not in web_panels" in error
 
 
 def test_an_authored_enabled_agreeing_with_the_selection_validates(tmp_path: Path) -> None:
-    _profile(name="x", web_panels=["okf"], config={"web.panels.okf.enabled": True}).validate(
+    BuildProfile(name="x", web_panels=["okf"], config={"web.panels.okf.enabled": True}).validate(
         tmp_path
     )
 
 
 def test_non_layout_panel_presets_entry_is_rejected(tmp_path: Path) -> None:
     """A preset whose value is not a layout is reported once and skipped."""
-    profile = _parse_profile({"name": "x", "data": "data", "panel_presets": {"Ops": "ariel"}})
+    profile = _parse_profile({"name": "x", "panel_presets": {"Ops": "ariel"}})
     assert _errors(profile, tmp_path) == [
         "panel_presets['Ops'] must be a layout: a tile {tabs: [<panel id>]} or a split "
         "{split: row|column, items: [...]} (got str)"
@@ -527,7 +517,7 @@ def test_non_layout_panel_presets_entry_is_rejected(tmp_path: Path) -> None:
 
 def test_old_list_panel_presets_entry_is_rejected_with_its_rewrite(tmp_path: Path) -> None:
     """The retired list form is one error that spells the layout to write instead."""
-    profile = _parse_profile({"name": "x", "data": "data", "panel_presets": {"Ops": ["artifacts"]}})
+    profile = _parse_profile({"name": "x", "panel_presets": {"Ops": ["artifacts"]}})
     assert _errors(profile, tmp_path) == [
         "panel_presets['Ops'] is the retired list-of-panel-ids form; rewrite it as a layout, "
         "e.g. 'Ops': {tabs: [artifacts]}"
@@ -536,7 +526,7 @@ def test_old_list_panel_presets_entry_is_rejected_with_its_rewrite(tmp_path: Pat
 
 def test_a_preset_tile_naming_two_panels_is_one_error_that_says_where(tmp_path: Path) -> None:
     """One panel per tile is refused at build time, before membership is judged."""
-    profile = _profile(
+    profile = BuildProfile(
         name="x", web_panels=["ariel"], panel_presets={"Ops": {"tabs": ["ariel", "areil"]}}
     )
     assert _errors(profile, tmp_path) == [
@@ -564,15 +554,13 @@ _RETIRED = "artifact_server.categories is retired; declare artifact_server.exten
 def test_any_categories_block_is_refused_as_retired(tmp_path: Path, categories) -> None:
     """Categories are retired: every ``categories`` block, well-formed or not,
     gets the one migration message and nothing about its contents."""
-    profile = _parse_profile(
-        {"name": "x", "data": "data", "artifact_server": {"categories": categories}}
-    )
+    profile = _parse_profile({"name": "x", "artifact_server": {"categories": categories}})
     assert _errors(profile, tmp_path) == [_RETIRED]
 
 
 def test_artifact_server_unknown_subkey_rejected(tmp_path: Path) -> None:
     """Only host/port/auto_launch/extension_types are supported under artifact_server."""
-    profile = _profile(name="x", artifact_server={"prot": "http"})
+    profile = BuildProfile(name="x", artifact_server={"prot": "http"})
     assert _errors(profile, tmp_path) == [
         "artifact_server.prot is not a supported key "
         "(must be one of ['auto_launch', 'extension_types', 'host', 'port'])"
@@ -581,7 +569,7 @@ def test_artifact_server_unknown_subkey_rejected(tmp_path: Path) -> None:
 
 def test_artifact_server_scalar_overrides_validate(tmp_path: Path) -> None:
     """host/port/auto_launch overrides pass through validation."""
-    _profile(
+    BuildProfile(
         name="x", artifact_server={"host": "0.0.0.0", "port": 9086, "auto_launch": False}
     ).validate(tmp_path)
 
@@ -592,7 +580,7 @@ def test_artifact_server_scalar_overrides_validate(tmp_path: Path) -> None:
 def test_dispatch_port_bounds_are_rejected(tmp_path: Path) -> None:
     """dispatcher_port and worker_port_base must be inside the TCP port range."""
     triggers = _write_triggers(tmp_path)
-    profile = _profile(
+    profile = BuildProfile(
         name="x",
         dispatch=DispatchConfig(triggers=triggers, dispatcher_port=0, worker_port_base=70000),
     )
@@ -605,7 +593,7 @@ def test_dispatch_port_bounds_are_rejected(tmp_path: Path) -> None:
 def test_dispatch_queue_and_timeout_bounds_are_rejected(tmp_path: Path) -> None:
     """The concurrency, queue-depth and timeout knobs all reject non-positive values."""
     triggers = _write_triggers(tmp_path)
-    profile = _profile(
+    profile = BuildProfile(
         name="x",
         dispatch=DispatchConfig(
             triggers=triggers,
@@ -626,19 +614,19 @@ def test_dispatch_queue_and_timeout_bounds_are_rejected(tmp_path: Path) -> None:
 
 def test_bluesky_port_out_of_range_is_rejected(tmp_path: Path) -> None:
     """The bridge port must be a usable TCP port."""
-    profile = _profile(name="x", bluesky=BlueskyConfig(port=0))
+    profile = BuildProfile(name="x", bluesky=BlueskyConfig(port=0))
     assert _errors(profile, tmp_path) == ["bluesky.port must be in 1..65535 (got 0)"]
 
 
 def test_bluesky_tiled_port_out_of_range_is_rejected(tmp_path: Path) -> None:
     """The tiled port is only checked when tiled is enabled."""
-    profile = _profile(name="x", bluesky=BlueskyConfig(tiled_enabled=True, tiled_port=70000))
+    profile = BuildProfile(name="x", bluesky=BlueskyConfig(tiled_enabled=True, tiled_port=70000))
     assert _errors(profile, tmp_path) == ["bluesky.tiled_port must be in 1..65535 (got 70000)"]
 
 
 def test_bluesky_tiled_port_colliding_with_bridge_port_is_rejected(tmp_path: Path) -> None:
     """Tiled and the bridge cannot bind the same port in one container."""
-    profile = _profile(
+    profile = BuildProfile(
         name="x", bluesky=BlueskyConfig(port=10080, tiled_enabled=True, tiled_port=10080)
     )
     assert _errors(profile, tmp_path) == [
@@ -648,7 +636,7 @@ def test_bluesky_tiled_port_colliding_with_bridge_port_is_rejected(tmp_path: Pat
 
 def test_out_of_range_tiled_port_is_ignored_when_tiled_disabled(tmp_path: Path) -> None:
     """With tiled disabled the tiled_port value is inert."""
-    _profile(name="x", bluesky=BlueskyConfig(tiled_port=70000)).validate(tmp_path)
+    BuildProfile(name="x", bluesky=BlueskyConfig(tiled_port=70000)).validate(tmp_path)
 
 
 # --- bluesky.external (external-worker mode) --------------------------------
@@ -666,24 +654,26 @@ def _external(**overrides: object) -> BlueskyExternalConfig:
 
 def test_external_with_a_valid_plaintext_block_validates(tmp_path: Path) -> None:
     """Address plus the explicit plaintext acknowledgment is a complete block."""
-    _profile(name="x", bluesky=BlueskyConfig(external=_external())).validate(tmp_path)
+    BuildProfile(name="x", bluesky=BlueskyConfig(external=_external())).validate(tmp_path)
 
 
 def test_external_refuses_second_lane(tmp_path: Path) -> None:
     """An external lane fronts exactly one facility manager."""
-    profile = _profile(name="x", bluesky=BlueskyConfig(second_lane=True, external=_external()))
+    profile = BuildProfile(name="x", bluesky=BlueskyConfig(second_lane=True, external=_external()))
     assert any("mutually exclusive" in e for e in _errors(profile, tmp_path))
 
 
 def test_external_refuses_a_deployed_tiled(tmp_path: Path) -> None:
     """The facility's Tiled is named with tiled_uri, not deployed beside it."""
-    profile = _profile(name="x", bluesky=BlueskyConfig(tiled_enabled=True, external=_external()))
+    profile = BuildProfile(
+        name="x", bluesky=BlueskyConfig(tiled_enabled=True, external=_external())
+    )
     assert any("bluesky.external.tiled_uri" in e for e in _errors(profile, tmp_path))
 
 
 def test_external_requires_a_tcp_control_address(tmp_path: Path) -> None:
     """The manager address is the whole point of the block."""
-    profile = _profile(
+    profile = BuildProfile(
         name="x", bluesky=BlueskyConfig(external=_external(zmq_control_addr="qserver-host:60615"))
     )
     assert any("tcp://" in e for e in _errors(profile, tmp_path))
@@ -691,7 +681,7 @@ def test_external_requires_a_tcp_control_address(tmp_path: Path) -> None:
 
 def test_external_without_key_or_acknowledgment_is_refused(tmp_path: Path) -> None:
     """Silence about transport security is never read as plaintext consent."""
-    profile = _profile(
+    profile = BuildProfile(
         name="x",
         bluesky=BlueskyConfig(external=_external(insecure_plaintext=False)),
     )
@@ -700,7 +690,7 @@ def test_external_without_key_or_acknowledgment_is_refused(tmp_path: Path) -> No
 
 def test_external_key_env_must_be_a_variable_name(tmp_path: Path) -> None:
     """The key rides in .env under an operator-named variable, so the name must be one."""
-    profile = _profile(
+    profile = BuildProfile(
         name="x",
         bluesky=BlueskyConfig(
             external=_external(insecure_plaintext=False, zmq_public_key_env="not a var!")
@@ -711,7 +701,7 @@ def test_external_key_env_must_be_a_variable_name(tmp_path: Path) -> None:
 
 def test_external_tiled_key_without_a_tiled_uri_is_refused(tmp_path: Path) -> None:
     """A key for a Tiled the profile never dials is a latent misconfiguration."""
-    profile = _profile(
+    profile = BuildProfile(
         name="x",
         bluesky=BlueskyConfig(external=_external(tiled_api_key_env="FACILITY_TILED_API_KEY")),
     )
@@ -720,7 +710,7 @@ def test_external_tiled_key_without_a_tiled_uri_is_refused(tmp_path: Path) -> No
 
 def test_virtual_accelerator_port_out_of_range_is_rejected(tmp_path: Path) -> None:
     """The soft-IOC Channel Access port must be a usable TCP port."""
-    profile = _profile(name="x", virtual_accelerator=VAConfig(port=0))
+    profile = BuildProfile(name="x", virtual_accelerator=VAConfig(port=0))
     assert _errors(profile, tmp_path) == ["virtual_accelerator.port must be in 1..65535 (got 0)"]
 
 
@@ -729,7 +719,9 @@ def test_virtual_accelerator_port_out_of_range_is_rejected(tmp_path: Path) -> No
 
 def test_graph_mode_on_a_store_deploying_profile_validates(tmp_path: Path) -> None:
     """A profile that spells a ``services.graphdb`` block needs nothing else."""
-    _profile(name="x", channel_finder_mode="graph", config=dict(DEPLOYS_GRAPHDB)).validate(tmp_path)
+    BuildProfile(name="x", channel_finder_mode="graph", config=dict(DEPLOYS_GRAPHDB)).validate(
+        tmp_path
+    )
 
 
 def test_graph_mode_with_no_store_spelled_is_rejected(tmp_path: Path) -> None:
@@ -741,7 +733,7 @@ def test_graph_mode_with_no_store_spelled_is_rejected(tmp_path: Path) -> None:
     keys under `config:` — because that is now the only place a store can come
     from.
     """
-    profile = _profile(name="x", channel_finder_mode="graph")
+    profile = BuildProfile(name="x", channel_finder_mode="graph")
     (error,) = _errors(profile, tmp_path)
     assert "channel_finder_mode: graph" in error
     assert "services.graphdb" in error
@@ -755,7 +747,7 @@ def test_graph_mode_with_an_external_store_uri_validates(tmp_path: Path) -> None
     app template omits, so a storeless template plus an external store passes —
     no local Neo4j is deployed and none is required.
     """
-    profile = _profile(
+    profile = BuildProfile(
         name="x",
         channel_finder_mode="graph",
         config={
@@ -779,7 +771,7 @@ def test_graph_mode_on_an_attached_project_follows_its_hosting_profile(tmp_path:
     """
     assert (
         _graph_errors(
-            _profile(
+            BuildProfile(
                 name="x",
                 channel_finder_mode="graph",
                 deploy_services=False,
@@ -789,7 +781,7 @@ def test_graph_mode_on_an_attached_project_follows_its_hosting_profile(tmp_path:
         )
         == []
     )
-    profile = _profile(name="x", channel_finder_mode="graph", deploy_services=False)
+    profile = BuildProfile(name="x", channel_finder_mode="graph", deploy_services=False)
     (error,) = _graph_errors(profile, tmp_path)
     assert "services.graphdb" in error
     assert "deploy_services: false" in error
@@ -799,7 +791,7 @@ def test_graph_mode_on_an_attached_project_with_an_external_store_validates(
     tmp_path: Path,
 ) -> None:
     """An attached project reaches a shared stack's store by naming its uri."""
-    profile = _profile(
+    profile = BuildProfile(
         name="x",
         channel_finder_mode="graph",
         deploy_services=False,
@@ -810,14 +802,14 @@ def test_graph_mode_on_an_attached_project_with_an_external_store_validates(
 
 def test_a_whole_block_graphdb_override_is_rejected(tmp_path: Path) -> None:
     """Neither `{}` nor a bare null removes the store — deleting the keys does."""
-    profile = _profile(name="x", channel_finder_mode="graph", config={"services.graphdb": None})
+    profile = BuildProfile(name="x", channel_finder_mode="graph", config={"services.graphdb": None})
     errors = _graph_errors(profile, tmp_path)
     assert any("delete" in e.lower() and "deployed_services" in e for e in errors)
 
 
 def test_graph_mode_with_a_profile_declared_graph_service_validates(tmp_path: Path) -> None:
     """A profile that declares the service itself carries the block into the render."""
-    profile = _profile(
+    profile = BuildProfile(
         name="x",
         channel_finder_mode="graph",
         services={"graphdb": ServiceDef(template="osprey.graphdb")},
@@ -833,7 +825,7 @@ def test_a_malformed_graph_store_override_is_not_reported_as_a_missing_block(
     The resolver raises about the port where it can be acted on — the deploy
     preflight — so this validator must not turn that into "no block at all".
     """
-    profile = _profile(
+    profile = BuildProfile(
         name="x",
         channel_finder_mode="graph",
         config={"services.graphdb.port_host": "not-a-port"},
@@ -844,7 +836,7 @@ def test_a_malformed_graph_store_override_is_not_reported_as_a_missing_block(
 def test_non_graph_modes_need_no_graph_store(tmp_path: Path) -> None:
     """The prerequisite belongs to graph alone; the file-database paradigms pass."""
     for mode in ("in_context", "hierarchical", "middle_layer", None):
-        _profile(name="x", channel_finder_mode=mode).validate(tmp_path)
+        BuildProfile(name="x", channel_finder_mode=mode).validate(tmp_path)
 
 
 def test_graph_mode_skips_the_store_rule_when_the_channel_finder_is_off(
@@ -863,7 +855,7 @@ def test_graph_mode_skips_the_store_rule_when_the_channel_finder_is_off(
     nested = {"claude_code": {"servers": {"channel-finder": {"enabled": False}}}}
     mixed = {"claude_code.servers": {"channel-finder": {"enabled": False}}}
     for overlay in (dotted, nested, mixed):
-        profile = _profile(
+        profile = BuildProfile(
             name="x",
             channel_finder_mode="graph",
             deploy_services=False,
@@ -887,7 +879,7 @@ def test_graph_mode_still_needs_a_store_when_the_channel_finder_is_on(
         {"claude_code": {"servers": {"channel-finder": {"enabled": True}}}},
         {"claude_code.servers.controls.enabled": False},
     ):
-        profile = _profile(
+        profile = BuildProfile(
             name="x",
             channel_finder_mode="graph",
             deploy_services=False,
@@ -913,7 +905,7 @@ def _qmd_errors(profile: BuildProfile, profile_dir: Path) -> list[str]:
 
 def test_hybrid_search_on_a_sidecar_deploying_profile_validates(tmp_path: Path) -> None:
     """A profile that spells both the module and a ``services.qmd`` block passes."""
-    _profile(name="x", config={**HYBRID_SEARCH_ON, **DEPLOYS_QMD}).validate(tmp_path)
+    BuildProfile(name="x", config={**HYBRID_SEARCH_ON, **DEPLOYS_QMD}).validate(tmp_path)
 
 
 def test_hybrid_search_on_an_attached_project_follows_its_hosting_profile(
@@ -930,10 +922,10 @@ def test_hybrid_search_on_an_attached_project_follows_its_hosting_profile(
     the render, an attached profile built with no host to be told by
     (``reach_errors``, on the config it actually wrote).
     """
-    _profile(name="x", deploy_services=False, config={**HYBRID_SEARCH_ON, **DEPLOYS_QMD}).validate(
-        tmp_path
-    )
-    profile = _profile(
+    BuildProfile(
+        name="x", deploy_services=False, config={**HYBRID_SEARCH_ON, **DEPLOYS_QMD}
+    ).validate(tmp_path)
+    profile = BuildProfile(
         name="x", deploy_services=False, config={**HYBRID_SEARCH_ON, "services.qmd": None}
     )
     (error,) = _qmd_errors(profile, tmp_path)
@@ -946,7 +938,7 @@ def test_hybrid_search_on_an_attached_project_with_the_sidecar_port_validates(
     tmp_path: Path,
 ) -> None:
     """An attached project with no host names a shared stack's sidecar itself."""
-    profile = _profile(
+    profile = BuildProfile(
         name="x", deploy_services=False, config={**HYBRID_SEARCH_ON, "services.qmd.port": 8180}
     )
     profile.validate(tmp_path)
@@ -962,7 +954,7 @@ def test_hybrid_search_needs_the_module_spelled_on(tmp_path: Path) -> None:
     dotted = {"ariel.search_modules.hybrid.enabled": False}
     nested = {"ariel": {"search_modules": {"hybrid": {"enabled": False}}}}
     for overlay in ({}, dotted, nested):
-        _profile(name="x", deploy_services=False, config=overlay).validate(tmp_path)
+        BuildProfile(name="x", deploy_services=False, config=overlay).validate(tmp_path)
 
 
 def test_hybrid_search_with_the_sidecar_block_overridden_away_is_rejected(
@@ -974,7 +966,7 @@ def test_hybrid_search_with_the_sidecar_block_overridden_away_is_rejected(
     ``deployed_services`` entry AND the two ariel modules together; dropping
     the block alone leaves hybrid search enabled with nothing behind it.
     """
-    profile = _profile(name="x", config={**HYBRID_SEARCH_ON, "services.qmd": None})
+    profile = BuildProfile(name="x", config={**HYBRID_SEARCH_ON, "services.qmd": None})
     (error,) = _qmd_errors(profile, tmp_path)
     assert "ariel.search_modules.hybrid" in error
 
@@ -983,7 +975,7 @@ def test_hybrid_search_with_the_sidecar_block_and_the_module_dropped_together_va
     tmp_path: Path,
 ) -> None:
     """Dropping the block together with the module is the supported no-sidecar path."""
-    _profile(
+    BuildProfile(
         name="x",
         config={"services.qmd": None, "ariel.search_modules.hybrid.enabled": False},
     ).validate(tmp_path)
@@ -997,7 +989,7 @@ def test_a_malformed_sidecar_port_override_is_not_reported_as_a_missing_block(
     The resolver raises about the port where it can be acted on — the deploy
     preflight — so this validator must not turn that into "no block at all".
     """
-    _profile(
+    BuildProfile(
         name="x",
         deploy_services=False,
         config={**HYBRID_SEARCH_ON, "services.qmd.port": "not-a-port"},
@@ -1006,8 +998,8 @@ def test_a_malformed_sidecar_port_override_is_not_reported_as_a_missing_block(
 
 def test_a_profile_without_ariel_needs_no_sidecar(tmp_path: Path) -> None:
     """The prerequisite belongs to the hybrid module; a profile with no ARIEL passes."""
-    _profile(name="x").validate(tmp_path)
-    _profile(name="x", deploy_services=False).validate(tmp_path)
+    BuildProfile(name="x").validate(tmp_path)
+    BuildProfile(name="x", deploy_services=False).validate(tmp_path)
 
 
 # ---------------------------------------------------------------------------
@@ -1158,10 +1150,9 @@ def _build_with_config(tmp_path: Path, config: dict[str, Any], name: str) -> Res
 
     repo = tmp_path / name
     repo.mkdir()
-    (repo / "data").mkdir()
     (repo / "profile.yml").write_text(
         yaml.safe_dump(
-            {"name": "Demo Facility", "project_name": name, "data": "data", "config": config},
+            {"name": "Demo Facility", "project_name": name, "config": config},
             sort_keys=False,
         ),
         encoding="utf-8",
@@ -1221,7 +1212,7 @@ def test_build_passes_a_complete_per_type_limits_block(tmp_path: Path) -> None:
 def test_external_parameter_schema_key_must_name_plan_and_parameter(tmp_path: Path) -> None:
     """A key that cannot match a plans_allowed entry is refused at build time."""
     (tmp_path / "s.json").write_text("{}")
-    profile = _profile(
+    profile = BuildProfile(
         name="x",
         bluesky=BlueskyConfig(external=_external(parameter_schemas={"notakey": "s.json"})),
     )
@@ -1231,7 +1222,7 @@ def test_external_parameter_schema_key_must_name_plan_and_parameter(tmp_path: Pa
 def test_external_parameter_schema_file_must_exist_and_parse(tmp_path: Path) -> None:
     """Missing or malformed artifacts fail the build, not the first catalog fetch."""
     (tmp_path / "bad.json").write_text("not json")
-    profile = _profile(
+    profile = BuildProfile(
         name="x",
         bluesky=BlueskyConfig(
             external=_external(
@@ -1249,7 +1240,7 @@ def test_external_parameter_schema_file_must_exist_and_parse(tmp_path: Path) -> 
 
 def test_external_parameter_schema_valid_file_passes(tmp_path: Path) -> None:
     (tmp_path / "s.json").write_text('{"title": "ScanRequest", "type": "object"}')
-    _profile(
+    BuildProfile(
         name="x",
         bluesky=BlueskyConfig(
             external=_external(parameter_schemas={"scan_request_plan.request": "s.json"})

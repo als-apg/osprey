@@ -13,6 +13,7 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
+from osprey.repo_layout import watchdogs_source_dir
 from osprey.services.watchdog.config import WATCHDOGS_BLOCK
 
 
@@ -42,7 +43,8 @@ def copy_enabled_watchdogs(block: Any, profile_dir: Path, render_dir: Path) -> l
     Args:
         block: The profile's ``watchdogs:`` map, already validated, which is what
             holds each enabled watchdog's directory to existing.
-        profile_dir: The directory holding ``watchdogs/<name>/``.
+        profile_dir: The profile's root; the watchdogs are read from its
+            declared watchdogs source directory.
         render_dir: The render, which gets ``watchdogs/<name>/``.
 
     Returns:
@@ -53,5 +55,5 @@ def copy_enabled_watchdogs(block: Any, profile_dir: Path, render_dir: Path) -> l
         shutil.rmtree(target)
     names = list(enabled_watchdogs(block))
     for name in names:
-        shutil.copytree(profile_dir / WATCHDOGS_BLOCK / name, target / name)
+        shutil.copytree(watchdogs_source_dir(profile_dir) / name, target / name)
     return names

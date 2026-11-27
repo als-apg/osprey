@@ -6,13 +6,17 @@ import asyncio
 import hashlib
 import json
 import os
+import shutil
 from pathlib import Path
 
 import httpx
 
+from osprey import repo_layout
 from osprey.build.manifest import MANIFEST_FILENAME
 from osprey.health.core.service_capabilities import service_capabilities
 from osprey.health.models import Status
+from osprey_connectors.workspace import BUILD_DIR_NAME
+from osprey_facility import source_tree
 
 _NOW = 1_800_000_000.0
 _BLUESKY = {"services": {"bluesky": {"port": 10080}}}
@@ -159,6 +163,35 @@ def test_an_edited_bundle_differs_from_the_render(tmp_path):
     assert bundle.status is Status.WARNING
     assert bundle.value.endswith("· 1 file differs from render")
     assert bundle.fix == "osprey build"
+
+
+def _deployed(tmp_path: Path) -> tuple[Path, Path, dict]:
+    """A deployment repo whose bundle is in the facility tree, built: bundle, render, config."""
+    facility = repo_layout.entry("facility")
+    assert facility.render is not None and facility.render != facility.path
+    knowledge = source_tree.path("knowledge")
+    render = tmp_path / BUILD_DIR_NAME
+    copied = _bundle(render).rename(render / "copied")
+    (render / facility.render).mkdir(parents=True)
+    copied.rename(render / facility.render / knowledge)
+    _stamp(render)
+    bundle = tmp_path / facility.path / knowledge
+    shutil.copytree(render / facility.render / knowledge, bundle)
+    return bundle, render, {"facility_knowledge": {"bundle_path": f"{facility.path}/{knowledge}"}}
+
+
+def test_a_bundle_in_the_facility_tree_matches_the_renders_copy(tmp_path):
+    """The build copies the facility tree into the render under the render's
+    own name for it, and the bundle is compared with that copy."""
+    bundle, render, config = _deployed(tmp_path)
+
+    assert _rows(config, cwd=render)["okf.bundle"].value.endswith(" = render")
+
+    (bundle / "devices" / "rf.md").write_text("---\ntype: Device\n---\n\n# RF edited\n")
+    edited = _rows(config, cwd=render)["okf.bundle"]
+
+    assert edited.status is Status.WARNING
+    assert edited.value.endswith("· 1 file differs from render")
 
 
 def test_a_bundle_without_a_manifest_reports_its_digest(tmp_path):

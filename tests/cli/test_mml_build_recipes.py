@@ -88,7 +88,7 @@ SERVED_MODELS_FILE = "served_models.json"
 
 #: The facility description of a deployment, and the limits file an import
 #: seeds into it, both relative to the repo.
-FACILITY_DIR = "data/facility"
+FACILITY_DIR = "facility"
 FACILITY_LIMITS = f"{FACILITY_DIR}/limits.yaml"
 
 #: The line a build stage prints for a setpoint that starts outside its band:
@@ -191,7 +191,7 @@ def apply_seed_invalid_remedies(
 
     ``osprey facility validate`` runs the build's own stages and writes nothing,
     so its stderr is where the stops are read. Each line names one address, and
-    exactly that record of the deployment's ``data/facility/limits.yaml`` is
+    exactly that record of the deployment's ``facility/limits.yaml`` is
     widened to hold the nominal the line states. After a widening the verb runs
     once more, render included; a run with no stop is already the clean run. The
     clean run must print the tree's build warnings and response-check
@@ -522,7 +522,7 @@ class TestTheFacilityImportOfATwoZeroExport:
     ) -> None:
         """One line, and the preset's records are gone.
 
-        The preset's ``classes.yaml`` goes with the rest of the bundled
+        The preset's ``vocabulary/classes.yaml`` goes with the rest of the bundled
         facility, and the import seeds the tree's own classes in its place, so
         the build reaches the limits records rather than stopping on a class
         nothing declares.
@@ -542,9 +542,9 @@ class TestTheFacilityImportOfATwoZeroExport:
             lines[0] == f"import mml: replaced the bundled example facility ({len(packaged)} files)"
         )
         assert not (facility / "records").exists()
-        assert (PACKAGED_FACILITY / "classes.yaml").is_file()
-        assert (facility / "classes.yaml").read_text(encoding="utf-8") != (
-            PACKAGED_FACILITY / "classes.yaml"
+        assert (PACKAGED_FACILITY / "vocabulary" / "classes.yaml").is_file()
+        assert (facility / "vocabulary" / "classes.yaml").read_text(encoding="utf-8") != (
+            PACKAGED_FACILITY / "vocabulary" / "classes.yaml"
         ).read_text(encoding="utf-8")
         assert (facility / "imported" / "mml" / "channels.yaml").is_file()
 
@@ -641,7 +641,7 @@ class TestTheBandsOfAHarvestedTree:
     def test_the_served_bands_are_the_facility_limits_records(self, served_repo: dict) -> None:
         """What the container reads is the limits view of the facility description.
 
-        The build writes ``channel_limits.json`` from ``data/facility/limits.yaml``,
+        The build writes ``channel_limits.json`` from ``facility/limits.yaml``,
         so the bands are the records the import seeded and the remedy widened: one entry per
         record, with that record's bounds, and no entry the records do not hold.
         """

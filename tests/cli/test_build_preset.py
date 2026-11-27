@@ -29,27 +29,29 @@ import pytest
 import yaml
 from click.testing import CliRunner, Result
 
+from osprey import repo_layout
 from osprey.cli.build_profile import list_presets, resolve_build_profile
 from osprey.cli.build_profile_presets import _presets_dir, resolve_service_template
 from osprey.cli.init_cmd import init
 from osprey.utils.workspace import TIERS_DIRNAME
 from osprey_connectors.errors import BuildProfileError
 from tests._builds import BuiltProject
-from tests._preset_data import copy_bundle_data
+from tests._preset_data import bundle_source_root
 from tests._retired_layout import RETIRED_LAYER_DIRNAME
 from tests.cli._lifecycle_build import invoke_build
 
 
 def _facility_data(root: Path, bundle: str = "hello_world") -> Path:
-    """Lay down the facility data tree beside a fixture profile.
+    """Lay down the sources ``osprey init`` materializes from the preset's bundle.
 
-    ``osprey init`` materializes this tree from the preset's bundle and writes
-    ``data: data`` into the profile it emits. A hand-written fixture profile
-    has to do the same: ``data:`` is required, must resolve to a real
-    directory, and a preset that reads a channel-limits database or a knowledge
-    zone out of it needs the packaged content, not an empty directory.
+    A preset that reads a channel-limits database or a knowledge zone out of
+    the facility tree needs the packaged content, not an empty directory.
+
+    Returns:
+        The facility tree under *root*.
     """
-    return copy_bundle_data(root / "data", bundle)
+    shutil.copytree(bundle_source_root(bundle), root, dirs_exist_ok=True)
+    return root / repo_layout.entry("facility").path
 
 
 #: The keys every deployment must state, for fixtures that build a profile of
@@ -343,7 +345,7 @@ def test_unknown_profile_key_fails_the_build(
     profile.write_text(
         "name: TypoTest\n"
         "extends: hello-world\n"
-        "data: data\n"
+        ""
         "provider: anthropic\n"
         "mcp_server: {}\n"  # typo of mcp_servers
         "permission: []\n"  # typo of permissions
@@ -485,7 +487,7 @@ def _profile_extending_demo(directory: Path) -> Path:
     profile.write_text(
         "name: Narrowed\n"
         "extends: demo\n"
-        "data: data\n"
+        ""
         "config:\n"
         "  claude_code.permissions.deny: [mcp__osprey_facility_knowledge__draft_concept]\n",
         encoding="utf-8",
@@ -568,7 +570,7 @@ def test_profile_mcp_servers_persisted_to_config(tmp_path: Path) -> None:
         "name: McpTest\n"
         "project_name: repo\n"
         "extends: hello-world\n"
-        "data: data\n"
+        ""
         "provider: anthropic\n"
         "mcp_servers:\n"
         "  echo:\n"
@@ -663,7 +665,7 @@ def test_profile_extension_types_persisted_to_config(tmp_path: Path) -> None:
         "name: ExtTest\n"
         "project_name: repo\n"
         "extends: hello-world\n"
-        "data: data\n"
+        ""
         "provider: anthropic\n"
         "artifact_server:\n"
         "  extension_types:\n"
@@ -689,12 +691,14 @@ def test_profile_md_files_registered_as_user_owned(tmp_path: Path) -> None:
     manifest, so a later `osprey build` treats them as the operator's
     and never overwrites them."""
     profile_dir = tmp_path / "repo"
-    (profile_dir / "rules").mkdir(parents=True)
-    (profile_dir / "rules" / "extra.md").write_text("# Custom rule\nuser-defined content\n")
+    (profile_dir / "agent" / "rules").mkdir(parents=True)
+    (profile_dir / "agent" / "rules" / "extra.md").write_text(
+        "# Custom rule\nuser-defined content\n"
+    )
     _facility_data(profile_dir)
     profile = profile_dir / "profile.yml"
     profile.write_text(
-        "extends: hello-world\nname: ConventionTest\nproject_name: repo\ndata: data\n"
+        "extends: hello-world\nname: ConventionTest\nproject_name: repo\n"
         "provider: anthropic\nrules: [rules/extra]\n"
     )
     result = _render_from(str(profile))
@@ -717,7 +721,7 @@ def test_extends_missing_base_aborts(tmp_path: Path, caplog: pytest.LogCaptureFi
     """A profile's `extends` pointing at a missing file produces a clear error,
     not a stack trace, when the build resolves it."""
     profile = tmp_path / "profile.yml"
-    profile.write_text("name: Orphan\nextends: ./does-not-exist.yml\ndata: data\n")
+    profile.write_text("name: Orphan\nextends: ./does-not-exist.yml\n")
     with caplog.at_level(logging.WARNING):
         result = _render_from(str(profile))
     assert result.exit_code != 0
@@ -729,8 +733,8 @@ def test_extends_cycle_detected(tmp_path: Path, caplog: pytest.LogCaptureFixture
     than recursing until the stack gives out."""
     a = tmp_path / "profile.yml"
     b = tmp_path / "b.yml"
-    a.write_text("name: A\nextends: ./b.yml\ndata: data\n")
-    b.write_text("name: B\nextends: ./profile.yml\ndata: data\n")
+    a.write_text("name: A\nextends: ./b.yml\n")
+    b.write_text("name: B\nextends: ./profile.yml\n")
     with caplog.at_level(logging.WARNING):
         result = _render_from(str(a))
     assert result.exit_code != 0
@@ -926,9 +930,7 @@ class TestBuildProfileChannelFinderModeValidation:
             # The graph paradigm answers from a store the profile declares, so
             # its profile has to spell one; the others need no `config:` block.
             config = {"services.graphdb.path": "./services/graphdb"} if mode == "graph" else {}
-            BuildProfile(name="t", data="data", channel_finder_mode=mode, config=config).validate(
-                tmp_path
-            )
+            BuildProfile(name="t", channel_finder_mode=mode, config=config).validate(tmp_path)
 
     def test_validate_accepts_none_channel_finder_mode(self, tmp_path: Path) -> None:
         """None is valid at the profile level — manager.py raises only if
@@ -936,7 +938,7 @@ class TestBuildProfileChannelFinderModeValidation:
         from osprey.cli.build_profile import BuildProfile
 
         (tmp_path / "data").mkdir(exist_ok=True)
-        BuildProfile(name="t", data="data", channel_finder_mode=None).validate(tmp_path)
+        BuildProfile(name="t", channel_finder_mode=None).validate(tmp_path)
 
 
 class TestMirroredLogbookSeedNotMutated:
@@ -952,7 +954,7 @@ class TestMirroredLogbookSeedNotMutated:
         import json
 
         profile_dir = tmp_path / "repo"
-        (profile_dir / "project" / "data" / "logbook_seed").mkdir(parents=True)
+        (profile_dir / "ops" / "project" / "data" / "logbook_seed").mkdir(parents=True)
         seed = {
             "entries": [
                 {"id": "T-001", "when": {"days_ago": 7, "time": "08:15:00"}, "text": "older entry"},
@@ -965,12 +967,12 @@ class TestMirroredLogbookSeedNotMutated:
         }
         _facility_data(profile_dir)
         seed_text = json.dumps(seed)
-        (profile_dir / "project" / "data" / "logbook_seed" / "demo_logbook.json").write_text(
-            seed_text
-        )
+        (
+            profile_dir / "ops" / "project" / "data" / "logbook_seed" / "demo_logbook.json"
+        ).write_text(seed_text)
         profile = profile_dir / "profile.yml"
         profile.write_text(
-            "extends: hello-world\nname: SeedVerbatim\nproject_name: repo\ndata: data\n"
+            "extends: hello-world\nname: SeedVerbatim\nproject_name: repo\n"
             "provider: anthropic\nmodel: claude-haiku-4-5\n"
         )
 
@@ -1007,7 +1009,7 @@ class TestDeployServicesKnob:
         "name: Attachment Test\n"
         "project_name: smoke\n"
         "extends: demo\n"
-        "data: data\n"
+        ""
         "va_archiver: null\n"
         "provider: anthropic\n"
         "model: claude-haiku-4-5\n"
@@ -1030,7 +1032,9 @@ class TestDeployServicesKnob:
         # profile and the deploy binds into every entitled container. A bare
         # profile without it is refused by the Reach Contract (the bind source
         # would be an empty directory), and this class is about the knob.
-        (profile.parent / "data" / "facility" / "knowledge").mkdir(parents=True, exist_ok=True)
+        (profile.parent / repo_layout.entry("facility").path / "knowledge").mkdir(
+            parents=True, exist_ok=True
+        )
         # The logins the inherited roster names, which `osprey init` copies
         # beside the profile from the bundled layer presets.
         shutil.copytree(_presets_dir() / "tiers", profile.parent / "tiers")
@@ -1192,11 +1196,13 @@ def test_layer_delta_build_resolves_from_the_profile_root(tmp_path: Path) -> Non
     everything it names anchors at the ROOT, not at the delta's own parent."""
     root = tmp_path / "prof"
     (root / TIERS_DIRNAME).mkdir(parents=True)
-    copy_bundle_data(root / "data", "hello_world")
-    (root / "data" / "FACILITY_MARKER.txt").write_text("from the root\n")
+    shutil.copytree(bundle_source_root("hello_world"), root, dirs_exist_ok=True)
+    (root / repo_layout.entry("facility").path / "FACILITY_MARKER.txt").write_text(
+        "from the root\n"
+    )
     (root / "profile.yml").write_text(
         "name: RootProfile\nproject_name: prof\nextends: hello-world\nprovider: anthropic\n"
-        "model: claude-sonnet-5\ndata: data\n"
+        "model: claude-sonnet-5\n"
     )
     (root / TIERS_DIRNAME / "readonly.yml").write_text("name: ReadOnly\nmodel: claude-haiku-4-5\n")
 
@@ -1206,7 +1212,7 @@ def test_layer_delta_build_resolves_from_the_profile_root(tmp_path: Path) -> Non
     project = _render_project(root, "readonly")
     # The delta alone names no provider and no data tree; both come from the root.
     assert _config_yaml(project)["claude_code"]["provider"] == "anthropic"
-    assert (project / "data" / "FACILITY_MARKER.txt").is_file()
+    assert (project / "data" / "facility" / "FACILITY_MARKER.txt").is_file()
     # ...and the delta's own override still wins.
     assert _config_yaml(project)["claude_code"]["default_model"] == "claude-haiku-4-5"
     # The deployment's own render is beside it and keeps the root's model, so
@@ -1238,18 +1244,18 @@ def test_render_exclusion_keeps_the_artifact_out_of_the_built_project(tmp_path: 
     """
     root = tmp_path / "prof"
     (root / RETIRED_LAYER_DIRNAME).mkdir(parents=True)
-    (root / "agents").mkdir()
-    (root / "commands" / "osprey").mkdir(parents=True)
-    copy_bundle_data(root / "data", "hello_world")
-    (root / "agents" / "orbit-writer.md").write_text(
+    (root / "agent" / "agents").mkdir(parents=True)
+    (root / "agent" / "commands" / "osprey").mkdir(parents=True)
+    shutil.copytree(bundle_source_root("hello_world"), root, dirs_exist_ok=True)
+    (root / "agent" / "agents" / "orbit-writer.md").write_text(
         "---\nname: orbit-writer\ndescription: profile-shipped agent\n---\n\nBody.\n"
     )
-    (root / "commands" / "osprey" / "scan.md").write_text(
+    (root / "agent" / "commands" / "osprey" / "scan.md").write_text(
         "---\ndescription: profile-shipped namespaced command\n---\n\nBody.\n"
     )
     (root / "profile.yml").write_text(
         "name: RootProfile\nproject_name: prof\nextends: hello-world\nprovider: anthropic\n"
-        "model: claude-sonnet-5\ndata: data\nagents: [agents/orbit-writer]\n"
+        "model: claude-sonnet-5\nagents: [agents/orbit-writer]\n"
     )
     (root / RETIRED_LAYER_DIRNAME / "narrow.yml").write_text(
         "name: Narrow\n"
@@ -1303,11 +1309,11 @@ def test_render_exclusion_of_a_panel_switches_its_inherited_block_off(tmp_path: 
     root = tmp_path / "prof"
     (root / RETIRED_LAYER_DIRNAME).mkdir(parents=True)
     _facility_data(root, "demo")
-    (root / "data" / "facility" / "knowledge").mkdir(parents=True, exist_ok=True)
+    (root / repo_layout.entry("facility").path / "knowledge").mkdir(parents=True, exist_ok=True)
     (root / "profile.yml").write_text(
         "name: RootProfile\n"
         "project_name: prof\n"
-        "data: data\n"
+        ""
         "provider: anthropic\n"
         "model: claude-haiku-4-5\n"
         "channel_finder_mode: hierarchical\n"
@@ -1359,11 +1365,11 @@ def test_a_dotted_panel_id_is_projected_into_its_own_block(tmp_path: Path) -> No
     root = tmp_path / "prof"
     (root / RETIRED_LAYER_DIRNAME).mkdir(parents=True)
     _facility_data(root, "demo")
-    (root / "data" / "facility" / "knowledge").mkdir(parents=True, exist_ok=True)
+    (root / repo_layout.entry("facility").path / "knowledge").mkdir(parents=True, exist_ok=True)
     (root / "profile.yml").write_text(
         "name: RootProfile\n"
         "project_name: prof\n"
-        "data: data\n"
+        ""
         "provider: anthropic\n"
         "model: claude-haiku-4-5\n"
         "channel_finder_mode: hierarchical\n"

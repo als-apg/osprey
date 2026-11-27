@@ -76,6 +76,7 @@ from pathlib import Path
 import pytest
 import yaml
 
+from osprey import repo_layout
 from osprey.deployment.compose_generator import (
     QMD_CORPUS_ROOT,
     QMD_OKF_COLLECTION,
@@ -88,6 +89,7 @@ from osprey.deployment.web_terminals.ports import FAMILY_BASE_FIELDS
 from osprey.deployment.web_terminals.roster import normalize_users
 from osprey.services.qmd.client import QMDClient
 from osprey.utils import config_writer
+from osprey_facility import source_tree
 from tests._container_support import RuntimeContainer, wait_until_ready
 from tests._renders import tier_render
 from tests.cli._lifecycle_build import with_protected_paths
@@ -1540,7 +1542,7 @@ QMD_IMAGE = os.environ.get("OSPREY_QMD_IMAGE") or "osprey-qmd:local-validate"
 
 #: `facility_knowledge.bundle_path` for this scenario, relative to the repo
 #: root exactly as a facility config spells it.
-BUNDLE_REL = "data/facility/knowledge"
+BUNDLE_REL = f"{repo_layout.entry('facility').path}/{source_tree.path('knowledge')}"
 
 #: The project the fixture catalog's default tier names, and where the
 #: scenario renders that render's config.yml (relative to the repo root).
@@ -1674,6 +1676,19 @@ def _image_user_gid(image: str, user: str) -> int | None:
     return int(value) if value.isdigit() else None
 
 
+def _seed_shared_bundle(repo: Path) -> Path:
+    """Author the shared bundle in *repo* and build; the bundle directory.
+
+    The bundle sits in the facility tree, which a build reads: an operator who
+    authors it builds before starting, and ``osprey up`` refuses a render older
+    than it. The stamp is this fixture's build.
+    """
+    bundle_dir = repo / BUNDLE_REL
+    shutil.copytree(BUNDLE_SEED_DIR, bundle_dir)
+    _stamp_build_manifest(repo)
+    return bundle_dir
+
+
 def _retarget_bundle_group_if_vacuous(bundle_dir: Path, probe_gid: int) -> None:
     """Make sure the shared corpus group is one the image does not already grant.
 
@@ -1763,8 +1778,7 @@ def test_deploy_lifecycle_shared_bundle_and_qmd_sidecar(repo: Path) -> None:
     # Seed the corpus BEFORE `up`: the sidecar's entrypoint refuses to open its
     # port on an empty index, so an unseeded bundle would fail as a health
     # timeout rather than as the thing it is.
-    bundle_dir = repo / BUNDLE_REL
-    shutil.copytree(BUNDLE_SEED_DIR, bundle_dir)
+    bundle_dir = _seed_shared_bundle(repo)
 
     # The gid the container-side membership probe must NOT be looking for, read
     # off the image rather than assumed. See _retarget_bundle_group_if_vacuous.

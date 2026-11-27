@@ -31,6 +31,8 @@ from pathlib import Path
 from string import Formatter
 from typing import Literal, NamedTuple
 
+from osprey.repo_layout import display_path
+
 #: Which way a channel points. ``None`` means the source could not say -- an
 #: honest unknown, never a stand-in for "read".
 ChannelDirection = Literal["read", "write"]
@@ -72,7 +74,7 @@ class RosterAbsenceReason(Enum):
 
     #: The facility file is built and holds no channel record. Fail-soft, and
     #: its own reason because its remedy is in the project rather than in the
-    #: build: the file says what the project's ``data/facility`` tree declares,
+    #: build: the file says what the project's ``facility/`` tree declares,
     #: so building again writes the same file.
     FACILITY_EMPTY = "facility-empty"
 
@@ -92,7 +94,7 @@ ABSENCE_TEMPLATES: Mapping[RosterAbsenceReason, str] = {
     ),
     RosterAbsenceReason.FACILITY_EMPTY: (
         "The facility file {path} declares no channels: the project's "
-        "data/facility tree holds no channel records."
+        f"{display_path('facility')} tree holds no channel records."
     ),
     RosterAbsenceReason.CORRUPT_SOURCE: (
         "The channel roster source at {path} could not be read: {detail}."

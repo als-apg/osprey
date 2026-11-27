@@ -7,7 +7,7 @@
 # Emitted by `osprey scaffold systemd`. Install it as a user unit on the deploy
 # host and the deployment comes back by itself after a reboot:
 #
-#   cp {{ unit_name }} ~/.config/systemd/user/
+#   cp {{ unit_path }} ~/.config/systemd/user/
 #   systemctl --user daemon-reload
 #   systemctl --user enable --now {{ unit_name }}
 #

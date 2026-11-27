@@ -1,12 +1,12 @@
 <div class="osprey-diagram">
 <svg viewBox="0 0 1200 700" role="img" aria-labelledby="fm-title fm-desc">
-  <title id="fm-title">The facility file: sources under data/facility, one facility file, a view per service</title>
-  <desc id="fm-desc">On the left, the sources under data/facility. Imported sources are written by osprey facility import mml, from a Middle Layer export, into imported/mml, and by osprey facility import list, from a channel list, into imported/list; each import rewrites its own directory. Authored sources are edited by hand: records, models and decks; fixes.yaml; limits.yaml and seeds.yaml; measurement and scenarios; identity.yaml and classes.yaml; and the knowledge pages. osprey build loads, combines, applies the fixes, validates against the facility-agnostic schema (core.yaml and vocabulary.yaml, LinkML carried from NARAD) and computes, giving one file, build/facility.json, with places, devices, channels, groups, models and limits, plus identity, classes and scenarios, and the provenance of every record. From it the build writes one view per service: the channel-finder index of the selected pipeline, read by the channel-finder server; the graph, data/graph/facility.ttl, seeded into the graph store by osprey up; the simulator view, served by the virtual accelerator; a pyAML configuration per measured model, read by the measurement tools in the python executor; the Bluesky devices, read by the Bluesky worker; the benchmark queries, read by osprey channel-finder benchmark; the limits, read by the write checks; and the facts, read into the agents' prompts and the facility_description tool. The knowledge pages are read in place by the facility-knowledge server; the build checks that each page's device link names a device.</desc>
+  <title id="fm-title">The facility file: sources under facility, one facility file, a view per service</title>
+  <desc id="fm-desc">On the left, the sources under facility. Imported sources are written by osprey facility import mml, from a Middle Layer export, into imported/mml, and by osprey facility import list, from a channel list, into imported/list; each import rewrites its own directory. Authored sources are edited by hand: identity.yaml and records; limits.yaml; vocabulary, the classes and signal roles the facility adds; provenance, its documents, policy and fixes; simulation, the models, decks, seeds, measurements and scenarios; and the knowledge pages. osprey build loads, combines, applies the fixes, validates against the facility-agnostic schema (core.yaml and vocabulary.yaml, LinkML carried from NARAD) and computes, giving one file, build/facility.json, with places, devices, channels, groups, models and limits, plus identity, classes and scenarios, and the provenance of every record. From it the build writes one view per service: the channel-finder index of the selected pipeline, read by the channel-finder server; the graph, data/graph/facility.ttl, seeded into the graph store by osprey up; the simulator view, served by the virtual accelerator; a pyAML configuration per measured model, read by the measurement tools in the python executor; the Bluesky devices, read by the Bluesky worker; the benchmark queries, read by osprey channel-finder benchmark; the limits, read by the write checks; and the facts, read into the agents' prompts and the facility_description tool. The knowledge pages are read in place by the facility-knowledge server; the build checks that each page's device link names a device.</desc>
   <defs>
     <marker id="fm-arr" viewBox="0 0 8 6" refX="7" refY="3" markerWidth="8" markerHeight="6" orient="auto-start-reverse"><polygon points="0,0 8,3 0,6" style="fill: var(--od-muted)"/></marker>
     <marker id="fm-arr-acc" viewBox="0 0 8 6" refX="7" refY="3" markerWidth="8" markerHeight="6" orient="auto-start-reverse"><polygon points="0,0 8,3 0,6" style="fill: var(--od-accent)"/></marker>
   </defs>
-  <text class="te" x="176" y="30" text-anchor="middle">SOURCES · data/facility/</text>
+  <text class="te" x="176" y="30" text-anchor="middle">SOURCES · facility/</text>
   <text class="te" x="550" y="30" text-anchor="middle">THE FACILITY FILE</text>
   <text class="te" x="815" y="30" text-anchor="middle">VIEWS · build/data/</text>
   <text class="te" x="1075" y="30" text-anchor="middle">READ BY</text>
@@ -27,24 +27,24 @@
   <rect class="zone" x="16" y="210" width="320" height="430" rx="8"/>
   <text class="te" x="28" y="228">AUTHORED · EDITED BY HAND</text>
   <rect class="nb-in" x="28" y="240" width="232" height="50" rx="6"/>
-  <text class="tn" x="144" y="260" text-anchor="middle">records/ · models.yaml · decks/</text>
-  <text class="ts" x="144" y="276" text-anchor="middle">places, devices, channels, groups, models</text>
+  <text class="tn" x="144" y="260" text-anchor="middle">identity.yaml · records/</text>
+  <text class="ts" x="144" y="276" text-anchor="middle">who the facility is · its records</text>
   <line class="e" x1="260" y1="265" x2="360" y2="265" marker-end="url(#fm-arr)"/>
   <rect class="nb-in" x="28" y="300" width="232" height="50" rx="6"/>
-  <text class="tn" x="144" y="320" text-anchor="middle">fixes.yaml</text>
-  <text class="ts" x="144" y="336" text-anchor="middle">set · add · drop a record, by id</text>
+  <text class="tn" x="144" y="320" text-anchor="middle">limits.yaml</text>
+  <text class="ts" x="144" y="336" text-anchor="middle">write limits</text>
   <line class="e" x1="260" y1="325" x2="360" y2="325" marker-end="url(#fm-arr)"/>
   <rect class="nb-in" x="28" y="360" width="232" height="50" rx="6"/>
-  <text class="tn" x="144" y="380" text-anchor="middle">limits.yaml · seeds.yaml</text>
-  <text class="ts" x="144" y="396" text-anchor="middle">write limits · simulated channel behaviour</text>
+  <text class="tn" x="144" y="380" text-anchor="middle">vocabulary/</text>
+  <text class="ts" x="144" y="396" text-anchor="middle">classes · signal roles it adds</text>
   <line class="e" x1="260" y1="385" x2="360" y2="385" marker-end="url(#fm-arr)"/>
   <rect class="nb-in" x="28" y="420" width="232" height="50" rx="6"/>
-  <text class="tn" x="144" y="440" text-anchor="middle">measurement/ · scenarios/</text>
-  <text class="ts" x="144" y="456" text-anchor="middle">what a model measures · simulated faults</text>
+  <text class="tn" x="144" y="440" text-anchor="middle">provenance/</text>
+  <text class="ts" x="144" y="456" text-anchor="middle">documents · policy · fixes</text>
   <line class="e" x1="260" y1="445" x2="360" y2="445" marker-end="url(#fm-arr)"/>
   <rect class="nb-in" x="28" y="480" width="232" height="50" rx="6"/>
-  <text class="tn" x="144" y="500" text-anchor="middle">identity.yaml · classes.yaml</text>
-  <text class="ts" x="144" y="516" text-anchor="middle">who the facility is · classes it adds</text>
+  <text class="tn" x="144" y="500" text-anchor="middle">simulation/</text>
+  <text class="ts" x="144" y="516" text-anchor="middle">models · decks · seeds · scenarios</text>
   <line class="e" x1="260" y1="505" x2="360" y2="505" marker-end="url(#fm-arr)"/>
   <rect class="nb-in" x="28" y="578" width="232" height="50" rx="6"/>
   <text class="tn" x="144" y="598" text-anchor="middle">knowledge/</text>
@@ -162,7 +162,7 @@
   <line class="divider" x1="16" y1="660" x2="1184" y2="660"/>
   <text class="te" x="16" y="684">LEGEND</text>
   <rect x="88" y="675" width="10" height="10" rx="2" style="fill: var(--od-ext); stroke: var(--od-ext-stroke)"/>
-  <text class="ta" x="104" y="684">imported: corrected through fixes.yaml, never by hand</text>
+  <text class="ta" x="104" y="684">imported: corrected through provenance/fixes.yaml, never by hand</text>
   <rect x="440" y="675" width="10" height="10" rx="2" style="fill: var(--od-input); stroke: var(--od-soft)"/>
   <text class="ta" x="456" y="684">authored</text>
   <rect x="540" y="675" width="10" height="10" rx="2" style="fill: var(--od-accent-tint); stroke: var(--od-accent)"/>

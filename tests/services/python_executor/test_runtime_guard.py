@@ -39,6 +39,7 @@ from pathlib import Path
 
 import pytest
 
+from osprey import repo_layout
 from osprey.mcp_server.python_executor.executor import (
     PROFILE_SOURCE_ENTRIES,
     resolve_permitted_roots,
@@ -52,7 +53,12 @@ from osprey.services.python_executor.execution.wrapper import (
     READONLY_REFUSAL_MARKER,
     ExecutionWrapper,
 )
-from osprey.utils.workspace import PRE_UPGRADE_AUDIT_RELPATH, RETIRED_LAYER_DIRS, TIERS_DIRNAME
+from osprey.utils.workspace import (
+    PRE_UPGRADE_AUDIT_RELPATH,
+    RETIRED_LAYER_DIRS,
+    RUNTIME_DIR_RELPATH,
+    TIERS_DIRNAME,
+)
 from tests.services.python_executor._child_env import child_env
 
 _GUARD_BANNER = "OSPREY filesystem guard"
@@ -312,6 +318,20 @@ def test_pre_upgrade_audit_tree_writes_are_refused(project: _Project, form: _Wri
     assert out.startswith("REFUSED:"), out
     assert sorted(path.name for path in project.audit.iterdir()) == before
     assert (project.audit / "victim.txt").read_text(encoding="utf-8") == "original\n"
+
+
+@pytest.mark.parametrize("form", _WRITE_FORMS, ids=lambda f: f.name)
+def test_runtime_minted_certificate_writes_are_refused(project: _Project, form: _WriteForm):
+    """The certificates ``osprey up`` mints lie in the state zone, outside every
+    source entry, and executed code may still not replace, delete or add to
+    them: a run that could swap them could swap the keys a running stack trusts."""
+    curve = project.root / RUNTIME_DIR_RELPATH / "bluesky_curve" / "bridge"
+    curve.mkdir(parents=True)
+    (curve / "victim.txt").write_text("original\n", encoding="utf-8")
+    out = project.probe(_statement(form, curve, project))
+    assert out.startswith("REFUSED:"), out
+    assert sorted(path.name for path in curve.iterdir()) == ["victim.txt"]
+    assert (curve / "victim.txt").read_text(encoding="utf-8") == "original\n"
 
 
 def test_readonly_refusal_carries_the_audit_marker(project: _Project):
@@ -581,14 +601,32 @@ def test_protected_roots_cover_render_zone_sources_and_ledger(project: _Project)
     for expected in (
         project.root / "build",
         project.root / PRE_UPGRADE_AUDIT_RELPATH,
+        project.root / RUNTIME_DIR_RELPATH,
         project.root / "profile.yml",
         project.root / TIERS_DIRNAME,
         project.root / "apps",
         *(project.root / retired for retired in RETIRED_LAYER_DIRS),
         project.root / "project",
+        project.root / "agent",
         project.root / "skills",
+        project.root / repo_layout.entry("facility").path,
+        project.root / repo_layout.entry("web").path,
+        *(project.root / name for name in repo_layout.dissolved_names()),
     ):
         assert expected.resolve() in protected, expected
+
+
+@pytest.mark.parametrize("name", ["facility", "web", "data"])
+def test_content_row_and_dissolved_name_writes_are_refused(project: _Project, name: str):
+    """The facility and web trees are source; an unmigrated ``data/`` still is."""
+    assert name in (
+        repo_layout.entry("facility").path,
+        repo_layout.entry("web").path,
+        *repo_layout.dissolved_names(),
+    )
+    out = project.probe(f"os.makedirs({str(project.root / name / 'new')!r})")
+    assert out.startswith("REFUSED:"), out
+    assert name in out
 
 
 def test_protected_roots_exclude_the_agent_data_zone(project: _Project):
@@ -612,22 +650,36 @@ def test_permitted_roots_follow_a_relocated_data_root(project: _Project):
     assert resolve_permitted_roots(project.root, config) == ((project.root / "state/agent"),)
 
 
-def test_profile_source_entries_match_the_convention_table():
-    """Pins the executor's local copy against the module that owns the table.
+def test_every_convention_source_is_a_path_executed_code_may_not_write(tmp_path: Path):
+    """Each convention the build renders sits where the executor refuses writes.
 
-    The copy exists because ``osprey.cli.profile_conventions`` cannot be
-    imported from the runtime path (it drags in the whole Click command group).
-    A convention directory added there and forgotten here would be a silently
-    writable hole, so the drift is a test failure instead.
+    The build's convention table and the executor's protected set are computed
+    in two modules from the same declaration; a convention directory the build
+    reads and the guard leaves writable would let a run rewrite what the next
+    run renders. Compared by location (each convention's ``source``, which lies
+    inside a protected entry joined to the deployment root).
     """
-    from osprey.cli.profile_conventions import (  # test-only import
-        _SOURCE_ZONE_ENTRIES,
-        CONVENTION_SOURCES,
-    )
+    from osprey.cli.profile_conventions import CONVENTION_DIRS  # test-only import
 
-    canonical = set(CONVENTION_SOURCES) | set(_SOURCE_ZONE_ENTRIES)
-    assert set(PROFILE_SOURCE_ENTRIES) == canonical
+    root = tmp_path.resolve()
+    protected = set(resolve_protected_roots(tmp_path, entries=()))
+    for convention in CONVENTION_DIRS:
+        target = root / convention.source
+        assert any(target.is_relative_to(entry) for entry in protected), convention.key
     assert len(PROFILE_SOURCE_ENTRIES) == len(set(PROFILE_SOURCE_ENTRIES))
+
+
+def test_every_path_a_row_moved_from_stays_protected(tmp_path: Path):
+    """An unmigrated tree still holds the old top-level names; the guard refuses them too."""
+    from osprey.repo_layout import retired_moves
+
+    root = tmp_path.resolve()
+    protected = set(resolve_protected_roots(tmp_path, entries=()))
+    moves = retired_moves()
+    assert moves
+    for move in moves:
+        assert move.old.split("/", 1)[0] in PROFILE_SOURCE_ENTRIES, move.old
+        assert any((root / move.old).is_relative_to(entry) for entry in protected), move.old
 
 
 def test_executor_loads_no_cli_module():

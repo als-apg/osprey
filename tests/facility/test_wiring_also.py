@@ -148,7 +148,7 @@ def test_a_further_address_that_is_no_channel_stops_the_build(tmp_path: Path) ->
     _record(tree, READING)["also"] = ["RACK3:UNIT9:X"]
 
     assert _stop(tmp_path, tree) == (
-        "facility: reference-missing: wiring SR/BPM1:X — models.yaml `also` names channel "
+        "facility: reference-missing: wiring SR/BPM1:X — simulation/models.yaml `also` names channel "
         "RACK3:UNIT9:X, which does not exist; fix: add channel RACK3:UNIT9:X or correct `also`"
     )
 
@@ -198,7 +198,7 @@ def test_a_further_address_stating_no_unit_takes_no_part_in_the_unit_check(
 
 def test_a_seed_on_a_further_address_stops_the_build(tmp_path: Path) -> None:
     tree = _tree()
-    tree["seeds.yaml"] = {READING_ALSO: {"noise": {"absolute": 0.1}}}
+    tree["simulation/seeds.yaml"] = {READING_ALSO: {"noise": {"absolute": 0.1}}}
 
     assert _stop(tmp_path, tree) == (
         "facility: seed-invalid: wiring SR/BPM1:X — `also` names RACK3:UNIT1:X, which carries "
@@ -327,13 +327,13 @@ def test_a_scenario_block_keyed_by_a_further_address_is_written_under_the_record
             for address in (SETPOINT, SETPOINT_ALSO)
         ]
     }
-    tree["scenarios/shifted.yaml"] = {
+    tree["simulation/scenarios/shifted.yaml"] = {
         "name": "shifted",
         "overrides": {SETPOINT_ALSO: -90.0},
         "noise": {READING_ALSO: {"absolute": 0.2}},
         "channel_faults": {READING_ALSO: "frozen"},
     }
-    tree["scenarios/quiet.yaml"] = {"name": "quiet", "still": [READING_ALSO]}
+    tree["simulation/scenarios/quiet.yaml"] = {"name": "quiet", "still": [READING_ALSO]}
 
     scenarios = _scenarios(tmp_path, tree)
 
@@ -345,7 +345,7 @@ def test_a_scenario_block_keyed_by_a_further_address_is_written_under_the_record
 
 def test_a_fault_variable_is_keyed_by_the_records_address(tmp_path: Path) -> None:
     tree = _tree()
-    tree["scenarios/offset.yaml"] = {
+    tree["simulation/scenarios/offset.yaml"] = {
         "name": "offset",
         "faults": {"SR": {f"{READING}/offset": 0.1}},
     }
@@ -357,7 +357,7 @@ def test_a_fault_variable_is_keyed_by_the_records_address(tmp_path: Path) -> Non
 
 def test_a_fault_variable_keyed_by_a_further_address_stops_the_build(tmp_path: Path) -> None:
     tree = _tree()
-    tree["scenarios/offset.yaml"] = {
+    tree["simulation/scenarios/offset.yaml"] = {
         "name": "offset",
         "faults": {"SR": {f"{READING_ALSO}/offset": 0.1}},
     }

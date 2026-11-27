@@ -347,7 +347,7 @@ def test_a_facility_added_class_reaches_the_facts_with_its_aliases(tmp_path: Pat
         "parent": QUAD,
         "aliases": ["Skew Quad", " skew quad ", "skew"],
     }
-    tree["classes.yaml"] = [declared, {"class": "Spare", "parent": QUAD}]
+    tree["vocabulary/classes.yaml"] = [declared, {"class": "Spare", "parent": QUAD}]
     devices = tree["records/devices.yaml"]
     quad = next(device for device in devices if device["class"] == QUAD)
     quad["class"] = "SkewQuad"

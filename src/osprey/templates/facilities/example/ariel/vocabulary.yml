@@ -79,14 +79,14 @@
 #   widening is visible rather than accidental. This example ships none.
 #
 # VALIDATE AFTER EVERY EDIT
-#   osprey ariel vocab-check data/facility/ariel/vocabulary.yml
+#   osprey ariel vocab-check facility/ariel/vocabulary.yml
 #
 #   It lists every error in one pass, plus warnings for the traps that load
 #   fine but do not behave the way the author expects. A file that fails to
 #   load takes ARIEL's search with it — the panel starts in CONFIGURATION
 #   INVALID mode — so check before you deploy, not after.
 #
-# See data/facility/ariel/README.md for the longer walkthrough, and the
+# See facility/ariel/README.md for the longer walkthrough, and the
 # `ariel.vocabulary` block in config.yml for the switches named above.
 
 concepts:

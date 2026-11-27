@@ -16,6 +16,7 @@ from pathlib import Path
 import pytest
 from tests._scoped_stdlib import scoped
 
+from osprey import repo_layout
 from osprey.deployment import runtime_helper
 from osprey.integrations.canopy import push
 from osprey.integrations.canopy.push import container, refusals
@@ -208,7 +209,10 @@ def _deployment(tmp_path: Path) -> Path:
         "      - name: bob\n        index: 0\n",
         encoding="utf-8",
     )
-    library = root / "data" / "canopy" / "library" / "screens"
+    library = (
+        repo_layout.child_path(root / repo_layout.entry("web").path, "web", "canopy-library")
+        / "screens"
+    )
     library.mkdir(parents=True)
     return root
 

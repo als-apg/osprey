@@ -56,7 +56,7 @@ def write_scenarios_view(
         render: The render's root.
         scenarios: Scenario name -> its blocks (``description``, ``archiver``,
             ``logbook``, ...), carried verbatim.
-        files: A facility ``scenarios/`` directory whose ``<name>/``
+        files: A facility ``simulation/scenarios/`` directory whose ``<name>/``
             subdirectories, holding the files the entries attach, are copied
             beside the view as the build copies them.
 
@@ -81,7 +81,7 @@ def write_scenarios_view(
 
 
 def facility_scenarios(directory: Path) -> dict[str, dict[str, Any]]:
-    """The scenarios of a facility's ``scenarios/`` directory, by file stem."""
+    """The scenarios of a facility's ``simulation/scenarios/`` directory, by file stem."""
     return {
         path.stem: read_yaml(path.read_text(encoding="utf-8")) or {}
         for path in sorted(directory.glob("*.yaml"))

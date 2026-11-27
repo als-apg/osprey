@@ -24,7 +24,7 @@ from osprey.services.watchdog.history import build_session_view_from_nodes, roug
 from osprey.services.watchdog.runner import WatchdogRunner
 from osprey.services.watchdog.verdict import Verdict
 from osprey_connectors_tests._write_fakes import arm_switch, writes_enabled_config
-from tests._preset_data import copy_bundle_data
+from tests._preset_data import bundle_source_root
 from tests.cli._lifecycle_build import invoke_build
 from tests.models.jev._jev_fake_transport import FakeJev
 
@@ -52,8 +52,10 @@ def _labelled_set(root: Path) -> Path:
 
 
 def _decision_profile(root: Path, *, enabled: str = "false") -> Path:
-    (root / "watchdogs" / "stub").mkdir(parents=True)
-    (root / "watchdogs" / "stub" / "instructions.md").write_text("Flag it.\n", encoding="utf-8")
+    (root / "agent" / "watchdogs" / "stub").mkdir(parents=True)
+    (root / "agent" / "watchdogs" / "stub" / "instructions.md").write_text(
+        "Flag it.\n", encoding="utf-8"
+    )
     (root / "profile.yml").write_text(
         "name: Replay\nprovider: anthropic\nmodel: m\nwatchdogs:\n  stub:\n"
         f"    engine: decision\n    enabled: {enabled}\n    threshold: 0.5\n    options:\n"
@@ -179,7 +181,9 @@ class TestReport:
         directory = tmp_path / "preset"
         if not directory.exists():
             directory.mkdir()
-            shutil.copytree(PRESET_DIR / "watchdogs" / TWIN, directory / "watchdogs" / TWIN)
+            shutil.copytree(
+                PRESET_DIR / "agent" / "watchdogs" / TWIN, directory / "agent" / "watchdogs" / TWIN
+            )
             (directory / "profile.yml").write_text(
                 (PRESET_DIR / "demo.yml").read_text(encoding="utf-8"),
                 encoding="utf-8",
@@ -405,7 +409,7 @@ class TestMachineSeed:
 
         repo = tmp_path / "repo"
         shutil.copytree(FIXTURES / "agent-profile", repo)
-        copy_bundle_data(repo / "data", "hello_world")
+        shutil.copytree(bundle_source_root("hello_world"), repo, dirs_exist_ok=True)
         assert invoke_build(repo).exit_code == 0
         build = repo / "build"
         config = yaml.safe_load((build / "config.yml").read_text(encoding="utf-8"))
@@ -445,7 +449,7 @@ class TestMachineSeed:
         """A seed is a write like any other: the reference monitor decides it."""
         repo = tmp_path / "repo"
         shutil.copytree(FIXTURES / "agent-profile", repo)
-        copy_bundle_data(repo / "data", "hello_world")
+        shutil.copytree(bundle_source_root("hello_world"), repo, dirs_exist_ok=True)
         assert invoke_build(repo).exit_code == 0
         build = repo / "build"
         config = yaml.safe_load((build / "config.yml").read_text(encoding="utf-8"))
@@ -468,7 +472,7 @@ class TestMachineSeed:
     def test_a_channel_the_simulator_refuses_is_explained(self, tmp_path):
         repo = tmp_path / "repo"
         shutil.copytree(FIXTURES / "agent-profile", repo)
-        copy_bundle_data(repo / "data", "hello_world")
+        shutil.copytree(bundle_source_root("hello_world"), repo, dirs_exist_ok=True)
         assert invoke_build(repo).exit_code == 0
         build = repo / "build"
         config = yaml.safe_load((build / "config.yml").read_text(encoding="utf-8"))

@@ -257,7 +257,7 @@ def _block_derived_prefixes(document: Mapping[str, Any]) -> dict[str, str]:
     # The build names the limits database it writes in every render whose
     # config states a limits block.
     if any(".limits_checking." in f".{key}" for key in _config_leaves(document)):
-        prefixes["control_system.limits_checking.database_path"] = "data/facility/limits.yaml"
+        prefixes["control_system.limits_checking.database_path"] = "facility/limits.yaml"
     # `osprey init` writes the facility rule into the repo's conventions, and
     # the build registers every convention copy as user-owned.
     prefixes["scaffold.user_owned"] = "the repo's convention files"

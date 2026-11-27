@@ -96,7 +96,7 @@ Working with a Bundle
 
       .. code-block:: text
 
-         data/facility/knowledge/
+         facility/knowledge/
          ├── index.md            ← bundle root index (CLI-generated)
          ├── subsystems/         ← how the major systems work (vacuum, timing, safety…)
          │   ├── index.md        ← sub-directory index (CLI-generated)
@@ -112,10 +112,10 @@ Working with a Bundle
       The ``demo`` preset ships an Example Research Facility bundle
       you can read as a worked example, then replace with your own.
 
-      Author the bundle in your **profile** (``data/facility/knowledge/`` in the deployment repository),
-      not in the built project: each build copies the profile's ``data/`` tree
-      over the project's, so an edit made in the project is lost on the next
-      rebuild. See :doc:`../build-profiles`.
+      Author the bundle in your **profile** (``facility/knowledge/`` in the deployment repository),
+      not in the built project: each build copies ``facility/`` into
+      ``build/data/facility/``, so an edit made in the project is lost on the
+      next rebuild. See :doc:`../build-profiles`.
 
       .. _authoring-concept-documents:
 
@@ -160,12 +160,12 @@ Working with a Bundle
       .. code-block:: yaml
 
          facility_knowledge:
-           bundle_path: data/facility/knowledge
+           bundle_path: facility/knowledge
 
       Relative paths are resolved against the project root — the deployment
       repo, not the ``build/`` render inside it, which every ``osprey build``
       re-creates. For the ``demo`` preset the example bundle is
-      scaffolded into ``data/facility/knowledge/`` automatically.
+      scaffolded into ``facility/knowledge/`` automatically.
 
       .. _shared-bundle-multi-user:
 
@@ -178,7 +178,7 @@ Working with a Bundle
       Two consequences are worth knowing before you debug either of them.
 
       *The mounted bundle hides the one baked into the image.* Each build copies
-      the profile's ``data/`` tree into the terminal image, so the image ships a
+      the deployment's ``facility/`` tree into the terminal image, so the image ships a
       bundle of its own — and the mount covers it. That is intended: the bundle is
       operational knowledge that changes between image builds. Edit the
       deployment's bundle to change what a running terminal sees; edit the
@@ -264,7 +264,7 @@ Working with a Bundle
 
       .. code-block:: console
 
-         $ osprey knowledge regen-index data/facility/knowledge
+         $ osprey knowledge regen-index facility/knowledge
 
       When called without an argument the bundle path is read from
       ``facility_knowledge.bundle_path`` in ``config.yml``.  Or via the Python
@@ -275,7 +275,7 @@ Working with a Bundle
          from osprey.services.facility_knowledge.okf.index import regenerate_indexes
          from pathlib import Path
 
-         regenerate_indexes(Path("data/facility/knowledge"))
+         regenerate_indexes(Path("facility/knowledge"))
 
       The root ``index.md`` holds the bundle's metadata as frontmatter:
       ``okf_version``, and any ``title``, ``description``, ``license`` or
@@ -290,8 +290,8 @@ Working with a Bundle
 
       .. code-block:: console
 
-         $ osprey knowledge validate data/facility/knowledge
-         All files in data/facility/knowledge are valid.
+         $ osprey knowledge validate facility/knowledge
+         All files in facility/knowledge are valid.
 
       Concept documents are checked at the *authoring* level (``type``,
       ``title``, and ``description`` must be present and non-empty).  A Markdown
@@ -311,7 +311,7 @@ Working with a Bundle
 
       .. code-block:: console
 
-         $ osprey knowledge seed-from-ttl data/facility/knowledge
+         $ osprey knowledge seed-from-ttl facility/knowledge
 
       Idempotency rules applied per stub:
 
@@ -331,7 +331,7 @@ Working with a Bundle
          documents.
 
       Each stub carries a ``device_id`` key in its frontmatter: the facility
-      file's device id. Under ``data/facility/knowledge``, that key links the
+      file's device id. Under ``facility/knowledge``, that key links the
       page to a facility device:
       ``osprey build`` and ``osprey facility validate`` warn, once per page,
       when the value is no device id in ``facility.json``, and go on building.
@@ -395,7 +395,7 @@ Tuning ranked search
 .. code-block:: yaml
 
    facility_knowledge:
-     bundle_path: data/facility/knowledge
+     bundle_path: facility/knowledge
      search:
        rerank: false        # default
        candidate_limit: 40  # omit to use qmd's own default

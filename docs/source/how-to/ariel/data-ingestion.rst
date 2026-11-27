@@ -343,7 +343,7 @@ The built-in enhancement modules:
       **Turning it on, or editing the vocabulary while it is on.** The
       vocabulary file ships inside the image, so do these steps in order:
 
-      #. Edit ``data/facility/ariel/vocabulary.yml`` and/or set ``expand_entries: true``;
+      #. Edit ``facility/ariel/vocabulary.yml`` and/or set ``expand_entries: true``;
          run ``osprey ariel vocab-check``.
       #. Rebuild and redeploy the image.
       #. Restart the sync service. Its startup line prints the new key, and its
@@ -500,7 +500,7 @@ The built-in enhancement modules:
                settings:
                  mirror_path: var/ariel_mirror
 
-      ``mirror_path`` is resolved against the project root: the deployment repo, not the ``build/`` render inside it. The qmd sidecar bind-mounts the same path from there. Keep it under ``var/``. The qmd mirror is machine-written from PostgreSQL and is as large as the logbook, and ``var/`` is the directory git ignores; a path under ``data/`` would commit a generated corpus. An enabled export with no ``mirror_path`` is refused at startup rather than skipped. A qmd mirror nobody writes looks exactly like "search returns nothing".
+      ``mirror_path`` is resolved against the project root: the deployment repo, not the ``build/`` render inside it. The qmd sidecar bind-mounts the same path from there. Keep it under ``var/``. The qmd mirror is machine-written from PostgreSQL and is as large as the logbook, and ``var/`` is the directory git ignores; a path under ``facility/`` would commit a generated corpus. An enabled export with no ``mirror_path`` is refused at startup rather than skipped. A qmd mirror nobody writes looks exactly like "search returns nothing".
 
       With ``ariel.vocabulary.expand_entries: true`` each file in the qmd mirror holds the expanded entry text, with the same insertions the text embedding gets. The sidecar's vector and BM25 halves both see them. The qmd mirror records the vocabulary key it was written with. The key changes when expansion is turned on or off, when the vocabulary is edited, or on a rollback. The next mirror pass then scans every entry again and rewrites each file whose text changed, and the sidecar re-indexes those files. ``ingest`` and ``watch`` run that pass before they ingest. No manual ``qmd-resync`` is needed. ``osprey ariel qmd-resync`` prints the key it used as its last row (``Expansion key: e1:…`` or ``none``).
 

@@ -38,6 +38,7 @@ import pytest
 from click.testing import CliRunner
 
 import osprey.cli.deploy_cmd as deploy_cmd
+from osprey import repo_layout
 from osprey.cli.deploy_cmd import up_verb
 from osprey.deployment import compose_generator, container_lifecycle, docker_desktop
 from osprey.deployment.compose_generator import (
@@ -376,7 +377,7 @@ def test_up_is_correct_from_a_subdirectory(lifecycle_repo, started, monkeypatch)
     """The repo, not the working directory, decides what is started."""
     (lifecycle_repo / ".env").write_text("ANTHROPIC_API_KEY=x\n", encoding="utf-8")
     render_build(lifecycle_repo)
-    monkeypatch.chdir(lifecycle_repo / "data")
+    monkeypatch.chdir(lifecycle_repo / repo_layout.entry("facility").path)
 
     result = CliRunner().invoke(up_verb, ["-d"], catch_exceptions=False)
 
@@ -385,7 +386,7 @@ def test_up_is_correct_from_a_subdirectory(lifecycle_repo, started, monkeypatch)
         lifecycle_repo
     )
     # And it put the working directory back where it found it.
-    assert Path.cwd() == lifecycle_repo / "data"
+    assert Path.cwd() == lifecycle_repo / repo_layout.entry("facility").path
 
 
 def test_the_project_image_is_built_from_the_render_not_the_source(lifecycle_repo, started):

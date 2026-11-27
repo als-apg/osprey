@@ -171,7 +171,7 @@ class TestCliSurface:
         repo = tmp_path / f"{row.value}-deployment"
         repo.mkdir()
         (repo / "profile.yml").write_text(
-            f"name: {row.value.upper()} Test\ndata: data\nprovider: anthropic\n",
+            f"name: {row.value.upper()} Test\nprovider: anthropic\n",
             encoding="utf-8",
         )
 

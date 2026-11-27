@@ -122,6 +122,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Final, Literal, TypeGuard, overload
 
+from osprey_facility import source_tree
 from osprey_facility.errors import ImportStop
 
 __all__ = [
@@ -189,11 +190,11 @@ CALIBRATION_KINDS: frozenset[str] = frozenset({"linear", "table"})
 #: The transverse axes a monitor's engine block may read.
 ENGINE_AXES: frozenset[str] = frozenset({"x", "y"})
 
-#: Where the layer's sources live, relative to ``data/facility/``.
-LAYER_DIR = "imported/mml"
+#: Where the layer's sources live, relative to ``facility/``.
+LAYER_DIR = source_tree.layer_dir("mml")
 
-#: Where the mapping lives, relative to ``data/facility/``.
-MAPPING_FILE = f"{LAYER_DIR}/mapping.yaml"
+#: Where the mapping lives, relative to ``facility/``.
+MAPPING_FILE = source_tree.layer_dir("mml", "mapping.yaml")
 
 #: A device's local name, the part of its id after ``<model>/``.
 _LOCAL_NAME = re.compile(r"[0-9A-Za-z_]+")
@@ -1036,7 +1037,7 @@ def read_mapping(path: Path) -> Mapping:
     """Read and parse one mapping file.
 
     Args:
-        path: The file, normally ``data/facility/imported/mml/mapping.yaml``.
+        path: The file, normally ``facility/imported/mml/mapping.yaml``.
 
     Returns:
         The parsed mapping.
@@ -2763,7 +2764,7 @@ def load_or_draft(
     """Load the layer's mapping, or write a draft and stop when there is none.
 
     Args:
-        facility_dir: ``data/facility/``; the mapping is :data:`MAPPING_FILE`
+        facility_dir: ``facility/``; the mapping is :data:`MAPPING_FILE`
             under it.
         ao: The merged export the draft is built from.
         ad: Accelerator data keyed by system, or ``None``.

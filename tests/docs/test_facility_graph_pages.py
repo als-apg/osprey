@@ -493,7 +493,7 @@ def test_a_dropped_relation_fact_is_caught() -> None:
 
 def _relations_paragraph(page: str) -> str:
     start = page.index("**Relations** are")
-    return page[start : page.index("``classes.yaml`` adds", start)]
+    return page[start : page.index("``vocabulary/classes.yaml`` adds", start)]
 
 
 def _shape_condition_count() -> int:

@@ -108,7 +108,7 @@ def _resolve_dataset_path(render: Path) -> Path:
 
     ``dataset_path`` is configured relative (``data/benchmarks/queries.json``)
     and the file is a build output, so it resolves against the directory holding
-    the rendered ``config.yml`` — not the repo's source ``data/`` tree.
+    the rendered ``config.yml`` — not the repo's source ``facility/`` tree.
     """
     config = yaml.safe_load((render / "config.yml").read_text(encoding="utf-8"))
     rel = config["channel_finder"]["benchmark"]["dataset_path"]

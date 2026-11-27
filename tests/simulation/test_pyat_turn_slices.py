@@ -20,7 +20,10 @@ import pytest
 
 from osprey.simulation.engines import pyat_turns as turns
 
-DECK = Path(__file__).resolve().parents[2] / "src/osprey/templates/facilities/example/decks/SR.json"
+DECK = (
+    Path(__file__).resolve().parents[2]
+    / "src/osprey/templates/facilities/example/simulation/decks/SR.json"
+)
 MARKER = "INJ"
 TURNS = 40
 PARTICLES = 48

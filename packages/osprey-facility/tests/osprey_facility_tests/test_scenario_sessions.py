@@ -55,7 +55,7 @@ def _line(document: dict[str, Any]) -> str:
     return error.format_message()
 
 
-_PATH = "scenarios/warm.yaml `sessions[0].parts[0].turns[0]"
+_PATH = "simulation/scenarios/warm.yaml `sessions[0].parts[0].turns[0]"
 
 
 def test_scenario_session_valid_block_passes() -> None:
@@ -83,7 +83,7 @@ def test_scenario_session_unknown_channel_refused() -> None:
 def test_scenario_session_tool_input_channel_outside_channels_refused() -> None:
     line = _line(_document(channels=["SR:RF:VOLT"]))
     assert line.startswith(
-        "facility: value-invalid: scenario warm — scenarios/warm.yaml `sessions`"
+        "facility: value-invalid: scenario warm — simulation/scenarios/warm.yaml `sessions`"
     )
     assert "steps[0].input.channels[0]" in line
     assert "'SR:DCCT' is not in the turn's channels: list" in line
@@ -94,7 +94,7 @@ def test_scenario_session_malformed_block_refused() -> None:
     document["scenarios"][2]["sessions"] = {"slug": "not-a-list"}
     line = _line(document)
     assert line.startswith(
-        "facility: value-invalid: scenario warm — scenarios/warm.yaml `sessions`"
+        "facility: value-invalid: scenario warm — simulation/scenarios/warm.yaml `sessions`"
     )
     assert "must be a list of sessions" in line
 

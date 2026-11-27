@@ -63,8 +63,7 @@ def _rendered_ceiling(repo: Path) -> str:
 def _silent_root(repo: Path, preset: str, *config_lines: str) -> Path:
     """A root over *preset*; the ceiling is the preset's unless *config_lines* state one."""
     repo.mkdir()
-    (repo / "data").mkdir()
-    body = f"extends: {preset}\nname: Demo\nproject_name: demo\ndata: data\n"
+    body = f"extends: {preset}\nname: Demo\nproject_name: demo\n"
     if config_lines:
         body += "config:\n" + "".join(f"  {line}\n" for line in config_lines)
     (repo / "profile.yml").write_text(body, encoding="utf-8")
@@ -278,21 +277,19 @@ def test_a_move_that_cannot_land_restores_the_file_and_refuses(runner, tmp_path,
 
 def test_a_root_that_does_not_resolve_refuses_asked_and_writes_nothing(runner, tmp_path):
     repo = _silent_root(tmp_path / "repo", "demo")
-    path = repo / "profile.yml"
-    path.write_text(path.read_text().replace("data: data\n", ""), encoding="utf-8")
+    path = _unresolvable(repo) / "profile.yml"
     before = path.read_bytes()
 
     result = _invoke(runner, repo, "config.control_system.writes=asked")
 
     assert result.exit_code != 0
-    assert "data is required" in result.output, result.output
+    assert UNRESOLVED in result.output, result.output
     assert path.read_bytes() == before
 
 
 def test_narrowing_to_never_needs_no_resolvable_root(runner, tmp_path):
     repo = _silent_root(tmp_path / "repo", "demo")
-    path = repo / "profile.yml"
-    path.write_text(path.read_text().replace("data: data\n", ""), encoding="utf-8")
+    _unresolvable(repo)
 
     result = _invoke(runner, repo, "config.control_system.writes=never")
 
@@ -576,10 +573,16 @@ def test_a_line_that_breaks_a_root_with_a_block_is_taken_back(runner, tmp_path):
     assert _profile_bytes(repo) == before
 
 
-def _without_data(repo: Path) -> Path:
-    """Drop the root's ``data:`` line, so it no longer resolves until it is put back."""
+#: The refusal a root carrying an extends base that does not exist resolves to.
+UNRESOLVED = "no-such-base.yml"
+
+
+def _unresolvable(repo: Path) -> Path:
+    """Point the root's ``extends`` at a missing file, so it no longer resolves."""
     path = repo / "profile.yml"
-    path.write_text(path.read_text().replace("data: data\n", ""), encoding="utf-8")
+    text, count = re.subn(r"(?m)^extends: .*$", f"extends: {UNRESOLVED}", path.read_text())
+    assert count == 1, text
+    path.write_text(text, encoding="utf-8")
     return repo
 
 
@@ -588,11 +591,8 @@ def _without_data(repo: Path) -> Path:
     [
         ("config.control_system={type: virtual_accelerator}",),
         ("config={}",),
-        ("data=data", "config={}"),
-        ("data=data", "config.control_system={}"),
-        ("data=data",),
     ],
-    ids=["block", "empty-config", "repair-and-empty-config", "repair-and-empty-block", "repair"],
+    ids=["block", "empty-config"],
 )
 @pytest.mark.parametrize("parent", [False, True], ids=["over-preset", "over-allowed-parent"])
 def test_a_line_on_a_root_that_does_not_resolve_cannot_be_judged(runner, tmp_path, pairs, parent):
@@ -605,7 +605,7 @@ def test_a_line_on_a_root_that_does_not_resolve_cannot_be_judged(runner, tmp_pat
         )
     else:
         repo = _silent_root(tmp_path / "repo", "demo", "control_system.writes: never")
-    _without_data(repo)
+    _unresolvable(repo)
     before = _profile_bytes(repo)
 
     result = _invoke(runner, repo, *pairs)
@@ -613,19 +613,14 @@ def test_a_line_on_a_root_that_does_not_resolve_cannot_be_judged(runner, tmp_pat
     assert result.exit_code != 0
     assert isinstance(result.exception, SystemExit), result.output
     assert "cannot be judged" in result.output, result.output
-    assert "data is required" in result.output, result.output
+    assert UNRESOLVED in result.output, result.output
     assert _profile_bytes(repo) == before
-    (repo / "profile.yml").write_text(
-        (repo / "profile.yml").read_text().replace("name: Demo\n", "name: Demo\ndata: data\n"),
-        encoding="utf-8",
-    )
-    assert _rendered_ceiling(repo) == "never"
 
 
 def test_a_line_that_cannot_reach_the_ceiling_is_written_to_a_root_that_does_not_resolve(
     runner, tmp_path
 ):
-    repo = _without_data(_silent_root(tmp_path / "repo", "demo", "control_system.writes: never"))
+    repo = _unresolvable(_silent_root(tmp_path / "repo", "demo", "control_system.writes: never"))
 
     result = _invoke(runner, repo, "config.system.timezone=UTC")
 
@@ -636,7 +631,7 @@ def test_a_line_that_cannot_reach_the_ceiling_is_written_to_a_root_that_does_not
 def test_never_beside_another_ceiling_input_is_refused_on_a_root_that_does_not_resolve(
     runner, tmp_path
 ):
-    repo = _without_data(_silent_root(tmp_path / "repo", "demo", "control_system.writes: never"))
+    repo = _unresolvable(_silent_root(tmp_path / "repo", "demo", "control_system.writes: never"))
     before = _profile_bytes(repo)
 
     result = _invoke(runner, repo, "config.control_system.writes=never", "config={}")

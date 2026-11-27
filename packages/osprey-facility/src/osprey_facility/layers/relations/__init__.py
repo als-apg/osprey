@@ -57,8 +57,8 @@ from pathlib import Path
 from typing import Any
 
 from osprey_connectors import yaml_loader
+from osprey_facility import source_tree
 from osprey_facility.errors import FacilityBuildError, LayerSourceInvalid
-from osprey_facility.layers import LAYER_ROOT
 from osprey_facility.layers.relations import claims as _claims
 from osprey_facility.layers.relations import members as _members
 from osprey_facility.layers.relations import names as _names
@@ -76,8 +76,13 @@ from osprey_facility.sources import AUTHORED, RELATIONS_MARK
 
 __all__ = ["LAYER_FILES", "RECORD_FILES", "RESERVED_LAYERS", "TABLE_FILES", "import_relations"]
 
+#: The record slots the layer writes, in the order they are written.
+_RECORD_SLOTS: tuple[str, ...] = ("relations", "devices", "places", "groups")
+
 #: The record files the layer writes, in the order they are written.
-RECORD_FILES: tuple[str, ...] = ("relations.yaml", "devices.yaml", "places.yaml", "groups.yaml")
+RECORD_FILES: tuple[str, ...] = tuple(
+    str(source_tree.slot(name).layer_name) for name in _RECORD_SLOTS
+)
 
 #: The names the input tables are copied under, keyed by table.
 TABLE_FILES: dict[str, str] = {
@@ -111,7 +116,7 @@ def import_relations(
 
     Args:
         table: The relations table.
-        facility_dir: The ``data/facility`` directory.
+        facility_dir: The ``facility`` directory.
         layer: The layer's name; its directory is ``imported/<layer>/``.
         names: The names table, if any.
         places: The places table, if any.
@@ -126,7 +131,7 @@ def import_relations(
         LayerSourceInvalid: The layer name is refused or a table has rows the
             layer refuses; nothing is written.
     """
-    target = facility_dir / LAYER_ROOT / layer
+    target = facility_dir / source_tree.layer_dir(layer)
     guard = _guard(layer, target)
     if guard:
         raise LayerSourceInvalid(guard)
@@ -165,12 +170,18 @@ def import_relations(
     if refusals:
         raise LayerSourceInvalid(refusals.errors())
 
-    records: dict[str, list[dict[str, Any]]] = {
-        "relations.yaml": claim_records,
-        "devices.yaml": sorted([*stubs.values(), *named_devices], key=lambda r: r["id"]),
-        "places.yaml": sorted([*place_records, *named_places], key=lambda r: r["id"]),
-        "groups.yaml": sorted(group_records, key=lambda record: record["id"]),
-    }
+    records: dict[str, list[dict[str, Any]]] = dict(
+        zip(
+            RECORD_FILES,
+            (
+                claim_records,
+                sorted([*stubs.values(), *named_devices], key=lambda r: r["id"]),
+                sorted([*place_records, *named_places], key=lambda r: r["id"]),
+                sorted(group_records, key=lambda record: record["id"]),
+            ),
+            strict=True,
+        )
+    )
     tables = {"relations": table, "names": names, "places": places, "members": members}
     return _replace(facility_dir, target, records, tables)
 
@@ -181,7 +192,7 @@ def _guard(layer: str, target: Path) -> list[FacilityBuildError]:
             FacilityBuildError(
                 "source-invalid",
                 layer or '""',
-                [f"{LAYER_ROOT}/{layer}"],
+                [source_tree.layer_dir(layer)],
                 remedy,
                 record_kind="layer",
                 detail=detail,

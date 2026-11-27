@@ -17,13 +17,13 @@ from pathlib import Path
 
 import pytest
 
+from osprey import repo_layout
 from osprey.cli import profile_conventions as conventions
 from osprey.cli.build_profile import BuildProfile, McpServerDef
 from osprey.cli.profile_conventions import (
     BUILD_OUTPUT_DIR,
     CONTEXT_BASELINE_FILENAME,
     CONVENTION_DIRS,
-    CONVENTION_SOURCES,
     KNOWN_ROOT_ENTRIES,
     NOT_PROJECT_RELATIVE_CHANNEL,
     PER_USER_CONTEXT_DIRNAME,
@@ -43,6 +43,7 @@ from osprey.cli.profile_conventions import (
     ReservedPattern,
     convention_for,
     convention_slot_for,
+    convention_source,
     destination_for,
     facility_mirror_violation,
     flatten_key_paths,
@@ -60,6 +61,7 @@ from osprey.cli.profile_conventions import (
     validate_convention_sources,
     warn_unknown_root_entries,
 )
+from osprey.repo_layout import display_path
 from osprey.utils.workspace import LAYER_DIRNAMES, RUNTIME_WRITE_PATH_KEYS, TIERS_DIRNAME
 from osprey_connectors.errors import BuildProfileError
 
@@ -84,25 +86,25 @@ def profile_dir(tmp_path: Path) -> Path:
 
 def test_mapping_table_is_exactly_the_specified_set():
     assert {c.source: c.destination for c in CONVENTION_DIRS} == {
-        "rules": ".claude/rules",
-        "skills": ".claude/skills",
-        "agents": ".claude/agents",
-        "commands": ".claude/commands",
-        "output-styles": ".claude/output-styles",
-        "hooks": ".claude/hooks",
-        "web-terminal-context": "docker/web-terminal-context",
-        "mcp_servers": "_mcp_servers",
-        "services": "services",
-        "project": "",
+        "agent/rules": ".claude/rules",
+        "agent/skills": ".claude/skills",
+        "agent/agents": ".claude/agents",
+        "agent/commands": ".claude/commands",
+        "agent/output-styles": ".claude/output-styles",
+        "agent/hooks": ".claude/hooks",
+        "agent/context": "docker/web-terminal-context",
+        "agent/mcp_servers": "_mcp_servers",
+        "ops/services": "services",
+        "ops/project": "",
     }
 
 
 def test_only_web_terminal_context_is_roster_derived():
-    assert [c.source for c in CONVENTION_DIRS if c.per_user] == ["web-terminal-context"]
+    assert [c.source for c in CONVENTION_DIRS if c.per_user] == ["agent/context"]
 
 
 def test_skills_services_and_servers_copy_as_whole_directories():
-    shapes = {c.source: c.shape for c in CONVENTION_DIRS}
+    shapes = {c.key: c.shape for c in CONVENTION_DIRS}
     assert shapes["skills"] is EntryShape.DIRECTORY
     assert shapes["services"] is EntryShape.DIRECTORY
     assert shapes["mcp_servers"] is EntryShape.DIRECTORY
@@ -172,7 +174,7 @@ def test_destination_for_rejects_a_non_convention_root():
         (".env", "`env:`"),
         (".env.example", "`env:`"),
         ("CLAUDE.md", "claude_md_template"),
-        ("docker/web-terminal-context/base.md", "`web-terminal-context/base.md`"),
+        ("docker/web-terminal-context/base.md", "`agent/context/base.md`"),
     ],
 )
 def test_reserved_path_names_its_channel(reserved: str, channel_hint: str):
@@ -203,9 +205,9 @@ def test_framework_rendered_claude_output_is_reserved():
 
 def test_convention_owned_claude_subtree_is_reserved_and_names_the_dir():
     channel = reserved_path_channel(".claude/rules/facility.md")
-    assert channel is not None and "`rules/`" in channel
+    assert channel is not None and "`agent/rules/`" in channel
     channel = reserved_path_channel(".claude/skills/my-skill/SKILL.md")
-    assert channel is not None and "`skills/`" in channel
+    assert channel is not None and "`agent/skills/`" in channel
 
 
 def test_exact_reservation_beats_the_convention_prefix():
@@ -218,7 +220,7 @@ def test_exact_reservation_beats_the_convention_prefix():
     """
     channel = reserved_path_channel(".claude/hooks/hook_config.json")
     assert channel is not None
-    assert "`hooks/`" not in channel, "the channel must not claim a generated file"
+    assert "`agent/hooks/`" not in channel, "the channel must not claim a generated file"
     assert "generated from" in channel
     # The message names the keys that DO control it, and what depends on it.
     assert "mcp_servers:" in channel
@@ -236,13 +238,13 @@ def test_exact_reservation_beats_the_convention_prefix():
 def test_hooks_destination_steers_to_the_hooks_channel(dest: str):
     """`.claude/hooks/` now has a channel, so the mirror refusal must name it.
 
-    Before the ``hooks/`` convention existed, a framework-rendered hook fell
+    Before the ``agent/hooks/`` convention existed, a framework-rendered hook fell
     through to the generic "carry it as a `config:` key" message and a custom
     one was not reserved at all. Both now route to the same place, which is the
     only writer of that subtree.
     """
     channel = reserved_path_channel(dest)
-    assert channel is not None and "`hooks/`" in channel
+    assert channel is not None and "`agent/hooks/`" in channel
 
 
 @pytest.mark.parametrize(
@@ -254,14 +256,14 @@ def test_unreserved_paths_are_writable_by_the_mirror(allowed: str):
 
 
 def test_mirror_validation_accepts_a_clean_tree(profile_dir: Path):
-    mirror = profile_dir / "project"
+    mirror = profile_dir / "ops" / "project"
     _write(mirror / "docs" / "runbook.md")
     _write(mirror / ".gitignore", "_agent_data/\n")
     validate_convention_sources(profile_dir)
 
 
 def test_mirror_validation_reports_every_violation(profile_dir: Path):
-    mirror = profile_dir / "project"
+    mirror = profile_dir / "ops" / "project"
     _write(mirror / "config.yml")
     _write(mirror / ".claude" / "settings.json")
     _write(mirror / "docs" / "runbook.md")
@@ -270,8 +272,8 @@ def test_mirror_validation_reports_every_violation(profile_dir: Path):
         validate_convention_sources(profile_dir)
 
     message = str(excinfo.value)
-    assert "project/config.yml" in message
-    assert "project/.claude/settings.json" in message
+    assert "ops/project/config.yml" in message
+    assert "ops/project/.claude/settings.json" in message
     assert "`config:` block" in message
     assert "runbook.md" not in message
 
@@ -279,30 +281,30 @@ def test_mirror_validation_reports_every_violation(profile_dir: Path):
 @pytest.mark.parametrize(
     ("mirrored", "slot"),
     [
-        (".claude/hooks/facility_guard.py", "hooks/facility_guard.py"),
-        (".claude/hooks/osprey_writes_check.py", "hooks/osprey_writes_check.py"),
-        (".claude/commands/ops/restart.md", "commands/ops/restart.md"),
+        (".claude/hooks/facility_guard.py", "agent/hooks/facility_guard.py"),
+        (".claude/hooks/osprey_writes_check.py", "agent/hooks/osprey_writes_check.py"),
+        (".claude/commands/ops/restart.md", "agent/commands/ops/restart.md"),
     ],
 )
 def test_mirror_refusal_states_the_exact_move(profile_dir: Path, mirrored: str, slot: str):
     """The refusal is a migration instruction: both paths, not just a channel name.
 
-    A profile that carried a hook through `project/.claude/hooks/` before the
-    `hooks/` channel existed hits this on its next build, and this line is the
+    A profile that carried a hook through `ops/project/.claude/hooks/` before the
+    `agent/hooks/` channel existed hits this on its next build, and this line is the
     only guidance it gets — so it has to name the file and where it goes.
     """
-    mirror = profile_dir / "project"
+    mirror = profile_dir / "ops" / "project"
     _write(mirror / mirrored)
 
     with pytest.raises(BuildProfileError) as excinfo:
         validate_convention_sources(profile_dir)
 
-    assert f"Move it: project/{mirrored} → {slot}" in str(excinfo.value)
+    assert f"Move it: ops/project/{mirrored} → {slot}" in str(excinfo.value)
 
 
 def test_mirror_refusal_omits_a_move_when_no_directory_owns_the_path(profile_dir: Path):
     """`.mcp.json` is generated from a profile KEY — there is no slot to move it to."""
-    mirror = profile_dir / "project"
+    mirror = profile_dir / "ops" / "project"
     _write(mirror / ".mcp.json")
 
     with pytest.raises(BuildProfileError) as excinfo:
@@ -315,8 +317,12 @@ def test_mirror_refusal_omits_a_move_when_no_directory_owns_the_path(profile_dir
 
 def test_convention_slot_for_inverts_destination_for():
     """The move the refusal prints is the mapping table read backwards."""
-    for source_rel in ("hooks/facility_guard.py", "rules/safety.md", "skills/orbit-check"):
-        assert convention_slot_for(destination_for(source_rel)) == source_rel
+    for key, inner in (
+        ("hooks", "facility_guard.py"),
+        ("rules", "safety.md"),
+        ("skills", "orbit-check"),
+    ):
+        assert convention_slot_for(destination_for(f"{key}/{inner}")) == display_path(key, inner)
     # The mirror lands on the project root, so it can never be the answer.
     assert convention_slot_for("docs/runbook.md") is None
     assert convention_slot_for("config.yml") is None
@@ -348,66 +354,66 @@ def test_the_facility_mirror_patterns_are_the_facility_file_and_its_tree():
     [
         (
             "facility.json",
-            "facility: profile-invalid: path project/facility.json — the project/ mirror "
-            "writes facility.json, which the build writes from data/facility/; fix: remove "
-            "project/facility.json and author the facility in data/facility/",
+            "facility: profile-invalid: path ops/project/facility.json — the ops/project/ mirror "
+            "writes facility.json, which the build writes from facility/; fix: remove "
+            "ops/project/facility.json and author the facility in facility/",
         ),
         (
             "data/facility/records/devices.yaml",
-            "facility: profile-invalid: path project/data/facility/records/devices.yaml — the "
-            "project/ mirror writes data/facility/records/devices.yaml, which the build writes "
-            "from data/facility/; fix: remove project/data/facility/records/devices.yaml and "
-            "author the facility in data/facility/",
+            "facility: profile-invalid: path ops/project/data/facility/records/devices.yaml — the "
+            "ops/project/ mirror writes data/facility/records/devices.yaml, which the build writes "
+            "from facility/; fix: remove ops/project/data/facility/records/devices.yaml and "
+            "author the facility in facility/",
         ),
         (
             "data/simulator/x.json",
-            "facility: profile-invalid: path project/data/simulator/x.json — the project/ "
-            "mirror writes data/simulator/x.json, which the build writes from data/facility/; "
-            "fix: remove project/data/simulator/x.json and author the facility in data/facility/",
+            "facility: profile-invalid: path ops/project/data/simulator/x.json — the ops/project/ "
+            "mirror writes data/simulator/x.json, which the build writes from facility/; "
+            "fix: remove ops/project/data/simulator/x.json and author the facility in facility/",
         ),
         (
             "data/facility_facts.json",
-            "facility: profile-invalid: path project/data/facility_facts.json — the project/ "
-            "mirror writes data/facility_facts.json, which the build writes from data/facility/; "
-            "fix: remove project/data/facility_facts.json and author the facility in "
-            "data/facility/",
+            "facility: profile-invalid: path ops/project/data/facility_facts.json — the ops/project/ "
+            "mirror writes data/facility_facts.json, which the build writes from facility/; "
+            "fix: remove ops/project/data/facility_facts.json and author the facility in "
+            "facility/",
         ),
         (
             "data/facility_facts.md",
-            "facility: profile-invalid: path project/data/facility_facts.md — the project/ "
-            "mirror writes data/facility_facts.md, which the build writes from data/facility/; "
-            "fix: remove project/data/facility_facts.md and author the facility in "
-            "data/facility/",
+            "facility: profile-invalid: path ops/project/data/facility_facts.md — the ops/project/ "
+            "mirror writes data/facility_facts.md, which the build writes from facility/; "
+            "fix: remove ops/project/data/facility_facts.md and author the facility in "
+            "facility/",
         ),
         (
             "data/channel_finder/in_context.json",
-            "facility: profile-invalid: path project/data/channel_finder/in_context.json — the "
-            "project/ mirror writes data/channel_finder/in_context.json, which the build writes "
-            "from data/facility/; fix: remove project/data/channel_finder/in_context.json and "
-            "author the facility in data/facility/",
+            "facility: profile-invalid: path ops/project/data/channel_finder/in_context.json — the "
+            "ops/project/ mirror writes data/channel_finder/in_context.json, which the build writes "
+            "from facility/; fix: remove ops/project/data/channel_finder/in_context.json and "
+            "author the facility in facility/",
         ),
         (
             "data/graph/facility.ttl",
-            "facility: profile-invalid: path project/data/graph/facility.ttl — the "
-            "project/ mirror writes data/graph/facility.ttl, which the build writes "
-            "from data/facility/; fix: remove project/data/graph/facility.ttl and "
-            "author the facility in data/facility/",
+            "facility: profile-invalid: path ops/project/data/graph/facility.ttl — the "
+            "ops/project/ mirror writes data/graph/facility.ttl, which the build writes "
+            "from facility/; fix: remove ops/project/data/graph/facility.ttl and "
+            "author the facility in facility/",
         ),
         (
             "data/channel_databases/graph.duckdb",
-            "facility: profile-invalid: path project/data/channel_databases/graph.duckdb — the "
-            "project/ mirror writes data/channel_databases/graph.duckdb, which the build writes "
-            "from data/facility/; fix: remove project/data/channel_databases/graph.duckdb and "
-            "author the facility in data/facility/",
+            "facility: profile-invalid: path ops/project/data/channel_databases/graph.duckdb — the "
+            "ops/project/ mirror writes data/channel_databases/graph.duckdb, which the build writes "
+            "from facility/; fix: remove ops/project/data/channel_databases/graph.duckdb and "
+            "author the facility in facility/",
         ),
     ],
 )
 def test_a_mirrored_facility_path_is_one_profile_invalid_line(
     profile_dir: Path, mirrored: str, line: str
 ):
-    _write(profile_dir / "project" / mirrored)
+    _write(profile_dir / "ops" / "project" / mirrored)
 
-    error = facility_mirror_violation(profile_dir / "project")
+    error = facility_mirror_violation(profile_dir / "ops" / "project")
 
     assert error is not None
     assert error.kind == "profile-invalid"
@@ -415,31 +421,31 @@ def test_a_mirrored_facility_path_is_one_profile_invalid_line(
 
 
 def test_the_facility_mirror_check_returns_the_first_hit(profile_dir: Path):
-    mirror = profile_dir / "project"
+    mirror = profile_dir / "ops" / "project"
     _write(mirror / "facility.json")
     _write(mirror / "data" / "facility" / "identity.yaml")
 
     error = facility_mirror_violation(mirror)
 
     assert error is not None
-    assert error.record_id == "project/data/facility/identity.yaml"
+    assert error.record_id == "ops/project/data/facility/identity.yaml"
 
 
 @pytest.mark.parametrize(
     "allowed", ["docs/facility.json", "data/facility.json", "data/facility_notes.md"]
 )
 def test_the_facility_mirror_check_passes_near_misses(profile_dir: Path, allowed: str):
-    _write(profile_dir / "project" / allowed)
-    assert facility_mirror_violation(profile_dir / "project") is None
+    _write(profile_dir / "ops" / "project" / allowed)
+    assert facility_mirror_violation(profile_dir / "ops" / "project") is None
 
 
 def test_the_facility_mirror_check_tolerates_a_missing_mirror(profile_dir: Path):
-    assert facility_mirror_violation(profile_dir / "project") is None
+    assert facility_mirror_violation(profile_dir / "ops" / "project") is None
 
 
 def test_the_generic_mirror_check_skips_the_facility_patterns(profile_dir: Path):
     """The facility stop is its own line; the gather neither repeats nor raises it."""
-    mirror = profile_dir / "project"
+    mirror = profile_dir / "ops" / "project"
     _write(mirror / "facility.json")
     _write(mirror / "data" / "facility" / "identity.yaml")
     _write(mirror / "data" / "simulator" / "x.json")
@@ -454,9 +460,8 @@ def test_the_generic_mirror_check_skips_the_facility_patterns(profile_dir: Path)
 
 
 def test_profile_validation_still_gathers_past_a_facility_mirror_hit(profile_dir: Path):
-    _write(profile_dir / "project" / "facility.json")
-    (profile_dir / "data").mkdir()
-    profile = BuildProfile(name="x", data="data", mcp_servers={"empty": McpServerDef()})
+    _write(profile_dir / "ops" / "project" / "facility.json")
+    profile = BuildProfile(name="x", mcp_servers={"empty": McpServerDef()})
 
     with pytest.raises(BuildProfileError) as excinfo:
         profile.validate(profile_dir)
@@ -470,16 +475,16 @@ def test_profile_validation_still_gathers_past_a_facility_mirror_hit(profile_dir
 
 
 def test_validate_convention_sources_accepts_a_well_formed_profile(profile_dir: Path):
-    _write(profile_dir / "rules" / "facility-ops.md")
-    _write(profile_dir / "agents" / "orbit-writer.md")
-    _write(profile_dir / "commands" / "ops" / "restart.md")
-    _write(profile_dir / "skills" / "orbit-check" / "SKILL.md")
-    _write(profile_dir / "skills" / "orbit-check" / "scripts" / "check.py")
-    _write(profile_dir / "services" / "archiver" / "docker-compose.yml")
-    _write(profile_dir / "mcp_servers" / "matlab" / "server.py")
-    _write(profile_dir / "web-terminal-context" / "alice" / "context.md")
-    _write(profile_dir / "hooks" / "facility_guard.py")
-    _write(profile_dir / "project" / "docs" / "runbook.md")
+    _write(profile_dir / "agent" / "rules" / "facility-ops.md")
+    _write(profile_dir / "agent" / "agents" / "orbit-writer.md")
+    _write(profile_dir / "agent" / "commands" / "ops" / "restart.md")
+    _write(profile_dir / "agent" / "skills" / "orbit-check" / "SKILL.md")
+    _write(profile_dir / "agent" / "skills" / "orbit-check" / "scripts" / "check.py")
+    _write(profile_dir / "ops" / "services" / "archiver" / "docker-compose.yml")
+    _write(profile_dir / "agent" / "mcp_servers" / "matlab" / "server.py")
+    _write(profile_dir / "agent" / "context" / "alice" / "context.md")
+    _write(profile_dir / "agent" / "hooks" / "facility_guard.py")
+    _write(profile_dir / "ops" / "project" / "docs" / "runbook.md")
     validate_convention_sources(profile_dir)
 
 
@@ -487,14 +492,14 @@ def test_hooks_accept_any_extension_unlike_the_markdown_shapes(profile_dir: Path
     """The suffix rule is the markdown shape's, not every file shape's.
 
     The same ``.py`` file that is a legitimate hook is rejected under
-    ``rules/``, which is what makes the two shapes distinct rather than a
+    ``agent/rules/``, which is what makes the two shapes distinct rather than a
     stylistic difference.
     """
-    _write(profile_dir / "hooks" / "facility_guard.py", "print('guard')\n")
-    _write(profile_dir / "hooks" / "notes.md", "# why this hook exists\n")
+    _write(profile_dir / "agent" / "hooks" / "facility_guard.py", "print('guard')\n")
+    _write(profile_dir / "agent" / "hooks" / "notes.md", "# why this hook exists\n")
     validate_convention_sources(profile_dir)
 
-    _write(profile_dir / "rules" / "facility_guard.py")
+    _write(profile_dir / "agent" / "rules" / "facility_guard.py")
     with pytest.raises(BuildProfileError, match="rules/facility_guard.py"):
         validate_convention_sources(profile_dir)
 
@@ -504,13 +509,13 @@ def test_validate_convention_sources_accepts_an_empty_profile(profile_dir: Path)
 
 
 def test_convention_directory_that_is_a_file_is_rejected(profile_dir: Path):
-    _write(profile_dir / "rules")
+    _write(profile_dir / "agent" / "rules")
     with pytest.raises(BuildProfileError, match="rules is a file"):
         validate_convention_sources(profile_dir)
 
 
 def test_non_markdown_artifact_is_rejected_with_the_mirror_as_the_way_out(profile_dir: Path):
-    _write(profile_dir / "rules" / "safety.txt")
+    _write(profile_dir / "agent" / "rules" / "safety.txt")
     with pytest.raises(BuildProfileError) as excinfo:
         validate_convention_sources(profile_dir)
     message = str(excinfo.value)
@@ -527,7 +532,7 @@ def test_profile_shipped_hook_config_is_rejected(profile_dir: Path):
     silently. The build refuses instead.
     """
     _write(
-        profile_dir / "hooks" / "hook_config.json",
+        profile_dir / "agent" / "hooks" / "hook_config.json",
         '{"server_prefixes": [], "approval_prefixes": [], "write_tools": []}\n',
     )
 
@@ -544,13 +549,13 @@ def test_profile_shipped_hook_config_is_rejected(profile_dir: Path):
 
 def test_a_normal_hook_beside_it_is_still_accepted(profile_dir: Path):
     """The refusal is one generated path, not a retreat from the channel."""
-    _write(profile_dir / "hooks" / "facility_guard.py", "print('guard')\n")
-    _write(profile_dir / "hooks" / "osprey_writes_check.py", "# facility edit\n")
+    _write(profile_dir / "agent" / "hooks" / "facility_guard.py", "print('guard')\n")
+    _write(profile_dir / "agent" / "hooks" / "osprey_writes_check.py", "# facility edit\n")
     validate_convention_sources(profile_dir)
 
 
 def test_loose_file_in_a_directory_shaped_convention_is_rejected(profile_dir: Path):
-    _write(profile_dir / "skills" / "orbit-check.md")
+    _write(profile_dir / "agent" / "skills" / "orbit-check.md")
     with pytest.raises(BuildProfileError) as excinfo:
         validate_convention_sources(profile_dir)
     message = str(excinfo.value)
@@ -567,18 +572,18 @@ def test_loose_file_in_the_per_user_convention_states_the_roster_rule(profile_di
     while they believe they followed the instructions. The message has to name
     the rule, and must not offer the move that breaks it.
     """
-    _write(profile_dir / PER_USER_CONTEXT_DIRNAME / "shift-notes.md")
+    _write(profile_dir / convention_source(PER_USER_CONTEXT_DIRNAME) / "shift-notes.md")
 
     with pytest.raises(BuildProfileError) as excinfo:
         validate_convention_sources(profile_dir)
 
     message = str(excinfo.value)
-    assert f"{PER_USER_CONTEXT_DIRNAME}/shift-notes.md is a file" in message
+    assert f"{convention_source(PER_USER_CONTEXT_DIRNAME)}/shift-notes.md is a file" in message
     assert "named for a user on the resolved roster" in message
     assert "skipped as a user who has left" in message
-    assert f"{PER_USER_CONTEXT_DIRNAME}/<user>/shift-notes.md" in message
+    assert f"{convention_source(PER_USER_CONTEXT_DIRNAME)}/<user>/shift-notes.md" in message
     # The advice that would quietly stop the file being read.
-    assert f"Move it into {PER_USER_CONTEXT_DIRNAME}/shift-notes/" not in message
+    assert f"Move it into {convention_source(PER_USER_CONTEXT_DIRNAME)}/shift-notes/" not in message
 
 
 def test_loose_file_advice_offers_the_baseline_slot_too(profile_dir: Path):
@@ -590,21 +595,27 @@ def test_loose_file_advice_offers_the_baseline_slot_too(profile_dir: Path):
     tells an operator with baseline text to file it under one user, where the
     other users never see it.
     """
-    _write(profile_dir / PER_USER_CONTEXT_DIRNAME / "shift-notes.md")
+    _write(profile_dir / convention_source(PER_USER_CONTEXT_DIRNAME) / "shift-notes.md")
 
     with pytest.raises(BuildProfileError) as excinfo:
         validate_convention_sources(profile_dir)
 
     message = str(excinfo.value)
-    assert f"rename it to {PER_USER_CONTEXT_DIRNAME}/{CONTEXT_BASELINE_FILENAME}" in message
-    assert f"{PER_USER_CONTEXT_DIRNAME}/<user>/shift-notes.md" in message
+    assert (
+        f"rename it to {convention_source(PER_USER_CONTEXT_DIRNAME)}/{CONTEXT_BASELINE_FILENAME}"
+        in message
+    )
+    assert f"{convention_source(PER_USER_CONTEXT_DIRNAME)}/<user>/shift-notes.md" in message
 
 
 def test_base_md_at_the_convention_root_is_accepted_and_planned(profile_dir: Path):
     """``base.md`` is the per-user convention's one loose file: the shared
     baseline every seeded user starts from, overriding the framework's
     fallback at the same destination."""
-    _write(profile_dir / PER_USER_CONTEXT_DIRNAME / CONTEXT_BASELINE_FILENAME, "# baseline\n")
+    _write(
+        profile_dir / convention_source(PER_USER_CONTEXT_DIRNAME) / CONTEXT_BASELINE_FILENAME,
+        "# baseline\n",
+    )
 
     validate_convention_sources(profile_dir)
 
@@ -618,7 +629,10 @@ def test_base_md_at_the_convention_root_is_accepted_and_planned(profile_dir: Pat
 def test_base_md_copies_even_without_a_roster(profile_dir: Path):
     """The baseline is roster-independent: a render (no roster) still
     carries the profile's text, like every other convention artifact."""
-    _write(profile_dir / PER_USER_CONTEXT_DIRNAME / CONTEXT_BASELINE_FILENAME, "# baseline\n")
+    _write(
+        profile_dir / convention_source(PER_USER_CONTEXT_DIRNAME) / CONTEXT_BASELINE_FILENAME,
+        "# baseline\n",
+    )
 
     copies = plan_convention_copies(profile_dir, context_users=None)
     assert any(c.destination == "docker/web-terminal-context/base.md" for c in copies)
@@ -628,7 +642,9 @@ def test_a_base_md_directory_is_not_read_as_the_baseline(profile_dir: Path):
     """Only the FILE is the baseline slot — a directory named ``base.md`` is
     just a user directory naming nobody on the roster, skipped like any
     other departed user."""
-    (profile_dir / PER_USER_CONTEXT_DIRNAME / CONTEXT_BASELINE_FILENAME).mkdir(parents=True)
+    (profile_dir / convention_source(PER_USER_CONTEXT_DIRNAME) / CONTEXT_BASELINE_FILENAME).mkdir(
+        parents=True
+    )
 
     validate_convention_sources(profile_dir)
     copies = plan_convention_copies(profile_dir, context_users=["alice"])
@@ -638,13 +654,22 @@ def test_a_base_md_directory_is_not_read_as_the_baseline(profile_dir: Path):
 def test_mirrored_base_md_is_rejected_naming_the_slot(profile_dir: Path):
     """The mirror may not write the baseline's destination: the slot is its one
     channel, so two writers can never race on build ordering."""
-    _write(profile_dir / PROJECT_MIRROR_DIR / "docker" / "web-terminal-context" / "base.md")
+    _write(
+        profile_dir
+        / convention_source(PROJECT_MIRROR_DIR)
+        / "docker"
+        / "web-terminal-context"
+        / "base.md"
+    )
 
     with pytest.raises(BuildProfileError) as excinfo:
         validate_convention_sources(profile_dir)
 
     message = str(excinfo.value)
-    assert f"`{PER_USER_CONTEXT_DIRNAME}/{CONTEXT_BASELINE_FILENAME}` slot" in message
+    assert (
+        f"`{convention_source(PER_USER_CONTEXT_DIRNAME)}/{CONTEXT_BASELINE_FILENAME}` slot"
+        in message
+    )
 
 
 def test_the_other_directory_conventions_keep_their_move_advice(profile_dir: Path):
@@ -654,39 +679,39 @@ def test_the_other_directory_conventions_keep_their_move_advice(profile_dir: Pat
     move there — the per-user wording must not have spread to the conventions
     it does not describe.
     """
-    _write(profile_dir / "skills" / "orbit-check.md")
+    _write(profile_dir / "agent" / "skills" / "orbit-check.md")
 
     with pytest.raises(BuildProfileError) as excinfo:
         validate_convention_sources(profile_dir)
 
     message = str(excinfo.value)
-    assert "Move it into skills/orbit-check/" in message
+    assert "Move it into agent/skills/orbit-check/" in message
     assert "roster" not in message
 
 
 def test_hidden_entries_do_not_trip_source_validation(profile_dir: Path):
-    _write(profile_dir / "rules" / ".DS_Store")
-    _write(profile_dir / "skills" / ".DS_Store")
+    _write(profile_dir / "agent" / "rules" / ".DS_Store")
+    _write(profile_dir / "agent" / "skills" / ".DS_Store")
     validate_convention_sources(profile_dir)
 
 
 def test_symlink_inside_the_profile_is_allowed(profile_dir: Path):
-    target = _write(profile_dir / "rules" / "safety.md")
-    _write(profile_dir / "agents" / "orbit-writer.md")
-    (profile_dir / "agents" / "safety.md").symlink_to(target)
+    target = _write(profile_dir / "agent" / "rules" / "safety.md")
+    _write(profile_dir / "agent" / "agents" / "orbit-writer.md")
+    (profile_dir / "agent" / "agents" / "safety.md").symlink_to(target)
     validate_convention_sources(profile_dir)
 
 
 def test_source_validation_covers_the_project_mirror(profile_dir: Path):
-    _write(profile_dir / "project" / ".mcp.json")
+    _write(profile_dir / "ops" / "project" / ".mcp.json")
     with pytest.raises(BuildProfileError) as excinfo:
         validate_convention_sources(profile_dir)
     assert "`mcp_servers:`" in str(excinfo.value)
 
 
 def test_source_validation_reports_problems_together(profile_dir: Path):
-    _write(profile_dir / "rules" / "safety.txt")
-    _write(profile_dir / "skills" / "loose.md")
+    _write(profile_dir / "agent" / "rules" / "safety.txt")
+    _write(profile_dir / "agent" / "skills" / "loose.md")
     with pytest.raises(BuildProfileError) as excinfo:
         validate_convention_sources(profile_dir)
     message = str(excinfo.value)
@@ -698,13 +723,13 @@ def test_source_validation_reports_problems_together(profile_dir: Path):
 
 
 def test_plan_covers_each_category_with_the_right_granularity(profile_dir: Path):
-    _write(profile_dir / "rules" / "facility-ops.md")
-    _write(profile_dir / "commands" / "ops" / "restart.md")
-    _write(profile_dir / "skills" / "orbit-check" / "SKILL.md")
-    _write(profile_dir / "skills" / "orbit-check" / "reference.md")
-    _write(profile_dir / "services" / "archiver" / "docker-compose.yml")
-    _write(profile_dir / "mcp_servers" / "matlab" / "server.py")
-    _write(profile_dir / "project" / "docs" / "runbook.md")
+    _write(profile_dir / "agent" / "rules" / "facility-ops.md")
+    _write(profile_dir / "agent" / "commands" / "ops" / "restart.md")
+    _write(profile_dir / "agent" / "skills" / "orbit-check" / "SKILL.md")
+    _write(profile_dir / "agent" / "skills" / "orbit-check" / "reference.md")
+    _write(profile_dir / "ops" / "services" / "archiver" / "docker-compose.yml")
+    _write(profile_dir / "agent" / "mcp_servers" / "matlab" / "server.py")
+    _write(profile_dir / "ops" / "project" / "docs" / "runbook.md")
 
     plan = {copy.destination: copy for copy in plan_convention_copies(profile_dir)}
 
@@ -715,12 +740,12 @@ def test_plan_covers_each_category_with_the_right_granularity(profile_dir: Path)
     assert ".claude/skills/orbit-check/SKILL.md" not in plan
     assert plan["services/archiver"].is_directory is True
     assert plan["_mcp_servers/matlab"].is_directory is True
-    assert plan["docs/runbook.md"].source == profile_dir / "project" / "docs" / "runbook.md"
+    assert plan["docs/runbook.md"].source == profile_dir / "ops" / "project" / "docs" / "runbook.md"
 
 
 def test_plan_copies_hooks_file_by_file_keeping_their_suffix(profile_dir: Path):
-    _write(profile_dir / "hooks" / "facility_guard.py")
-    _write(profile_dir / "hooks" / ".DS_Store")
+    _write(profile_dir / "agent" / "hooks" / "facility_guard.py")
+    _write(profile_dir / "agent" / "hooks" / ".DS_Store")
 
     plan = {copy.destination: copy for copy in plan_convention_copies(profile_dir)}
 
@@ -731,22 +756,22 @@ def test_plan_copies_hooks_file_by_file_keeping_their_suffix(profile_dir: Path):
 
 
 def test_plan_mirrors_dot_prefixed_files_but_skips_them_elsewhere(profile_dir: Path):
-    _write(profile_dir / "project" / ".gitignore")
-    _write(profile_dir / "rules" / ".DS_Store")
+    _write(profile_dir / "ops" / "project" / ".gitignore")
+    _write(profile_dir / "agent" / "rules" / ".DS_Store")
     destinations = {copy.destination for copy in plan_convention_copies(profile_dir)}
     assert ".gitignore" in destinations
     assert not any(dest.endswith(".DS_Store") for dest in destinations)
 
 
 def test_plan_skips_per_user_context_without_a_roster(profile_dir: Path):
-    _write(profile_dir / "web-terminal-context" / "alice" / "context.md")
+    _write(profile_dir / "agent" / "context" / "alice" / "context.md")
     assert plan_convention_copies(profile_dir) == []
     assert plan_convention_copies(profile_dir, context_users=[]) == []
 
 
 def test_plan_copies_only_roster_users(profile_dir: Path):
-    _write(profile_dir / "web-terminal-context" / "alice" / "context.md")
-    _write(profile_dir / "web-terminal-context" / "departed" / "context.md")
+    _write(profile_dir / "agent" / "context" / "alice" / "context.md")
+    _write(profile_dir / "agent" / "context" / "departed" / "context.md")
 
     plan = plan_convention_copies(profile_dir, context_users=["alice", "bob"])
 
@@ -755,16 +780,16 @@ def test_plan_copies_only_roster_users(profile_dir: Path):
 
 
 def test_plan_is_sorted_by_destination(profile_dir: Path):
-    _write(profile_dir / "rules" / "b.md")
-    _write(profile_dir / "rules" / "a.md")
-    _write(profile_dir / "project" / "Makefile")
+    _write(profile_dir / "agent" / "rules" / "b.md")
+    _write(profile_dir / "agent" / "rules" / "a.md")
+    _write(profile_dir / "ops" / "project" / "Makefile")
     destinations = [copy.destination for copy in plan_convention_copies(profile_dir)]
     assert destinations == sorted(destinations)
 
 
 def test_partition_context_users_splits_matched_missing_and_departed(profile_dir: Path):
-    _write(profile_dir / "web-terminal-context" / "alice" / "context.md")
-    _write(profile_dir / "web-terminal-context" / "departed" / "context.md")
+    _write(profile_dir / "agent" / "context" / "alice" / "context.md")
+    _write(profile_dir / "agent" / "context" / "departed" / "context.md")
 
     matched, missing, departed = partition_context_users(profile_dir, ["alice", "bob"])
 
@@ -782,7 +807,7 @@ def test_partition_context_users_without_the_directory(profile_dir: Path):
 
 def test_unknown_root_entry_flags_a_typo(profile_dir: Path):
     _write(profile_dir / "rule" / "safety.md")
-    _write(profile_dir / "rules" / "safety.md")
+    _write(profile_dir / "agent" / "rules" / "safety.md")
     assert unknown_root_entries(profile_dir) == ["rule"]
 
 
@@ -796,25 +821,26 @@ def test_unknown_root_entry_flags_a_typo(profile_dir: Path):
         "LICENSE",
         "LICENSE.txt",
         "docs",
-        # What the CANOPY pre_build step stages into the repo root.
-        "canopy-0.4.0-py3-none-any.whl",
-        "pydmconverter-1.2.0-py3-none-any.whl",
-        "canopy_payload",
     ],
 )
 def test_unknown_root_entry_exemptions(profile_dir: Path, exempt: str):
-    if exempt in {".git", "docs", "canopy_payload"}:
+    if exempt in {".git", "docs"}:
         (profile_dir / exempt).mkdir()
     else:
         _write(profile_dir / exempt)
     assert unknown_root_entries(profile_dir) == []
 
 
-def test_the_canopy_exemptions_do_not_hide_a_neighbouring_typo(profile_dir: Path):
-    """``canopy-`` and ``canopy_payload`` are prefixes, not a blanket ``canopy*``."""
-    (profile_dir / "canopy").mkdir()
-    _write(profile_dir / "canopy_extras-1.0-py3-none-any.whl")
-    assert unknown_root_entries(profile_dir) == ["canopy", "canopy_extras-1.0-py3-none-any.whl"]
+def test_canopy_staging_left_at_the_root_is_reported(profile_dir: Path):
+    """The build stages CANOPY into its render, so a root copy is a stale leftover."""
+    (profile_dir / "canopy_payload").mkdir()
+    _write(profile_dir / "canopy-0.4.0-py3-none-any.whl")
+    _write(profile_dir / "pydmconverter-1.2.0-py3-none-any.whl")
+    assert unknown_root_entries(profile_dir) == [
+        "canopy-0.4.0-py3-none-any.whl",
+        "canopy_payload",
+        "pydmconverter-1.2.0-py3-none-any.whl",
+    ]
 
 
 def test_known_root_entries_are_not_flagged(profile_dir: Path):
@@ -823,15 +849,14 @@ def test_known_root_entries_are_not_flagged(profile_dir: Path):
     _write(profile_dir / ".env.example")
     for layer_dir in LAYER_DIRNAMES:
         (profile_dir / layer_dir).mkdir()
-    (profile_dir / "data").mkdir()
-    for source in CONVENTION_SOURCES:
-        (profile_dir / source).mkdir()
+    for convention in CONVENTION_DIRS:
+        (profile_dir / convention.source).mkdir(parents=True, exist_ok=True)
     assert unknown_root_entries(profile_dir) == []
 
 
 def test_hooks_directory_is_not_read_as_a_typo(profile_dir: Path):
-    """Named explicitly: before the channel existed, `hooks/` WAS an unknown entry."""
-    _write(profile_dir / "hooks" / "facility_guard.py")
+    """Named explicitly: before the channel existed, `agent/hooks/` WAS an unknown entry."""
+    _write(profile_dir / "agent" / "hooks" / "facility_guard.py")
     assert unknown_root_entries(profile_dir) == []
 
 
@@ -888,15 +913,14 @@ def zone_repo(tmp_path: Path) -> Path:
     # SOURCE — tracked, user-edited.
     _write(repo / "profile.yml", "name: als-exemplar\n")
     _write(repo / "triggers.yml")
-    (repo / "data").mkdir()
     (repo / TIERS_DIRNAME).mkdir()
-    _write(repo / "rules" / "safety.md")
-    _write(repo / "web-terminal-context" / "operator" / "CONTEXT.md")
+    _write(repo / "agent" / "rules" / "safety.md")
+    _write(repo / "agent" / "context" / "operator" / "CONTEXT.md")
     _write(repo / "README.md")
     _write(repo / ".gitignore", "/build/\n/var/\n/.env*\n!.env.example\n")
     _write(repo / ".gitlab-ci.yml")
-    _write(repo / "ci-extra.yml")
-    _write(repo / "scripts" / "verify.sh")
+    _write(repo / "ops" / "ci-extra.yml")
+    _write(repo / "ops" / "scripts" / "verify.sh")
 
     # SECRETS — ignored, durable.
     _write(repo / ".env")
@@ -926,13 +950,10 @@ def test_zone_repo_root_is_silent_through_the_warning_path(
     assert caplog.text == ""
 
 
-@pytest.mark.parametrize("entry", ["build", "var", "scripts", "ci-extra.yml"])
+@pytest.mark.parametrize("entry", ["build", "var", "ops", "agent"])
 def test_zone_entry_is_known_on_its_own(profile_dir: Path, entry: str):
     """Each zone entry stands alone: the layout is not all-or-nothing."""
-    if entry.endswith(".yml"):
-        _write(profile_dir / entry)
-    else:
-        (profile_dir / entry).mkdir()
+    (profile_dir / entry).mkdir()
     assert unknown_root_entries(profile_dir) == []
 
 
@@ -952,29 +973,16 @@ def test_zone_table_names_the_repos_own_dockerignore():
 
 
 def test_zone_scaffolded_boot_unit_is_not_flagged(zone_repo: Path):
-    """`osprey scaffold systemd` writes the unit beside the profile.
+    """`osprey scaffold systemd` writes the unit under the profile's ops/.
 
     The repo root IS the profile root, so an unrecognized unit would make every
     build after the scaffold warn about a file OSPREY itself told the operator
     to create — a warning that can never be cleared except by deleting the unit.
     """
-    from osprey.cli.deploy_scaffold_templates import SYSTEMD_UNIT_NAME
+    from osprey.cli.deploy_scaffold_templates import SYSTEMD_UNIT_PATH
 
-    _write(zone_repo / SYSTEMD_UNIT_NAME)
+    _write(zone_repo / SYSTEMD_UNIT_PATH)
     assert unknown_root_entries(zone_repo) == []
-
-
-def test_zone_boot_unit_spelling_matches_the_verb_that_writes_it():
-    """The two literals cannot drift apart.
-
-    `profile_conventions` spells the unit name itself rather than importing it,
-    because the module that owns the name imports this one. A rename on either
-    side that missed the other would bring the every-build warning straight
-    back, so the equality is asserted instead of assumed.
-    """
-    from osprey.cli.deploy_scaffold import SYSTEMD_OUTPUT_NAME
-
-    assert SYSTEMD_OUTPUT_NAME in KNOWN_ROOT_ENTRIES
 
 
 def test_zone_layout_still_flags_a_genuinely_stray_entry(zone_repo: Path):
@@ -1060,28 +1068,28 @@ def test_reserved_exact_table_is_unchanged_by_the_pattern_table():
 @pytest.mark.parametrize(
     ("target", "channel_hint"),
     [
-        (".claude/hooks/osprey_writes_check.py", "`hooks/`"),
-        (".claude/hooks/osprey_limits.py", "`hooks/`"),
-        (".claude/skills/foo/SKILL.md", "`skills/`"),
-        (".claude/skills/foo/scripts/run.py", "`skills/`"),
-        (".claude/rules/facility.md", "`rules/`"),
-        (".claude/rules/nested/deep.md", "`rules/`"),
+        (".claude/hooks/osprey_writes_check.py", "`agent/hooks/`"),
+        (".claude/hooks/osprey_limits.py", "`agent/hooks/`"),
+        (".claude/skills/foo/SKILL.md", "`agent/skills/`"),
+        (".claude/skills/foo/scripts/run.py", "`agent/skills/`"),
+        (".claude/rules/facility.md", "`agent/rules/`"),
+        (".claude/rules/nested/deep.md", "`agent/rules/`"),
         (".claude/settings.local.json", "claude_code.permissions"),
         ("data/channel_limits.json", "limits.yaml"),
-        ("data/bluesky_devices.yml", "`data/`"),
-        ("facility.json", "`data/facility/`"),
-        ("data/facility/records/devices.yaml", "`data/facility/`"),
-        ("data/facility/decks/SR.json", "`data/facility/`"),
-        ("data/simulator/served_models.json", "`data/facility/`"),
-        ("data/simulator/decks/SR.json", "`data/facility/`"),
-        ("data/facility_facts.json", "`data/facility/`"),
-        ("data/facility_facts.md", "`data/facility/`"),
-        ("data/channel_finder/in_context.json", "`data/facility/`"),
-        ("data/channel_finder/hierarchical.json", "`data/facility/`"),
-        ("data/channel_finder/middle_layer.json", "`data/facility/`"),
-        ("data/channel_finder/middle_layer.duckdb", "`data/facility/`"),
-        ("data/graph/facility.ttl", "`data/facility/`"),
-        ("data/channel_databases/graph.duckdb", "`data/facility/`"),
+        ("data/bluesky_devices.yml", "`facility/`"),
+        ("facility.json", "`facility/`"),
+        ("data/facility/records/devices.yaml", "`facility/`"),
+        ("data/facility/simulation/decks/SR.json", "`facility/`"),
+        ("data/simulator/served_models.json", "`facility/`"),
+        ("data/simulator/decks/SR.json", "`facility/`"),
+        ("data/facility_facts.json", "`facility/`"),
+        ("data/facility_facts.md", "`facility/`"),
+        ("data/channel_finder/in_context.json", "`facility/`"),
+        ("data/channel_finder/hierarchical.json", "`facility/`"),
+        ("data/channel_finder/middle_layer.json", "`facility/`"),
+        ("data/channel_finder/middle_layer.duckdb", "`facility/`"),
+        ("data/graph/facility.ttl", "`facility/`"),
+        ("data/channel_databases/graph.duckdb", "`facility/`"),
     ],
 )
 def test_pattern_reserved_write_names_its_channel(target: str, channel_hint: str):
@@ -1119,7 +1127,7 @@ def test_unreserved_writes_stay_writable(allowed: str):
 @pytest.mark.parametrize("target", ["FACILITY.json", "Data/Facility/identity.yaml"])
 def test_case_variants_of_a_facility_path_are_refused(target: str):
     channel = is_reserved_write(target)
-    assert channel is not None and "`data/facility/`" in channel
+    assert channel is not None and "`facility/`" in channel
 
 
 def test_every_exact_reservation_is_a_reserved_write():
@@ -1155,7 +1163,7 @@ def test_knowledge_pages_stay_agent_writable(page: str):
 def test_the_rest_of_the_facility_tree_stays_reserved(authored: str):
     """Only the knowledge directory is open; its neighbours name the facility tree."""
     channel = is_reserved_write(authored)
-    assert channel is not None and "`data/facility/`" in channel
+    assert channel is not None and "`facility/`" in channel
 
 
 def test_the_mirror_still_owns_the_knowledge_directory(tmp_path: Path):
@@ -1168,7 +1176,7 @@ def test_the_mirror_still_owns_the_knowledge_directory(tmp_path: Path):
     error = facility_mirror_violation(mirror)
 
     assert error is not None
-    assert error.record_id == "project/data/facility/knowledge/x.md"
+    assert error.record_id == "ops/project/data/facility/knowledge/x.md"
 
 
 def test_exact_reservation_beats_the_pattern_table(monkeypatch: pytest.MonkeyPatch):
@@ -1191,7 +1199,7 @@ def test_exact_reservation_beats_the_pattern_table(monkeypatch: pytest.MonkeyPat
 def test_skill_files_stay_ownable_while_being_reserved_writes():
     """The two questions must not be conflated.
 
-    A profile ships skills through its ``skills/`` convention directory and the
+    A profile ships skills through its ``agent/skills/`` convention directory and the
     build registers them as user-owned, which is unchanged. What is new is that
     an *agent-side* writer may not rewrite one — a skill is instruction text the
     agent would otherwise be editing for itself.
@@ -1202,77 +1210,58 @@ def test_skill_files_stay_ownable_while_being_reserved_writes():
 
 
 def test_a_mirrored_limits_file_is_refused_by_the_limits_stop(profile_dir: Path):
-    """``project/data/channel_limits.json`` is the limits stop's to refuse.
+    """``ops/project/data/channel_limits.json`` is the limits stop's to refuse.
 
     The mirror validation leaves it alone, so the one stop that names every
     hand-written limits file is the one that answers: the build writes that
-    file from ``data/facility/limits.yaml``. A running agent still may not
+    file from the facility's ``limits.yaml``. A running agent still may not
     rewrite the limits table.
     """
-    mirror = profile_dir / "project" / "data"
+    mirror = profile_dir / "ops" / "project" / "data"
     _write(mirror / "channel_limits.json", "{}\n")
 
     validate_convention_sources(profile_dir)  # does not raise
     assert reserved_path_channel("data/channel_limits.json") is None
     assert is_reserved_write("data/channel_limits.json") is not None
-    stop = handwritten_limits_violation(profile_dir / "data", profile_dir)
+    stop = handwritten_limits_violation(profile_dir)
     assert stop is not None
     assert str(stop) == (
-        "facility: profile-invalid: path project/data/channel_limits.json — the build "
-        "writes data/channel_limits.json from data/facility/limits.yaml; fix: move its "
-        "limits into data/facility/limits.yaml and remove project/data/channel_limits.json"
+        "facility: profile-invalid: path ops/project/data/channel_limits.json — the build "
+        "writes data/channel_limits.json from facility/limits.yaml; fix: move its "
+        "limits into facility/limits.yaml and remove ops/project/data/channel_limits.json"
     )
 
 
 def test_a_tree_shipping_no_limits_file_passes_the_limits_stop(profile_dir: Path):
-    _write(profile_dir / "data" / "facility" / "limits.yaml", "records: []\n")
+    _write(profile_dir / repo_layout.entry("facility").path / "limits.yaml", "records: []\n")
 
-    assert handwritten_limits_violation(profile_dir / "data", profile_dir) is None
+    assert handwritten_limits_violation(profile_dir) is None
 
 
 def test_the_limits_stop_names_the_first_file_in_its_fixed_order(profile_dir: Path):
-    data = profile_dir / "data"
-    _write(profile_dir / "project" / "data" / "channel_limits.json", "{}\n")
-    _write(data / "simulation" / "channel_limits.json", "{}\n")
-    _write(data / "channel_limits.json", "{}\n")
+    mirror = profile_dir / "ops" / "project" / "data"
+    _write(mirror / "simulation" / "channel_limits.json", "{}\n")
+    _write(mirror / "channel_limits.json", "{}\n")
 
     found = []
-    for path in (
-        data / "channel_limits.json",
-        data / "simulation" / "channel_limits.json",
-        profile_dir / "project" / "data" / "channel_limits.json",
-    ):
-        stop = handwritten_limits_violation(data, profile_dir)
+    for path in (mirror / "channel_limits.json", mirror / "simulation" / "channel_limits.json"):
+        stop = handwritten_limits_violation(profile_dir)
         assert stop is not None
         found.append(stop.record_id)
         path.unlink()
 
     assert found == [
-        "data/channel_limits.json",
-        "data/simulation/channel_limits.json",
-        "project/data/channel_limits.json",
+        "ops/project/data/channel_limits.json",
+        "ops/project/data/simulation/channel_limits.json",
     ]
-    assert handwritten_limits_violation(data, profile_dir) is None
+    assert handwritten_limits_violation(profile_dir) is None
 
 
 def test_the_limits_stop_never_reads_a_render(profile_dir: Path):
     _write(profile_dir / "build" / "data" / "channel_limits.json", "{}\n")
     _write(profile_dir / "build" / "data" / "simulation" / "channel_limits.json", "{}\n")
 
-    assert handwritten_limits_violation(profile_dir / "data", profile_dir) is None
-
-
-def test_the_limits_stop_names_a_data_tree_outside_the_repo_absolutely(
-    profile_dir: Path, tmp_path: Path
-):
-    data = tmp_path / "elsewhere" / "data"
-    _write(data / "channel_limits.json", "{}\n")
-
-    stop = handwritten_limits_violation(data, profile_dir)
-
-    assert stop is not None
-    assert stop.record_id == str(data / "channel_limits.json")
-    assert f"move its limits into {data}/facility/limits.yaml" in str(stop)
+    assert handwritten_limits_violation(profile_dir) is None
 
 
 def test_reserved_write_normalizes_its_input():
@@ -1291,12 +1280,12 @@ def test_reserved_write_normalizes_its_input():
 @pytest.mark.parametrize(
     ("target", "channel_hint"),
     [
-        (".CLAUDE/skills/foo/SKILL.md", "`skills/`"),
-        (".claude/Skills/foo/SKILL.md", "`skills/`"),
-        (".claude/RULES/facility.md", "`rules/`"),
+        (".CLAUDE/skills/foo/SKILL.md", "`agent/skills/`"),
+        (".claude/Skills/foo/SKILL.md", "`agent/skills/`"),
+        (".claude/RULES/facility.md", "`agent/rules/`"),
         (".claude/settings.LOCAL.json", "claude_code.permissions"),
         (".claude/Settings.Local.Json", "claude_code.permissions"),
-        (".claude/hooks/OSPREY_limits.py", "`hooks/`"),
+        (".claude/hooks/OSPREY_limits.py", "`agent/hooks/`"),
         ("DATA/Channel_Limits.json", "limits.yaml"),
     ],
 )
@@ -1350,10 +1339,10 @@ def test_case_folding_lives_only_in_the_lookup():
 @pytest.mark.parametrize(
     ("target", "channel_hint"),
     [
-        ("foo/../.claude/skills/x", "`skills/`"),
-        ("docs/./../.claude/rules/facility.md", "`rules/`"),
-        (".claude/agents/../skills/x", "`skills/`"),
-        (".claude//skills//x", "`skills/`"),
+        ("foo/../.claude/skills/x", "`agent/skills/`"),
+        ("docs/./../.claude/rules/facility.md", "`agent/rules/`"),
+        (".claude/agents/../skills/x", "`agent/skills/`"),
+        (".claude//skills//x", "`agent/skills/`"),
         ("./data/channel_limits.json", "limits.yaml"),
     ],
 )

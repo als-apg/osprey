@@ -355,7 +355,7 @@ def test_the_file_opens_with_its_schema_and_loads_in_full(tmp_path: Path) -> Non
     assert written == [target]
     text = target.read_text(encoding="utf-8")
     assert text.split("\n", 1)[0] == f"schema: {BLUESKY_DEVICES_SCHEMA}"
-    assert "data/facility/" in text
+    assert "change the channels under facility/" in text
     assert "osprey build" in text
     loaded = yaml.safe_load(text)
     assert validate_device_document(loaded) == []

@@ -59,7 +59,7 @@ def initialised(tmp_path_factory: pytest.TempPathFactory) -> Path:
 def facility(initialised: Path, tmp_path: Path) -> Path:
     copy = tmp_path / initialised.name
     shutil.copytree(initialised, copy, symlinks=True)
-    return copy / "data" / "facility"
+    return copy / "facility"
 
 
 def _drop_header(path: Path) -> None:
@@ -106,10 +106,10 @@ def test_an_added_record_file_is_authored(facility: Path) -> None:
 
 
 def test_a_changed_deck_is_authored(facility: Path) -> None:
-    deck = sorted((facility / "decks").iterdir())[0]
+    deck = sorted((facility / "simulation" / "decks").iterdir())[0]
     deck.write_bytes(deck.read_bytes() + b" ")
 
-    assert classify(facility, TEMPLATE_ROOT).authored == (f"decks/{deck.name}",)
+    assert classify(facility, TEMPLATE_ROOT).authored == (f"simulation/decks/{deck.name}",)
 
 
 def test_an_edit_that_keeps_the_line_is_still_bundled(facility: Path) -> None:
@@ -178,7 +178,7 @@ def test_two_names_name_no_facility_and_every_file_is_authored(facility: Path) -
 
     assert kinds.name is None
     assert kinds.bundled == ()
-    assert {"other.yaml", "decks/SR.json"} <= set(kinds.authored)
+    assert {"other.yaml", "simulation/decks/SR.json"} <= set(kinds.authored)
 
 
 def test_a_comment_form_line_names_its_facility(tmp_path: Path) -> None:

@@ -1,6 +1,6 @@
 """A deployment package that registers a measurement kind and an engine, as a test fixture.
 
-The package a deployment ships beside its facility tree (``data/facility/`` in
+The package a deployment ships beside its facility tree (``facility/`` in
 the deployment repository, not a mounted machine repository): it registers the
 measurement kind ``fixture_kind`` under ``osprey_facility.kinds`` and the engine
 ``fixture_ring`` (:mod:`fixture_kind_deployment.engine`) under

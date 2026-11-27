@@ -43,7 +43,7 @@ from osprey_connectors.settle import declared_tolerance
 from osprey_connectors.simulation import GATED_TYPES, LABELLED_TYPES
 from osprey_connectors.simulation.servers import TEXTURE_SERVER, served_servers
 from osprey_connectors.simulation.values import is_waveform
-from osprey_facility import DEFAULT_ROLE, STILL_ALL, fold_code, wiring_addresses
+from osprey_facility import DEFAULT_ROLE, STILL_ALL, fold_code, source_tree, wiring_addresses
 from osprey_facility.combine import FIXES_FILE, CombineResult, combine
 from osprey_facility.errors import (
     FacilityBuildError,
@@ -64,6 +64,7 @@ from osprey_facility.pairing import (
 )
 from osprey_facility.records import ChannelSelection, FacilityRecords
 from osprey_facility.relations import shape_problems
+from osprey_facility.retired import refuse_retired
 from osprey_facility.scenarios import FaultRoster, fault_roster, map_fault_errors
 from osprey_facility.sources import Sources, group_families, load_sources
 from osprey_facility.start import START_SPELLINGS, start_error
@@ -186,7 +187,7 @@ class Validated:
     """What the stages have produced so far.
 
     Attributes:
-        facility_dir: The machine root: the ``data/facility`` directory, or
+        facility_dir: The machine root: the ``facility`` directory, or
             the profile's ``machine:`` root when mounted.
         project_name: The project's name; the zero-source identity folds it.
         sources: What S1 read.
@@ -280,7 +281,7 @@ def run_stages(
     """Run S1 to S5, then each later stage, stopping at the first that fails.
 
     Args:
-        facility_dir: The machine root, the ``data/facility`` directory of a
+        facility_dir: The machine root, the ``facility`` directory of a
             single tree; a missing one is zero sources.
         project_name: The project's name, folded into the identity code when
             there is no ``identity.yaml``.
@@ -295,7 +296,12 @@ def run_stages(
 
     Returns:
         The first failing stage and all of its errors, or a clean report.
+
+    Raises:
+        RetiredLayoutRefused: Either root still holds a source at a retired
+            path; no stage runs.
     """
+    refuse_retired(facility_dir, content_dir)
     validated = Validated(
         facility_dir,
         project_name,
@@ -358,7 +364,7 @@ def validate(
     """Check a facility directory; print nothing.
 
     Args:
-        facility_dir: The ``data/facility`` directory.
+        facility_dir: The ``facility`` directory.
         project_name: The project's name.
         extra_checks: Checks the caller supplies (:func:`run_stages`).
 
@@ -623,7 +629,7 @@ def _measurement_shape(
     index: int, model: str, measurement: Mapping[str, Any]
 ) -> Iterator[FacilityBuildError]:
     """A measurement file's open maps: each a mapping of role to what the role names."""
-    rel = f"measurement/{model}.yaml"
+    rel = source_tree.keyed_file("measurement", model)
     for slot, key, shape, fits in _MEASUREMENT_MAPS:
         value = measurement.get(slot)
         if value is None:
@@ -688,13 +694,11 @@ def _schema_error(
     )
 
 
-_TOP_SLOT_FILES = {
-    "limits": "limits.yaml",
-    "classes": "classes.yaml",
-    "signals": "signals.yaml",
-    "identity": "identity.yaml",
-    "documents": "documents.yaml",
-}
+#: The document slots each read from one single-file slot of the same name.
+_TOP_SLOTS = ("limits", "classes", "signals", "identity", "documents")
+
+#: Each such document slot mapped to the file it is read from.
+_TOP_SLOT_FILES = {name: source_tree.path(name) for name in _TOP_SLOTS}
 
 
 def _path_files(document: Mapping[str, Any], sources: Sources, loc: tuple[Any, ...]) -> list[str]:
@@ -718,7 +722,7 @@ def _path_files(document: Mapping[str, Any], sources: Sources, loc: tuple[Any, .
         and rest[:1] == ("measurement",)
         and record.get("name") in (sources.measurement)
     ):
-        return [f"measurement/{record['name']}.yaml"]
+        return [source_tree.keyed_file("measurement", record["name"])]
     if top == "models" and rest[:1] == ("wiring",) and len(rest) >= 2:
         wiring = record.get("wiring") or []
         position = rest[1]
@@ -729,12 +733,12 @@ def _path_files(document: Mapping[str, Any], sources: Sources, loc: tuple[Any, .
         and rest[:1] == ("simulation",)
         and str(record.get("id")) in (sources.seeds)
     ):
-        return ["seeds.yaml"]
+        return [source_tree.path("seeds")]
     return stating_files(record, str(rest[0]) if rest else None)
 
 
 def _scenario_file(scenario: Mapping[str, Any]) -> str:
-    return f"scenarios/{scenario.get('name')}.yaml"
+    return source_tree.keyed_file("scenarios", str(scenario.get("name")))
 
 
 def stating_files(
@@ -908,6 +912,7 @@ class _References:
 
     def _classes(self) -> Iterator[FacilityBuildError]:
         known = set(known_classes())
+        classes = source_tree.path("classes")
         for row in self.sources.classes:
             name = str(row.get("class"))
             parent = row.get("parent")
@@ -915,10 +920,10 @@ class _References:
                 yield FacilityBuildError(
                     "class-unknown",
                     name,
-                    ["classes.yaml"],
-                    "name a vocabulary class or a class listed earlier in classes.yaml",
+                    [classes],
+                    f"name a vocabulary class or a class listed earlier in {classes}",
                     record_kind="class",
-                    detail=f"classes.yaml `parent` {parent} is neither a vocabulary class "
+                    detail=f"{classes} `parent` {parent} is neither a vocabulary class "
                     "nor an earlier facility-added class",
                 )
             known.add(name)
@@ -950,9 +955,10 @@ class _References:
                     "class-unknown",
                     did,
                     stating_files(device, "class"),
-                    "use a vocabulary class or add it to classes.yaml",
+                    f"use a vocabulary class or add it to {source_tree.path('classes')}",
                     record_kind="device",
-                    detail=f"class {cls} is in neither the vocabulary nor classes.yaml",
+                    detail=f"class {cls} is in neither the vocabulary nor "
+                    f"{source_tree.path('classes')}",
                 )
 
     def _channels(self) -> Iterator[FacilityBuildError]:
@@ -989,9 +995,11 @@ class _References:
                     "class-unknown",
                     address,
                     stating_files(channel, "signal"),
-                    "use a vocabulary signal role, add it to signals.yaml or remove `signal`",
+                    f"use a vocabulary signal role, add it to {source_tree.path('signals')} "
+                    "or remove `signal`",
                     record_kind="channel",
-                    detail=f"signal {signal} is in neither the vocabulary nor signals.yaml",
+                    detail=f"signal {signal} is in neither the vocabulary nor "
+                    f"{source_tree.path('signals')}",
                 )
 
     def _seed_inputs(
@@ -1006,7 +1014,7 @@ class _References:
 
     def _seed_files(self, channel: Mapping[str, Any]) -> list[str]:
         if str(channel.get("id")) in self.sources.seeds:
-            return ["seeds.yaml"]
+            return [source_tree.path("seeds")]
         return stating_files(channel, "simulation")
 
     def _groups(self) -> Iterator[FacilityBuildError]:
@@ -1046,19 +1054,26 @@ class _References:
 
     def _seeds(self) -> Iterator[FacilityBuildError]:
         for address in sorted(self.sources.seeds):
-            yield from self._missing("seed", address, ["seeds.yaml"], "address", "channel", address)
+            yield from self._missing(
+                "seed", address, [source_tree.path("seeds")], "address", "channel", address
+            )
 
     def _limits(self) -> Iterator[FacilityBuildError]:
         for record in self.index.limits:
             address = str(record.get("address"))
             yield from self._missing(
-                "limit", address, ["limits.yaml"], "records.address", "channel", address
+                "limit",
+                address,
+                [source_tree.path("limits")],
+                "records.address",
+                "channel",
+                address,
             )
 
     def _scenarios(self) -> Iterator[FacilityBuildError]:
         for scenario in self.sources.scenarios:
             name = str(scenario["name"])
-            files = [f"scenarios/{name}.yaml"]
+            files = [source_tree.keyed_file("scenarios", name)]
             overrides = scenario.get("overrides")
             for address in sorted(overrides if isinstance(overrides, dict) else (), key=str):
                 yield from self._missing("scenario", name, files, "overrides", "channel", address)
@@ -1108,7 +1123,7 @@ class _References:
 
     def _measurement(self) -> Iterator[FacilityBuildError]:
         for model, measurement in sorted(self.sources.measurement.items()):
-            files = [f"measurement/{model}.yaml"]
+            files = [source_tree.keyed_file("measurement", model)]
             if not self._exists("model", model):
                 yield from self._missing("measurement", model, files, "file name", "model", model)
                 continue
@@ -2485,7 +2500,7 @@ class _Records:
             address = str(record.get("address"))
             channel = self.index.channels[address]
             value_type = self._type(address)
-            files = ["limits.yaml"]
+            files = [source_tree.path("limits")]
             if record.get("writable") is True and channel.get("role") != "setpoint":
                 yield self._error(
                     "limit-invalid",
@@ -2826,8 +2841,8 @@ class _Records:
                 "scenario",
                 name,
                 files,
-                f"`{slot}` writes {address}, which limits.yaml locks",
-                f"remove `{slot}`, or make {address} writable in limits.yaml",
+                f"`{slot}` writes {address}, which {source_tree.path('limits')} locks",
+                f"remove `{slot}`, or make {address} writable in {source_tree.path('limits')}",
             )
             return
         yield from self._band(name, files, slot, address, value, record)
@@ -2860,7 +2875,7 @@ class _Records:
             "seed-invalid",
             "scenario",
             name,
-            [*files, "limits.yaml"],
+            [*files, source_tree.path("limits")],
             f"`{slot}` {exact_number(number)} lies {side} {exact_number(bound)}",
             "write a value inside [min_value, max_value], or widen the limits record",
         )
@@ -2996,7 +3011,7 @@ def _measurement_stops(
         if not isinstance(measurement, dict):
             continue
         name = str(model["name"])
-        files = [f"measurement/{name}.yaml"]
+        files = [source_tree.keyed_file("measurement", name)]
         groups_named = measurement.get("groups") or {}
         instruments = measurement.get("instruments") or {}
         wired = {str(entry.get("address")) for entry in model.get("wiring") or []}
@@ -3183,7 +3198,7 @@ def _kind_facts_stops(
         yield FacilityBuildError(
             "value-invalid",
             failed.model,
-            [f"measurement/{failed.model}.yaml"],
+            [source_tree.keyed_file("measurement", failed.model)],
             f"make the facts writer of kind {failed.kind} ({kind_source(failed.kind)}) "
             "accept every block its measurement schema admits",
             record_kind="measurement",
@@ -3270,7 +3285,7 @@ def _measurement_missing(model: str, detail: str, remedy: str) -> FacilityBuildE
     return FacilityBuildError(
         "reference-missing",
         model,
-        [f"measurement/{model}.yaml"],
+        [source_tree.keyed_file("measurement", model)],
         remedy,
         record_kind="measurement",
         detail=detail,

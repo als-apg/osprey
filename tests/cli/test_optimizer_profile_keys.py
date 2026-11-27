@@ -23,7 +23,7 @@ AUTHORED_PORT = default_port("optimizer") + 1000
 
 
 def _profile(block: Any) -> Any:
-    return _parse_profile({"name": "x", "data": "data", "optimizer": block})
+    return _parse_profile({"name": "x", "optimizer": block})
 
 
 def test_known_keys_are_the_schema_fields() -> None:
@@ -43,7 +43,7 @@ def test_an_empty_block_takes_the_defaults() -> None:
 
 
 def test_no_block_means_no_optimizer() -> None:
-    assert _parse_profile({"name": "x", "data": "data"}).optimizer is None
+    assert _parse_profile({"name": "x"}).optimizer is None
 
 
 @pytest.mark.parametrize("key", ["target", "targets"])
@@ -65,7 +65,6 @@ def test_a_malformed_block_is_refused(block: Any, match: str) -> None:
 
 
 def test_a_valid_block_passes_profile_validation(tmp_path: Path) -> None:
-    (tmp_path / "data").mkdir()
     _profile({"port": AUTHORED_PORT}).validate(tmp_path)
 
 

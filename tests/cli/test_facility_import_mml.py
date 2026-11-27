@@ -1,7 +1,7 @@
 """``osprey facility import mml``: exports written as the mml layer's sources.
 
 Each repo case copies one initialised demo repo, whose
-``data/facility/`` holds the bundled example facility, and imports the synthetic
+``facility/`` holds the bundled example facility, and imports the synthetic
 fixture tree's export under that tree's mapping. The list verb's half of the
 import's one step is proved in ``tests/facility/test_layer_list.py``.
 """
@@ -10,13 +10,11 @@ from __future__ import annotations
 
 import shutil
 from pathlib import Path
-from typing import Any
 
 import pytest
 from click.testing import CliRunner, Result
 
-from osprey.cli import build_profile_resolve
-from osprey.cli.build_profile_model import BuildProfile
+from osprey import repo_layout
 from osprey.cli.facility_cmd import KNOWLEDGE_PLACEHOLDER_LINE, _writes, import_group
 from osprey.cli.main import cli
 from osprey.facility.bundled import classify
@@ -42,7 +40,7 @@ EXPORTER = (
 TEMPLATE_ROOT = REPO_ROOT / "src" / "osprey" / "templates"
 INDEX = "knowledge/index.md"
 REMEDY = (
-    "move corrections into fixes.yaml and remove the record sources, "
+    "move corrections into provenance/fixes.yaml and remove the record sources, "
     "or start a new repo: osprey init <name> --preset demo"
 )
 
@@ -66,7 +64,7 @@ def _import(repo: Path) -> Result:
 
 
 def _facility(repo: Path) -> Path:
-    return repo / "data" / "facility"
+    return repo / repo_layout.entry("facility").path
 
 
 def _snapshot(root: Path) -> dict[str, bytes]:
@@ -78,7 +76,7 @@ def _snapshot(root: Path) -> dict[str, bytes]:
 
 
 def _authored(facility: Path) -> dict[str, bytes]:
-    """Every file outside the layer directory, by its path under ``data/facility``."""
+    """Every file outside the layer directory, by its path under ``facility``."""
     return {
         name: data
         for name, data in _snapshot(facility).items()
@@ -101,7 +99,7 @@ def cleared(repo: Path) -> Path:
 
 def _refusal(*paths: str, kinds: str) -> list[str]:
     return [
-        f"import mml: data/facility/ holds hand-written {kinds} records, which this import writes:",
+        f"import mml: facility/ holds hand-written {kinds} records, which this import writes:",
         *paths,
         REMEDY,
     ]
@@ -138,9 +136,7 @@ def test_a_wholly_bundled_facility_is_replaced_in_one_line(cleared: Path) -> Non
     facility = _facility(cleared)
     count = len(classify(facility, TEMPLATE_ROOT).bundled)
     outside = {
-        name: data
-        for name, data in _snapshot(cleared).items()
-        if not name.startswith("data/facility/")
+        name: data for name, data in _snapshot(cleared).items() if not name.startswith("facility/")
     }
 
     result = _import(cleared)
@@ -154,7 +150,7 @@ def test_a_wholly_bundled_facility_is_replaced_in_one_line(cleared: Path) -> Non
     assert (facility / INDEX).is_file()
     remaining = _snapshot(cleared)
     assert {
-        name: data for name, data in remaining.items() if not name.startswith("data/facility/")
+        name: data for name, data in remaining.items() if not name.startswith("facility/")
     } == outside
 
 
@@ -182,9 +178,7 @@ def test_a_hand_written_record_of_a_kind_the_import_writes_refuses(repo: Path) -
     result = _import(repo)
 
     assert result.exit_code == 1
-    assert result.stderr.splitlines() == _refusal(
-        "data/facility/records/devices.yaml", kinds="device"
-    )
+    assert result.stderr.splitlines() == _refusal("facility/records/devices.yaml", kinds="device")
     assert result.stdout == ""
     assert _snapshot(repo) == before
 
@@ -199,7 +193,7 @@ def test_each_kind_it_writes_is_named_in_the_order_of_the_table(repo: Path) -> N
 
     assert result.exit_code == 1
     assert result.stderr.splitlines()[0] == (
-        "import mml: data/facility/ holds hand-written channel, device and limit records, "
+        "import mml: facility/ holds hand-written channel, device and limit records, "
         "which this import writes:"
     )
 
@@ -224,7 +218,7 @@ def test_a_record_written_by_hand_beside_the_layer_survives_a_reimport(cleared: 
     pytest.importorskip("at")
     facility = _facility(cleared)
     assert _import(cleared).exit_code == 0
-    models = facility / "models.yaml"
+    models = facility / "simulation" / "models.yaml"
     models.write_text("- name: CHAIN\n  engine: texture\n", encoding="utf-8")
     channels = facility / "records" / "channels.yaml"
     channels.parent.mkdir(exist_ok=True)
@@ -241,7 +235,7 @@ def test_a_record_written_by_hand_beside_the_layer_survives_a_reimport(cleared: 
 def test_fixes_classes_and_knowledge_never_stop_the_import(cleared: Path) -> None:
     pytest.importorskip("at")
     facility = _facility(cleared)
-    (facility / "fixes.yaml").write_text(
+    (facility / "provenance" / "fixes.yaml").write_text(
         "schema: osprey.facility.fixes/1\nfixes: []\n", encoding="utf-8"
     )
     (facility / "knowledge" / "note.md").write_text("A note.\n", encoding="utf-8")
@@ -259,9 +253,9 @@ def test_the_import_runs_on_a_fresh_repo(cleared: Path) -> None:
 
     assert result.exit_code == 0, result.output
     written = _written(result)
-    assert written[0] == f"data/facility/{INDEX}"
-    assert f"data/facility/{LAYER_DIR}/channels.yaml" in written
-    assert "data/facility/limits.yaml" in written
+    assert written[0] == f"facility/{INDEX}"
+    assert f"facility/{LAYER_DIR}/channels.yaml" in written
+    assert "facility/limits.yaml" in written
     assert all((cleared / path).is_file() for path in written)
     assert result.stdout.count("golden skipped:") == 1
 
@@ -272,8 +266,8 @@ def test_a_second_import_leaves_the_seeded_files_byte_unchanged(cleared: Path) -
     assert first.exit_code == 0, first.output
     assert first.stdout.count("golden skipped:") == 1
     facility = _facility(cleared)
-    assert (facility / "seeds.yaml").is_file()
-    seeded = [path for path in _written(first) if not path.startswith(f"data/facility/{LAYER_DIR}")]
+    assert (facility / "simulation" / "seeds.yaml").is_file()
+    seeded = [path for path in _written(first) if not path.startswith(f"facility/{LAYER_DIR}")]
     assert seeded
     before = _authored(facility)
 
@@ -281,7 +275,7 @@ def test_a_second_import_leaves_the_seeded_files_byte_unchanged(cleared: Path) -
 
     assert second.exit_code == 0, second.output
     assert _authored(facility) == before
-    # The importer reports skipped nominals only when it seeds ``seeds.yaml``,
+    # The importer reports skipped nominals only when it seeds ``simulation/seeds.yaml``,
     # and the verb prints no seeding line of its own.
     assert "golden skipped:" not in second.stdout
     assert [path for path in _written(second) if path in seeded] == []
@@ -291,7 +285,8 @@ def test_a_second_import_leaves_the_seeded_files_byte_unchanged(cleared: Path) -
 def test_an_import_beside_a_fix_file_runs(cleared: Path) -> None:
     pytest.importorskip("at")
     assert _import(cleared).exit_code == 0
-    fixes = _facility(cleared) / "fixes.yaml"
+    fixes = _facility(cleared) / "provenance" / "fixes.yaml"
+    fixes.parent.mkdir(exist_ok=True)
     fixes.write_text("schema: osprey.facility.fixes/1\nfixes: []\n", encoding="utf-8")
 
     result = _import(cleared)
@@ -320,13 +315,13 @@ def test_a_limits_file_without_the_layer_header_is_refused_and_named(
     result = _import(cleared)
 
     assert result.exit_code == 1
-    assert result.stderr.splitlines() == _refusal("data/facility/limits.yaml", kinds="limit")
+    assert result.stderr.splitlines() == _refusal("facility/limits.yaml", kinds="limit")
     assert not (_facility(cleared) / LAYER_DIR / "channels.yaml").exists()
 
 
 def _retired(*paths: str) -> list[str]:
     return [
-        "import mml: data/facility/ holds files seeded under the retired header, read as seeded:",
+        "import mml: facility/ holds files seeded under the retired header, read as seeded:",
         *paths,
         f"set line 1 of each to: {HEADER}",
     ]
@@ -344,7 +339,7 @@ def test_a_reimport_reads_a_retired_header_file_as_seeded(cleared: Path) -> None
     result = _import(cleared)
 
     assert result.exit_code == 0, result.output
-    assert result.stderr.splitlines() == _retired("data/facility/limits.yaml")
+    assert result.stderr.splitlines() == _retired("facility/limits.yaml")
     assert limits.read_bytes() == before
 
 
@@ -354,7 +349,7 @@ def test_a_first_import_reads_retired_header_files_as_seeded_with_one_warning(
     pytest.importorskip("at")
     facility = _facility(cleared)
     limits = facility / "limits.yaml"
-    seeds = facility / "seeds.yaml"
+    seeds = facility / "simulation" / "seeds.yaml"
     limits.write_text(f"{FORMER_HEADER}\nrecords: []\n", encoding="utf-8")
     seeds.write_text(f"{FORMER_HEADER}\nseeds: []\n", encoding="utf-8")
     count = len(classify(facility, TEMPLATE_ROOT).bundled)
@@ -363,7 +358,7 @@ def test_a_first_import_reads_retired_header_files_as_seeded_with_one_warning(
 
     assert result.exit_code == 0, result.output
     assert result.stderr.splitlines() == [
-        *_retired("data/facility/limits.yaml", "data/facility/seeds.yaml"),
+        *_retired("facility/limits.yaml", "facility/simulation/seeds.yaml"),
         _replaced(count),
     ]
     assert limits.read_text(encoding="utf-8") == f"{FORMER_HEADER}\nrecords: []\n"
@@ -392,8 +387,8 @@ def test_a_hand_written_record_refuses_beside_a_retired_header_file(repo: Path) 
 
     assert result.exit_code == 1
     assert result.stderr.splitlines() == [
-        *_retired("data/facility/limits.yaml"),
-        *_refusal("data/facility/records/devices.yaml", kinds="device"),
+        *_retired("facility/limits.yaml"),
+        *_refusal("facility/records/devices.yaml", kinds="device"),
     ]
     assert _snapshot(repo) == before
 
@@ -412,9 +407,9 @@ def test_a_mapping_that_fails_its_check_stops_before_any_record(cleared: Path) -
     assert lines[0] == _replaced(count)
     assert lines[1] == "models.SR.name: 'S R' is not PN_LOCAL"
     assert lines[-1] == (
-        f"{len(lines) - 2} problems in data/facility/{MAPPING_FILE}; fix each and check again."
+        f"{len(lines) - 2} problems in facility/{MAPPING_FILE}; fix each and check again."
     )
-    assert result.stdout == f"wrote data/facility/{INDEX}\n{KNOWLEDGE_PLACEHOLDER_LINE}\n"
+    assert result.stdout == f"wrote facility/{INDEX}\n{KNOWLEDGE_PLACEHOLDER_LINE}\n"
     assert sorted(path.name for path in (_facility(cleared) / LAYER_DIR).iterdir()) == [
         "mapping.yaml"
     ]
@@ -431,10 +426,10 @@ def test_a_mapping_with_the_wrong_structure_stops_with_its_key(cleared: Path) ->
     assert result.exception is None or isinstance(result.exception, SystemExit)
     assert result.stderr.splitlines() == [
         _replaced(count),
-        f"✗ data/facility/{MAPPING_FILE} is not a valid mapping document.",
+        f"✗ facility/{MAPPING_FILE} is not a valid mapping document.",
         "  directions: required key is missing",
     ]
-    assert result.stdout == f"wrote data/facility/{INDEX}\n{KNOWLEDGE_PLACEHOLDER_LINE}\n"
+    assert result.stdout == f"wrote facility/{INDEX}\n{KNOWLEDGE_PLACEHOLDER_LINE}\n"
     assert sorted(path.name for path in (_facility(cleared) / LAYER_DIR).iterdir()) == [
         "mapping.yaml"
     ]
@@ -453,36 +448,6 @@ def test_a_profile_that_does_not_resolve_stops_the_import(repo: Path) -> None:
     assert _snapshot(_facility(repo)) == before
 
 
-def test_a_profile_that_names_no_data_root_stops_the_import(
-    repo: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    # Profile validation requires ``data:``, so a resolved profile without a
-    # data root is reached only past it: the root goes missing once the
-    # profile has resolved.
-    resolve = build_profile_resolve.resolve_build_document
-
-    def resolved_without_a_data_root(*args: Any, **kwargs: Any) -> Any:
-        resolved = resolve(*args, **kwargs)
-        monkeypatch.setattr(BuildProfile, "resolved_data_root", lambda self, profile_dir: None)
-        return resolved
-
-    monkeypatch.setattr(
-        build_profile_resolve, "resolve_build_document", resolved_without_a_data_root
-    )
-    before = _snapshot(repo)
-
-    result = _import(repo)
-
-    assert result.exit_code == 1
-    assert result.exception is None or isinstance(result.exception, SystemExit)
-    assert result.stderr.splitlines() == [
-        "✗ The profile does not resolve.",
-        "  a resolved profile names no data root",
-    ]
-    assert result.stdout == ""
-    assert _snapshot(repo) == before
-
-
 @pytest.mark.parametrize("separator", ["\f", " "], ids=["form-feed", "line-separator"])
 def test_a_header_line_that_runs_on_past_the_header_is_refused(
     cleared: Path, separator: str
@@ -493,12 +458,12 @@ def test_a_header_line_that_runs_on_past_the_header_is_refused(
     result = _import(cleared)
 
     assert result.exit_code == 1
-    assert result.stderr.splitlines() == _refusal("data/facility/limits.yaml", kinds="limit")
+    assert result.stderr.splitlines() == _refusal("facility/limits.yaml", kinds="limit")
 
 
 def test_the_seeded_readout_scenario_passes_a_second_import_unchanged(cleared: Path) -> None:
     pytest.importorskip("at")
-    readout = _facility(cleared) / "scenarios" / "readout.yaml"
+    readout = _facility(cleared) / "simulation" / "scenarios" / "readout.yaml"
 
     first = _import(cleared)
     assert first.exit_code == 0, first.output

@@ -5,7 +5,7 @@ Build Profiles
 ==============
 
 A **build profile** is the directory your facility owns: one ``profile.yml``, your
-data tree, your secrets, and any rules, skills or scripts you write. ``osprey build``
+facility tree, your secrets, and any rules, skills or scripts you write. ``osprey build``
 reads that directory and renders a project from it.
 
 The profile is the source of truth. The project is a derived artifact — regenerable,
@@ -16,7 +16,7 @@ and safe to delete and rebuild at any time.
    :icon: book
 
    - Creating a deployment repository and rendering its ``build/`` zone
-   - What lives in a profile: the convention directories, ``data/``, secrets, logins
+   - What lives in a profile: the convention directories, ``facility/``, ``web/``, secrets, logins
    - Moving an artifact you want to own out of ``build/`` and into the profile
    - Shipping and wiring your own hook scripts
    - Keeping a profile and its build in step
@@ -87,7 +87,8 @@ What ``osprey init`` writes
    my-facility/
      profile.yml     the full configuration — edit freely
      providers.yml   the catalog of model providers profile.yml selects from
-     data/           the facility tree (data/facility/) and the agent's other data
+     facility/       the facility tree: records, imports, simulation, knowledge
+     web/            the landing notices and the CANOPY screens (web presets only)
      .env.example    every variable the agent reads, documented, no values
      .env.shared     shared, committed defaults — no secrets
      .env            your values and secrets (when your shell had keys to seed, or the profile declares env.defaults)
@@ -97,24 +98,28 @@ What ``osprey init`` writes
      tiers/          one file per web-terminal login (multi-user presets only)
      apps/           one directory per application the profile lists, with a
                      .provenance sidecar (only when it lists one)
-     web-terminal-context/  the shared base.md baseline, plus one seeded
+     agent/          what the agent is told and runs with, by kind:
+       rules/        rules/facility.md, the facility description, to rewrite
+                     in your own words
+       context/      the shared base.md baseline, plus one seeded
                      directory per operator on the roster
-     rules/          rules/facility.md, the facility description, to rewrite in
-                     your own words
-     watchdogs/      one directory per watchdog the profile declares
-     mcp_servers/    the MCP server packages the preset ships
+       watchdogs/    one directory per watchdog the profile declares
+       code_review/  reviewer.md, the rules the code reviewer judges by
+       mcp_servers/  the MCP server packages the preset ships
      .osprey/        what the presets produced, so --revalidate can tell their
                      changes from yours; commit it, never edit it
-     ci-extra.yml    the facility's own CI jobs; never regenerated
+     ops/            how the deployment is built and run:
+       ci-extra.yml  the facility's own CI jobs; never regenerated
      .gitignore      keeps build/, var/, the .env files and apps/*/panel/vendor/
                      out of version control
      build/          rendered by `osprey build`; disposable
      var/            agent memory and audit log; durable
 
-``triggers.yml``, ``tiers/``, ``web-terminal-context/``, ``rules/``,
-``watchdogs/`` and ``mcp_servers/`` appear only when the preset calls for them. A
-``demo`` deployment has all of them except ``mcp_servers/``; a
-``hello-world`` deployment has only ``mcp_servers/``.
+``triggers.yml``, ``tiers/`` and ``web/`` appear only when the preset calls for them. A
+``demo`` deployment has all of them; a ``hello-world`` deployment has none. Inside
+``agent/``, every deployment has ``code_review/``; a ``demo`` deployment also
+has ``rules/``, ``context/`` and ``watchdogs/``, and a ``hello-world``
+deployment has ``mcp_servers/``.
 
 No bundled preset lists an application, so ``apps/`` appears only when you add
 one (:doc:`apps/index`). A preset's applications come with ``osprey init``, never
@@ -125,21 +130,21 @@ the profile ships its ``deploy:`` block commented out, so there are no
 coordinates to render one from. Fill the block in and ``osprey scaffold ci``
 writes the pipeline — see :doc:`deploy-a-facility`.
 
-The other directories for your own artifacts (``skills/``, ``agents/``, and the
-rest) are **not** created up front. Create the ones you need; a directory you
+The other directories for your own artifacts (``agent/skills/``,
+``agent/agents/``, ``ops/services/`` and the rest) are **not** created up front. Create the ones you need; a directory you
 never create means the profile contributes nothing of that kind.
 
 The facility tree
 -----------------
 
-``data/facility/`` holds every source of the facility file: the authored files
+``facility/`` holds every source of the facility file: the authored files
 and the ``imported/<layer>/`` directories the importers write. With
 ``machine:``, the machine facts come from a
 :doc:`machine repository </how-to/control-systems/machine-repository>` instead.
 :doc:`describe-your-facility` walks the tree file by file.
 
 ``osprey build`` reads the tree and writes the facility file and its views into
-the render, never back into ``data/facility/``:
+the render, never back into ``facility/``:
 
 .. code-block:: text
 
@@ -176,42 +181,42 @@ everything else lands in every render.
    * - Put it here
      - It lands here
      - One entry is
-   * - ``rules/``
+   * - ``agent/rules/``
      - ``.claude/rules/``
      - a ``.md`` file
-   * - ``skills/``
+   * - ``agent/skills/``
      - ``.claude/skills/``
      - a directory with a ``SKILL.md``
-   * - ``agents/``
+   * - ``agent/agents/``
      - ``.claude/agents/``
      - a ``.md`` file
-   * - ``commands/``
+   * - ``agent/commands/``
      - ``.claude/commands/``
      - a ``.md`` file
-   * - ``output-styles/``
+   * - ``agent/output-styles/``
      - ``.claude/output-styles/``
      - a ``.md`` file
-   * - ``hooks/``
+   * - ``agent/hooks/``
      - ``.claude/hooks/``
      - a script, usually ``.py``
-   * - ``web-terminal-context/``
+   * - ``agent/context/``
      - ``docker/web-terminal-context/``
      - a directory named for one operator, plus one shared ``base.md``
-   * - ``mcp_servers/``
+   * - ``agent/mcp_servers/``
      - ``_mcp_servers/``
      - a directory per server
-   * - ``services/``
+   * - ``ops/services/``
      - ``services/``
      - a directory per compose service
-   * - ``watchdogs/``
+   * - ``agent/watchdogs/``
      - ``watchdogs/``, for enabled watchdogs only
      - a directory named for one watchdog (see :ref:`profile-watchdogs-block`)
-   * - ``project/``
+   * - ``ops/project/``
      - the build root (``build/``)
      - any file, mirrored verbatim
 
 Nested paths inside a markdown directory are preserved, so
-``commands/orbit/correct.md`` stays namespaced. Skills, MCP servers, services
+``agent/commands/orbit/correct.md`` stays namespaced. Skills, MCP servers, services
 and per-user context copy as whole directories — the directory *is* the entry,
 and a build replaces it wholesale.
 
@@ -221,13 +226,13 @@ Naming your own skills, agents, rules and output styles
 -------------------------------------------------------
 
 These four render only where a list names them, like the library artifacts in
-the same list. Name one with its directory as a prefix:
+the same list. Name one with its directory's name under ``agent/`` as a prefix:
 
 .. code-block:: yaml
 
    skills:
      - diagnose                  # a library skill
-     - skills/beam-check         # skills/beam-check/ beside profile.yml
+     - skills/beam-check         # agent/skills/beam-check/ in the repo
    output_styles:
      - output-styles/terse       # the directory's spelling, hyphenated
    hooks:
@@ -235,7 +240,7 @@ the same list. Name one with its directory as a prefix:
 
 ``profile.yml``'s lists select for the deployment and every login, a login adds
 to them, and a ``lists: own`` login's lists are its whole selection. A bare entry always means
-OSPREY's artifact. A file named like one (``rules/facility.md``) replaces it
+OSPREY's artifact. A file named like one (``agent/rules/facility.md``) replaces it
 only where its path, ``rules/facility``, is named: there it counts as that
 artifact for wiring, checks and the brief, and supplies only the content.
 Listing both in one render is a build error. A path naming no file fails the build; a file no list names
@@ -251,7 +256,7 @@ other entry is refused. Your own hooks are wired, and copied, by their
 
 A file you ship this way is registered as **yours** in the project: later
 re-renders never overwrite it, and cleanup never removes it. Name a file after
-something the framework also renders (``rules/safety.md``) and list its path
+something the framework also renders (``agent/rules/safety.md``) and list its path
 (``rules/safety``) instead of the bare name: yours wins in that render.
 
 Ownership is *derived* from what the build actually copied, after exclusions
@@ -262,7 +267,7 @@ renders in its place.
 .. admonition:: A misspelled directory is silent
    :class: important
 
-   ``rule/`` is not ``rules/``, and nothing reads it. The build warns about
+   ``agent/rule/`` is not ``agent/rules/``, and nothing reads it. The build warns about
    unrecognized top-level entries in a profile for exactly this reason — read
    that warning rather than wondering why an artifact never arrived.
 
@@ -271,7 +276,7 @@ renders in its place.
 Paths the profile may not write
 -------------------------------
 
-``project/`` is the escape hatch for anything without a home in the table above.
+``ops/project/`` is the escape hatch for anything without a home in the table above.
 It cannot write paths the build already owns, because each of those has its own
 channel:
 
@@ -296,10 +301,10 @@ channel:
    * - ``.osprey-manifest.json``
      - the build itself
    * - ``data/channel_limits.json``
-     - the build, from ``data/facility/limits.yaml``
+     - the build, from ``facility/limits.yaml``
    * - ``data/pyaml/<model>/``
      - the build: the pyAML view, per served model with a measurement file
-       (``data/facility/measurement/<model>.yaml``)
+       (``facility/simulation/measurement/<model>.yaml``)
 
 A profile that targets one of these is rejected at build time, with the owning
 channel named. The same refusal applies to a claim (below).
@@ -319,7 +324,7 @@ treated as yours and never regenerate, quietly freezing that decision.
 The shared web-terminal baseline
 --------------------------------
 
-``web-terminal-context/`` is the one convention directory that accepts a loose
+``agent/context/`` is the one convention directory that accepts a loose
 file: ``base.md``, the text every operator's terminal starts from. It sits
 beside the per-operator directories and rides the same channel, landing at
 ``docker/web-terminal-context/base.md``.
@@ -328,13 +333,13 @@ Three layers stack, in this order:
 
 - **the framework's fallback.** Every build installs a generic ``base.md`` into
   the rendered project, so a deployment always has one.
-- **the profile's own copy.** A ``web-terminal-context/base.md`` in the profile
+- **the profile's own copy.** A ``agent/context/base.md`` in the profile
   is copied over that fallback. ``osprey init`` materializes one — from the app
   template's text where it ships its own, otherwise the framework's — so the
   baseline is in your repository from the first minute, where you can read and
   edit it.
 - **each operator's ``extra.md``.** At seed time the baseline and that user's
-  ``web-terminal-context/<user>/extra.md`` are concatenated, and the result
+  ``agent/context/<user>/extra.md`` are concatenated, and the result
   becomes their ``CLAUDE.md``.
 
 Unlike the per-operator directories, the baseline is **not** roster-derived. It
@@ -342,7 +347,7 @@ is copied on every build, including a login render that has no roster at all,
 and ``osprey init`` writes it whenever the profile stands up web terminals
 (``modules.web_terminals.enabled``) — even when the roster is still empty, so a
 profile that names no operators yet still starts from text it can see. A
-profile with no web-terminal module gets no ``web-terminal-context/``.
+profile with no web-terminal module gets no ``agent/context/``.
 
 The profile drops it with the ordinary convention vocabulary, qualified like any
 other profile-shipped file:
@@ -363,7 +368,7 @@ users are seeded from their own ``extra.md`` alone.
 .. admonition:: ``base.md`` is the only loose file
    :class: important
 
-   Any other file directly in ``web-terminal-context/`` is refused at build
+   Any other file directly in ``agent/context/`` is refused at build
    time, and the message names both routes: move it into the directory of the
    operator it belongs to, or rename it to ``base.md`` if it is the text
    everyone starts from. Directory names here are matched against the resolved
@@ -402,14 +407,13 @@ report success and then break every later build.
    target can still change between the check and the copy. Read it as the rule
    the build holds you to, not as a boundary it enforces.
 
-``data:`` is a path the profile *names*, not material the build finds by
-convention. It resolves against the profile directory and must resolve inside
-the repository, as must every file the profile ``extends``. ``osprey validate``
-and ``osprey build`` refuse a profile that reads anything outside the
-repository, before anything is installed, naming the path. The resolved tree is
-folded into the profile hash, so editing it reports the built project as out of
-date. ``machine:``, the facility directory of a mounted machine repository,
-resolves and is folded the same way.
+Every file the profile ``extends`` must resolve inside the repository.
+``osprey validate`` and ``osprey build`` refuse a profile that reads anything
+outside the repository, before anything is installed, naming the path.
+``facility/`` and ``web/`` are folded into the profile hash, so editing them
+reports the built project as out of date. ``machine:``, the facility directory
+of a mounted machine repository, resolves inside the repository and is folded
+the same way.
 
 
 .. _profile-claim:
@@ -493,8 +497,8 @@ profile:
      artifact_server.extension_types.beam_study:
        {label: Beam study, base_form: plots, viewer: viewers/beam_study.mjs}
 
-and ship the viewer through ``project/`` (here
-``project/viewers/beam_study.mjs``). The viewer is an ES module exporting
+and ship the viewer through ``ops/project/`` (here
+``ops/project/viewers/beam_study.mjs``). The viewer is an ES module exporting
 ``render(container, artifact, ctx)``, with ``ctx = {fileUrl, theme, tokens}``;
 it draws only into ``container``. A viewer that fails to load, lacks
 ``render`` or throws falls back to the base form's viewer. What ``osprey
@@ -506,13 +510,14 @@ Custom hooks
 ============
 
 A hook is a script the agent runs at a defined moment — before a tool call, at
-session start. Ship yours through ``hooks/``:
+session start. Ship yours through ``agent/hooks/``:
 
 .. code-block:: text
 
    my-facility/
-     hooks/
-       facility_guard.py
+     agent/
+       hooks/
+         facility_guard.py
 
 A ``config:`` key naming the event it fires on wires it, and the script is
 copied to ``.claude/hooks/facility_guard.py`` in every render that declaration
@@ -555,11 +560,11 @@ framework's, never a substitute for one.
 
 A declaration is refused at build time, with the reason, if it names a hook the
 resolved profile does not ship, a built-in hook whose wiring the framework
-already owns, or anything outside ``hooks/``.
+already owns, or anything outside ``agent/hooks/``.
 
 OSPREY's own helper files ship beside the hooks that need them and are not named
 in ``hooks:``. A facility hook that wants a helper ships its own copy under
-``hooks/``, or claims the rendered one with ``osprey scaffold claim
+``agent/hooks/``, or claims the rendered one with ``osprey scaffold claim
 hooks/hook-log`` after a build that rendered it.
 
 .. _profile-unwire-hook:
@@ -598,7 +603,7 @@ Replacing a built-in hook
 Shipping and declaring behave differently for the framework's own hooks.
 
 **Shipping** a file named for a built-in *replaces* it where a ``hooks:`` list
-names its path: ``hooks/`` is keyed by filename, because that is what the
+names its path: ``agent/hooks/`` is keyed by filename, because that is what the
 generated settings run. The built-in ``writes-check`` hook is
 ``osprey_writes_check.py``, so listing ``hooks/osprey_writes_check.py`` in place
 of ``writes-check`` makes your file the one the agent runs, wired exactly where
@@ -623,7 +628,7 @@ landing page opens a **login**: one file in ``tiers/``, laid over
 
    my-facility/
      profile.yml
-     data/
+     facility/
      tiers/
        readonly.yml       # a read-only terminal
        readwrite.yml      # a write-capable terminal
@@ -638,7 +643,7 @@ A login file says what its card's agent is: ``name``, ``model``,
 ``web_panels`` and ``mcp_servers`` lists, ``panel_presets``, ``config:``,
 the per-render keys ``extra_mounts``, ``seed_base`` and ``image``, and the
 ``provenance:`` block ``osprey init`` writes. A deployment fact — the
-connector, the provider, ``port_base``, a service block, ``data:``,
+connector, the provider, ``port_base``, a service block,
 ``machine:``, ``services:`` — is refused on a login, naming ``profile.yml`` as
 its home, and so are ``extends:`` and ``exclude:``. A login never subtracts.
 
@@ -970,7 +975,7 @@ The ``watchdogs:`` block
 
 A map from a watchdog's name to its definition, with any number of entries. The name is
 lowercase letters, digits, ``-`` and ``_``, starting with a letter or digit, and it names the
-directory ``watchdogs/<name>/`` beside ``profile.yml``. That directory holds
+directory ``agent/watchdogs/<name>/`` in the repository. That directory holds
 ``instructions.md`` and, optionally, ``references/``. A rendered project carries only the
 enabled entries and their directories; with none enabled, it carries neither the block nor the
 trigger hook. :doc:`safety-watchdogs` has the steps.
@@ -1101,7 +1106,7 @@ Checking a profile without building
    osprey validate tiers/readonly.yml
 
 Resolves the profile and runs the full consistency check — convention
-directories, the data tree, service templates, lifecycle steps, environment
+directories, the facility tree, service templates, lifecycle steps, environment
 variables — reporting every problem found, not just the first.
 
 The profile is yours to edit. No difference from the preset it was
@@ -1128,6 +1133,108 @@ own edits are left alone, and anything you deleted stays deleted. A change you
 drop from the diff before committing is not offered again; to take it later,
 copy it from the preset by hand.
 
+.. _profile-root-migration:
+
+A repository at a retired layout
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+An upgrade can change where a deployment repository keeps its sources. A
+repository that still holds an entry at a retired path is refused until the
+entry is at its current one:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 50 50
+
+   * - Retired path
+     - Current path
+   * - ``rules/``, ``skills/``, ``agents/``, ``commands/``,
+       ``output-styles/``, ``hooks/``, ``watchdogs/``, ``mcp_servers/``
+     - the same name under ``agent/``
+   * - ``web-terminal-context/``
+     - ``agent/context/``
+   * - ``data/code_review/``
+     - ``agent/code_review/``
+   * - ``services/``, ``project/``, ``scripts/``, ``osprey.service``,
+       ``ci-extra.yml``
+     - the same name under ``ops/``
+   * - ``data/.runtime/``
+     - ``var/runtime/``
+   * - ``data/<lane>_curve/``
+     - ``var/runtime/<lane>_curve/``
+   * - ``data/facility/``
+     - ``facility/``
+   * - ``data/canopy/library/``, ``data/canopy/collections/``,
+       ``data/canopy/theme/``
+     - the same name under ``web/canopy/``
+   * - ``data/landing/``
+     - ``web/landing/``
+   * - *Inside a facility tree:*
+     -
+   * - ``classes.yaml``, ``signals.yaml``
+     - the same name under ``vocabulary/``
+   * - ``models.yaml``, ``seeds.yaml``, ``scenarios/``, ``measurement/``,
+       ``decks/``
+     - the same name under ``simulation/``
+   * - ``fixes.yaml``, ``documents.yaml``, ``policy.yaml``
+     - the same name under ``provenance/``
+   * - ``benchmarks/cross_paradigm/queries/``
+     - ``benchmarks/channel_finder/``
+
+``data/`` itself is gone, and so is the profile's ``data:`` key: the render
+assembles ``build/data/`` from ``facility/`` and ``web/`` alone. A ``deck:``
+value that begins ``decks/`` is rewritten to begin ``simulation/decks/``.
+
+Every command that reads the sources, ``osprey build``, ``osprey up`` and
+``osprey validate`` among them, stops before it reads or writes anything and
+prints the commands that move the repository. ``osprey down``,
+``osprey status`` and ``osprey logs`` keep working, so a running stack can still
+be stopped and watched. This repository also holds a file of its own,
+``data/notes.md``:
+
+.. code-block:: text
+
+   # The deployment repo at /srv/my-facility still holds sources at retired paths; nothing was read.
+   # Paste this whole block to move them to their current paths, then place by hand what is listed below it; the repo is refused until both are done:
+   cd /srv/my-facility
+   git mv data/facility facility
+   git mv data/code_review agent/code_review
+   git mv mcp_servers agent/mcp_servers
+   git mv ci-extra.yml ops/ci-extra.yml
+   perl -ni -e 'print unless $. == 636 && m{^data: data\r?$}' profile.yml
+   rmdir data 2>/dev/null || true
+   # Host steps, once the files moved:
+   #   osprey build
+   # Check by hand; the paths inside these are not rewritten:
+   #   ops/ci-extra.yml
+   # Still in data/, place by hand:
+   #   data/notes.md
+   # Content the render must see goes under facility/.
+   osprey init --revalidate /srv/my-facility
+
+Paste the block whole into a shell, or run ``osprey init --revalidate``, which
+makes the same moves and prints the same lists. Tracked files move with
+``git mv``, and the lines of ``profile.yml``, ``.gitlab-ci.yml`` and
+``.dockerignore`` that name a moved path are rewritten. Three lists are left to
+you:
+
+- **Host steps.** Run each on every host the repository is deployed on. Where
+  ``osprey scaffold systemd`` wrote the unit or the boot hook, the steps install
+  it again from ``ops/``.
+- **Check by hand.** Paths inside a moved file (your CI jobs, a service's
+  Dockerfile, your scripts) are not rewritten, and neither is a value that
+  cannot be rewritten safely, such as a lifecycle ``run:`` command.
+- **Still in data/.** Nothing chooses a place for a file of your own. Move what
+  the render must see under ``facility/`` and the rest wherever you keep it; the
+  repository is refused until ``data/`` holds nothing.
+
+A file at both its retired and its current path is named instead of moved: keep
+one and delete the other.
+
+Upgrade OSPREY on every host that deploys the repository before you commit the
+move: an older OSPREY does not read the moved entries. A machine repository
+shared by several deployments has :ref:`its own order <machine-repository-upgrade>`.
+
 
 What the build does
 ===================
@@ -1141,7 +1248,8 @@ What the build does
    the last good one in place.
 5. Run ``pre_build`` commands.
 6. Create the project venv and install OSPREY plus the profile's dependencies.
-7. Render the base template and the profile's ``data/`` tree. No env file is
+7. Render the base template and assemble ``data/`` from ``facility/`` and
+   ``web/``. No env file is
    carried in: the repository's own ``.env.shared`` and ``.env`` stay where
    they are, and the containers are handed them at start time.
 8. Apply the ``config:`` overrides.
@@ -1167,8 +1275,8 @@ What gets generated
 
    my-facility/build/
    ├── .claude/
-   │   ├── agents/           # built-ins, plus anything from the profile's agents/
-   │   ├── rules/            # built-ins, plus the profile's rules/
+   │   ├── agents/           # built-ins, plus anything from the profile's agent/agents/
+   │   ├── rules/            # built-ins, plus the profile's agent/rules/
    │   ├── hooks/            # hook scripts, plus the generated hook_config.json
    │   ├── skills/
    │   ├── output-styles/
@@ -1176,7 +1284,7 @@ What gets generated
    ├── .mcp.json             # MCP server configurations
    ├── CLAUDE.md             # generated system prompt
    ├── config.yml            # config with the profile's overrides applied
-   ├── data/                 # the profile's data tree, materialized
+   ├── data/                 # facility/ and web/ as the render reads them, and the facility views
    ├── _mcp_servers/         # facility server code from the profile
    └── .env.example          # every variable this deployment reads, no values
 
@@ -1212,12 +1320,12 @@ a file rather than a directory. Every problem is listed at once.
 link inside one through any number of hops, resolves outside the repository;
 copy the target in (see :ref:`profile-self-contained`).
 
-**"web-terminal-context/<name> is a file"** — that directory holds one
+**"agent/context/<name> is a file"** — that directory holds one
 directory per operator, plus the shared ``base.md``. Move the file into the
 directory of the operator it belongs to, or rename it to ``base.md`` if it is
 the text everyone starts from (see :ref:`profile-context-baseline`).
 
-**"project/ mirror writes N build-owned path(s)"** — the mirror targets a path
+**"ops/project/ mirror writes N build-owned path(s)"** — the mirror targets a path
 another channel owns. The message names the channel, and the exact move where
 one exists.
 
@@ -1228,16 +1336,15 @@ repository's source.
 
 **"Unknown profile key(s): 'overlay'"** — a profile has no ``overlay``
 section. Move the files into the convention directory that matches what they
-are (see the table above), or into ``project/`` for anything without one.
+are (see the table above), or into ``ops/project/`` for anything without one.
 
 **"is already an OSPREY deployment repo"** — ``osprey init`` will not lay a
 source zone over one that is already there. To re-render the project, run
 ``osprey build`` in the repo: it wipes and re-renders ``build/`` and
 leaves the source zone alone. To replace the source zone itself from the
-preset, re-run ``osprey init --force`` — which rewrites ``profile.yml``,
-``data/``, ``tiers/``, ``apps/``, ``triggers.yml``, ``web-terminal-context/``,
-``watchdogs/`` and ``.env.example``, losing any edit to them. In
-``providers.yml`` it resets the entries OSPREY ships and keeps the ones you added.
+preset, re-run ``osprey init --force``, which loses your edits to what it
+replaces: ``profile.yml``, the facility tree and the other entries its
+description in :doc:`/reference/cli` lists.
 
 **"already exists, is not empty, and is not an OSPREY deployment repo"** — a
 deployment repo is one directory that holds nothing else, so ``osprey init``

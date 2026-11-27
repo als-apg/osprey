@@ -6,11 +6,11 @@
 # osprey-version: {{ ctx.osprey_version }}
 #
 {% if ctx.runs_verify_on_up %}
-# Emitted by `osprey scaffold ci` into the repo's scripts/ directory. `osprey
+# Emitted by `osprey scaffold ci` into the repo's {{ verify_path.rsplit('/', 1)[0] }}/ directory. `osprey
 # up` runs it automatically, without --strict, once the containers are up; you
 # can also run it by hand from anywhere in the repo:
 {% else %}
-# Emitted by `osprey scaffold ci` into the repo's scripts/ directory. Nothing
+# Emitted by `osprey scaffold ci` into the repo's {{ verify_path.rsplit('/', 1)[0] }}/ directory. Nothing
 # runs it for you: `osprey up` runs this check only as part of the web tier's
 # post-up hook, and this deployment has no web tier. Run it by hand once the
 # containers are up, from anywhere in the repo:
@@ -85,7 +85,7 @@ sys.exit(s.connect_ex(('$host', $port)))" 2>/dev/null; then
 }
 {% endif %}
 
-# The repo root: this script sits in {{ verify_path.rsplit('/', 1)[0] }}/ directly under it.
+# The repo root: this script sits in {{ verify_path.rsplit("/", 1)[0] }}/ under it.
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}"){{ '/..' * verify_path.count('/') }}" && pwd)"
 
 # What `osprey up` recorded it drove, as one "runtime<TAB>project" line. No

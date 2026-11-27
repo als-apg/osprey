@@ -22,7 +22,7 @@ name: Hello World
 # skeleton and config, with no channel databases, logbook, or benchmark data.
 app_template: hello_world
 
-# Which bundled facility this shows. Its files are copied into data/facility/,
+# Which bundled facility this shows. Its files are copied into facility/,
 # and that copy is what the build reads from then on.
 facility: hello_world
 
@@ -51,7 +51,7 @@ hooks:
   # whose write tools it guarded. Only a read-only deployment may drop them.
   - writes-check   # Kill switch: refuse every write to a machine whose writes are off
   - approval       # Gate hardware-write tool calls on human approval prompt
-  - limits         # Enforce per-channel min/max limits, from data/facility/limits.yaml
+  - limits         # Enforce per-channel min/max limits, from facility/limits.yaml
   - memory-guard   # Gate Write to memory files, NotebookEdit to agent-data artifacts and notebooks
   - config-drift   # Warn at session start when the build is out of date
   - focus-validate # Strip stale artifact IDs from focus_state.txt on each prompt
@@ -84,7 +84,7 @@ web_panels: []   # Extra tabs in the web workspace, beside the terminal
 # or just port to derive http://localhost:<port>/mcp). transport defaults to
 # "http"; "sse" is the legacy event-stream wire and needs an explicit url.
 mcp_servers:
-  # A Python server's package lives at mcp_servers/<package>/ beside this file;
+  # A Python server's package lives at agent/mcp_servers/<package>/ beside this file;
   # the build copies it to build/_mcp_servers/<package>/ for `-m <package>`.
   example_server:
     command: "{current_python_env}"
@@ -96,7 +96,7 @@ mcp_servers:
     # prompts the operator on every call.
     permissions:
       allow: [example_status]
-  # Delete this block and mcp_servers/example_server/ together: one without
+  # Delete this block and agent/mcp_servers/example_server/ together: one without
   # the other costs every session a 20 s wait for a server that cannot start.
   # Editing either is a source change, not a build tweak: rebuild afterwards,
   # since the directory enters the image context and the drift fingerprint.
@@ -149,7 +149,7 @@ config:
   # control_system.target_display_names.standin: Rehearsal
   # control_system.target_display_names.va: Simulator
   # The SECOND guard: every write is checked against the records in
-  # data/facility/limits.yaml (per-channel min/max and writable flags).
+  # facility/limits.yaml (per-channel min/max and writable flags).
   control_system.limits_checking.enabled: true
   # `optional` = channels in the limits file are held to their limits, every
   # other channel is written with no limits. `exclusive` = only channels in
@@ -288,7 +288,7 @@ config:
   # Container runtime `osprey up` uses: auto (Docker first, then Podman),
   # docker, or podman. CONTAINER_RUNTIME in the environment overrides it.
   container_runtime: auto
-  # Models the simulator serves, named from data/facility/models.yaml. null
+  # Models the simulator serves, named from facility/simulation/models.yaml. null
   # serves every model; [texture] serves no physics.
   simulation.models: null
   # Seconds between the simulator's ticks; must be greater than 0.

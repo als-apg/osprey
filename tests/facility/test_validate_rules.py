@@ -124,14 +124,14 @@ class TestStageRunner:
         assert result.validated.document["identity"] == {"code": "my_proj", "name": "my proj"}
 
     def test_a_tree_without_limits_passes_every_stage(self, tmp_path: Path) -> None:
-        files = _tree(**{"models.yaml": [_wired("Q1:SP")]})
+        files = _tree(**{"simulation/models.yaml": [_wired("Q1:SP")]})
         assert not (tmp_path / "facility" / "limits.yaml").exists()
         result = _run(tmp_path, files)
         assert result.ok, _lines(result)
         assert "limits" not in result.validated.document
 
     def test_a_load_error_stops_before_combine(self, tmp_path: Path) -> None:
-        files = _tree(**{"fixes.yaml": {"schema": "wrong"}, "records/extra.yaml": []})
+        files = _tree(**{"provenance/fixes.yaml": {"schema": "wrong"}, "records/extra.yaml": []})
         result = _run(tmp_path, files)
         assert result.failed == "load"
         assert result.validated.combined is None
@@ -176,7 +176,8 @@ class TestStageRunner:
         assert result.failed == "compute" and seen == ["compute"]
 
         bad = _write(
-            tmp_path / "bad", _tree(**{"seeds.yaml": {"NOPE": {"noise": {"absolute": 1.0}}}})
+            tmp_path / "bad",
+            _tree(**{"simulation/seeds.yaml": {"NOPE": {"noise": {"absolute": 1.0}}}}),
         )
         seen.clear()
         result = run_stages(
@@ -187,7 +188,7 @@ class TestStageRunner:
     def test_raise_first_raises_the_first_sorted_error(self, tmp_path: Path) -> None:
         files = _tree(
             **{
-                "seeds.yaml": {
+                "simulation/seeds.yaml": {
                     "B:GONE": {"noise": {"absolute": 1.0}},
                     "A:GONE": {"noise": {"absolute": 1.0}},
                 }
@@ -226,7 +227,7 @@ class TestGather:
     def test_validate_prints_every_error_of_the_first_failing_stage(self, tmp_path: Path) -> None:
         files = _tree(
             **{
-                "seeds.yaml": {
+                "simulation/seeds.yaml": {
                     "B:GONE": {"noise": {"absolute": 1.0}},
                     "A:GONE": {"noise": {"absolute": 1.0}},
                 },
@@ -242,12 +243,12 @@ class TestGather:
         )
         assert code == 1
         assert stream.getvalue().splitlines() == [
-            "facility: reference-missing: seed A:GONE — seeds.yaml `address` names channel "
+            "facility: reference-missing: seed A:GONE — simulation/seeds.yaml `address` names channel "
             "A:GONE, which does not exist; fix: add channel A:GONE or correct `address`",
-            "facility: reference-missing: seed B:GONE — seeds.yaml `address` names channel "
+            "facility: reference-missing: seed B:GONE — simulation/seeds.yaml `address` names channel "
             "B:GONE, which does not exist; fix: add channel B:GONE or correct `address`",
             "facility: class-unknown: device SR/BPM1 — class NoSuchClass is in neither the "
-            "vocabulary nor classes.yaml; fix: use a vocabulary class or add it to classes.yaml",
+            "vocabulary nor vocabulary/classes.yaml; fix: use a vocabulary class or add it to vocabulary/classes.yaml",
         ]
 
     def test_validate_of_a_clean_tree_prints_nothing(self, tmp_path: Path) -> None:
@@ -273,14 +274,14 @@ class TestGather:
         assert code == 1
         assert lines == [
             "facility: class-unknown: device SR/BPM1 — class NoSuchClass is in neither the "
-            "vocabulary nor classes.yaml; fix: use a vocabulary class or add it to classes.yaml",
+            "vocabulary nor vocabulary/classes.yaml; fix: use a vocabulary class or add it to vocabulary/classes.yaml",
         ]
         assert capsys.readouterr() == ("", "")
 
     def test_load_stops_keep_pn_local_and_case_rules(self, tmp_path: Path) -> None:
         files = _tree(
             **{
-                "models.yaml": [
+                "simulation/models.yaml": [
                     {"name": "Optics", "engine": "pyat"},
                     {"name": "optics", "engine": "pyat"},
                     {"name": "bad-name", "engine": "pyat"},
@@ -324,7 +325,9 @@ class TestSchemaStage:
         assert filled["identity"] == {"code": "p", "name": "p"}
 
     def test_a_pydantic_failure_is_one_line_per_path(self, tmp_path: Path) -> None:
-        files = _tree(**{"seeds.yaml": {"Q1:RB": {"noise": "loud", "drift": {"amplitude": 1.0}}}})
+        files = _tree(
+            **{"simulation/seeds.yaml": {"Q1:RB": {"noise": "loud", "drift": {"amplitude": 1.0}}}}
+        )
         result = _run(tmp_path, files)
         assert result.failed == "schema"
         assert [(e.kind, e.record_kind, e.record_id) for e in result.errors] == [
@@ -333,12 +336,12 @@ class TestSchemaStage:
         ]
         assert result.errors[0].format_message() == (
             "facility: source-invalid: path channels.1.simulation.drift.period_s — "
-            "seeds.yaml: field required; fix: add `period_s` to seeds.yaml"
+            "simulation/seeds.yaml: field required; fix: add `period_s` to simulation/seeds.yaml"
         )
-        assert result.errors[0].sources == ("seeds.yaml",)
+        assert result.errors[0].sources == ("simulation/seeds.yaml",)
 
     def test_a_union_slot_failure_is_one_line(self, tmp_path: Path) -> None:
-        files = _tree(**{"seeds.yaml": {"Q1:RB": {"linear": {"BPM1:X": "much"}}}})
+        files = _tree(**{"simulation/seeds.yaml": {"Q1:RB": {"linear": {"BPM1:X": "much"}}}})
         error = _one(tmp_path, files, "schema")
         assert (error.kind, error.record_id) == (
             "source-invalid",
@@ -389,10 +392,10 @@ class TestSchemaStage:
         [("overrides", ["Q1:SP", 1.0]), ("faults", {"optics": 3})],
     )
     def test_scenario_maps_have_their_shape(self, tmp_path: Path, slot: str, value: Any) -> None:
-        files = _tree(**{"scenarios/s.yaml": {slot: value}})
+        files = _tree(**{"simulation/scenarios/s.yaml": {slot: value}})
         error = _one(tmp_path, files, "schema")
         assert (error.kind, error.record_id) == ("source-invalid", f"scenarios.0.{slot}")
-        assert error.sources == ("scenarios/s.yaml",)
+        assert error.sources == ("simulation/scenarios/s.yaml",)
 
 
 # --- S4: references -----------------------------------------------------------------
@@ -429,7 +432,7 @@ class TestReferences:
         )
 
     def test_linear_input(self, tmp_path: Path) -> None:
-        files = _tree(**{"seeds.yaml": {"Q1:RB": {"linear": {"GONE": 1.0}}}})
+        files = _tree(**{"simulation/seeds.yaml": {"Q1:RB": {"linear": {"GONE": 1.0}}}})
         error = _one(tmp_path, files, "references")
         _missing(error, "channel", "Q1:RB", "seeds.yaml `simulation.linear` names channel GONE")
 
@@ -455,27 +458,27 @@ class TestReferences:
         _missing(error, "device", "SR/Q1", "`place` names place SR")
 
     def test_wiring_address(self, tmp_path: Path) -> None:
-        files = _tree(**{"models.yaml": [_wired("GONE")]})
+        files = _tree(**{"simulation/models.yaml": [_wired("GONE")]})
         error = _one(tmp_path, files, "references")
         _missing(error, "wiring", "optics/GONE", "models.yaml `address` names channel GONE")
 
     def test_slice_device(self, tmp_path: Path) -> None:
         slices = [{"element": "Q1"}, {"element": "Q2", "device": "SR/GONE"}]
-        files = _tree(**{"models.yaml": [_wired("Q1:SP", slices=slices)]})
+        files = _tree(**{"simulation/models.yaml": [_wired("Q1:SP", slices=slices)]})
         error = _one(tmp_path, files, "references")
         _missing(error, "wiring", "optics/Q1:SP", "`slices.device` names device SR/GONE")
 
     def test_a_filled_slice_device_is_reported_once_on_the_channel(self, tmp_path: Path) -> None:
         channel = {"id": "T", "on": {"device": "SR/GONE"}}
         files = _with_channels(
-            channel, **{"models.yaml": [_wired("T", slices=[{"element": "Q1"}])]}
+            channel, **{"simulation/models.yaml": [_wired("T", slices=[{"element": "Q1"}])]}
         )
         error = _one(tmp_path, files, "references")
         _missing(error, "channel", "T", "`on.device` names device SR/GONE")
 
     def test_seed_address(self, tmp_path: Path) -> None:
-        files = _tree(**{"seeds.yaml": {"GONE": {"noise": {"absolute": 0.1}}}})
-        _missing(_one(tmp_path, files, "references"), "seed", "GONE", "seeds.yaml")
+        files = _tree(**{"simulation/seeds.yaml": {"GONE": {"noise": {"absolute": 0.1}}}})
+        _missing(_one(tmp_path, files, "references"), "seed", "GONE", "simulation/seeds.yaml")
 
     def test_limit_address(self, tmp_path: Path) -> None:
         limits = {"records": [{"address": "G"}]}
@@ -499,16 +502,18 @@ class TestReferences:
     def test_scenario_entries(
         self, tmp_path: Path, scenario: dict[str, Any], fragment: str
     ) -> None:
-        files = _tree(**{"scenarios/s.yaml": scenario, "models.yaml": [_wired("Q1:SP")]})
+        files = _tree(
+            **{"simulation/scenarios/s.yaml": scenario, "simulation/models.yaml": [_wired("Q1:SP")]}
+        )
         error = _one(tmp_path, files, "references")
         _missing(error, "scenario", "s", fragment)
-        assert error.sources == ("scenarios/s.yaml",)
+        assert error.sources == ("simulation/scenarios/s.yaml",)
 
     def test_a_fault_key_naming_no_channel_is_left_to_the_engine(self, tmp_path: Path) -> None:
         files = _tree(
             **{
-                "scenarios/s.yaml": {"faults": {"optics": {"Q1:SP/cal_factor": 1.1}}},
-                "models.yaml": [_wired("Q1:SP")],
+                "simulation/scenarios/s.yaml": {"faults": {"optics": {"Q1:SP/cal_factor": 1.1}}},
+                "simulation/models.yaml": [_wired("Q1:SP")],
             }
         )
         assert _run(tmp_path, files).failed != "references"
@@ -524,11 +529,16 @@ class TestReferences:
     def test_measurement_references(
         self, tmp_path: Path, measurement: dict[str, Any], rid: str, fragment: str
     ) -> None:
-        files = _tree(**{"models.yaml": [_wired("Q1:SP")], "measurement/optics.yaml": measurement})
+        files = _tree(
+            **{
+                "simulation/models.yaml": [_wired("Q1:SP")],
+                "simulation/measurement/optics.yaml": measurement,
+            }
+        )
         _missing(_one(tmp_path, files, "references"), "measurement", rid, fragment)
 
     def test_measurement_file_of_a_missing_model(self, tmp_path: Path) -> None:
-        files = _tree(**{"measurement/nomodel.yaml": {"kinds": ["orm"]}})
+        files = _tree(**{"simulation/measurement/nomodel.yaml": {"kinds": ["orm"]}})
         error = _one(tmp_path, files, "references")
         _missing(error, "measurement", "nomodel", "names model nomodel")
 
@@ -537,12 +547,12 @@ class TestReferences:
         files = _tree(
             **{
                 "records/channels.yaml": [SP, RB, renamed],
-                "seeds.yaml": {"OLD:X": {"noise": {"absolute": 0.1}}},
+                "simulation/seeds.yaml": {"OLD:X": {"noise": {"absolute": 0.1}}},
             }
         )
         error = _one(tmp_path, files, "references")
         assert error.format_message() == (
-            "facility: reference-missing: seed OLD:X — seeds.yaml `address` names channel "
+            "facility: reference-missing: seed OLD:X — simulation/seeds.yaml `address` names channel "
             "OLD:X, which does not exist; channel BPM1:X lists it in former_addresses; "
             "fix: point `address` at BPM1:X"
         )
@@ -557,8 +567,8 @@ def _dropping_tree(**extra: Any) -> dict[str, Any]:
     return _tree(
         **{
             "imported/mml/channels.yaml": [{"id": "X2", "on": {"device": "SR/BPM1"}}],
-            "fixes.yaml": fixes,
-            "models.yaml": [_wired("Q1:SP")],
+            "provenance/fixes.yaml": fixes,
+            "simulation/models.yaml": [_wired("Q1:SP")],
         },
         **extra,
     )
@@ -570,7 +580,7 @@ class TestDroppedReferences:
     def _check(self, error: FacilityBuildError, record_kind: str, rid: str) -> None:
         _missing(error, record_kind, rid, self.DROP)
         assert error.remedy == "remove the entry or drop the fix"
-        assert "fixes.yaml" in error.sources
+        assert "provenance/fixes.yaml" in error.sources
 
     def test_limits_record(self, tmp_path: Path) -> None:
         limits = {"records": [{"address": "X2"}]}
@@ -580,17 +590,19 @@ class TestDroppedReferences:
     def test_seed(self, tmp_path: Path) -> None:
         error = _one(
             tmp_path,
-            _dropping_tree(**{"seeds.yaml": {"X2": {"noise": {"absolute": 0.1}}}}),
+            _dropping_tree(**{"simulation/seeds.yaml": {"X2": {"noise": {"absolute": 0.1}}}}),
             "references",
         )
         self._check(error, "seed", "X2")
 
     def test_scenario_override(self, tmp_path: Path) -> None:
-        files = _dropping_tree(**{"scenarios/s.yaml": {"overrides": {"X2": 1.0}}})
+        files = _dropping_tree(**{"simulation/scenarios/s.yaml": {"overrides": {"X2": 1.0}}})
         self._check(_one(tmp_path, files, "references"), "scenario", "s")
 
     def test_scenario_fault(self, tmp_path: Path) -> None:
-        files = _dropping_tree(**{"scenarios/s.yaml": {"faults": {"optics": {"X2": 1.0}}}})
+        files = _dropping_tree(
+            **{"simulation/scenarios/s.yaml": {"faults": {"optics": {"X2": 1.0}}}}
+        )
         self._check(_one(tmp_path, files, "references"), "scenario", "s")
 
     def test_the_drop_alone_builds(self, tmp_path: Path) -> None:
@@ -615,7 +627,7 @@ class TestClasses:
     def test_a_facility_added_class_is_known(self, tmp_path: Path) -> None:
         files = _tree(
             **{
-                "classes.yaml": [
+                "vocabulary/classes.yaml": [
                     {"class": "Undulator", "parent": "Magnet"},
                     {"class": "PlanarUndulator", "parent": "Undulator"},
                 ],
@@ -627,7 +639,7 @@ class TestClasses:
     def test_a_parent_must_be_listed_earlier(self, tmp_path: Path) -> None:
         files = _tree(
             **{
-                "classes.yaml": [
+                "vocabulary/classes.yaml": [
                     {"class": "PlanarUndulator", "parent": "Undulator"},
                     {"class": "Undulator", "parent": "Magnet"},
                 ]
@@ -641,7 +653,7 @@ class TestClasses:
         )
 
     def test_an_unknown_parent(self, tmp_path: Path) -> None:
-        files = _tree(**{"classes.yaml": [{"class": "Kicker", "parent": "Widget"}]})
+        files = _tree(**{"vocabulary/classes.yaml": [{"class": "Kicker", "parent": "Widget"}]})
         assert _one(tmp_path, files, "references").kind == "class-unknown"
 
     def test_a_channel_signal_must_be_a_vocabulary_role(self, tmp_path: Path) -> None:
@@ -652,8 +664,8 @@ class TestClasses:
         error = _one(tmp_path / "bad", files, "references")
         assert error.format_message() == (
             "facility: class-unknown: channel T — signal hcm_current_sp is in neither the "
-            "vocabulary nor signals.yaml; fix: use a vocabulary signal role, add it to "
-            "signals.yaml or remove `signal`"
+            "vocabulary nor vocabulary/signals.yaml; fix: use a vocabulary signal role, add it to "
+            "vocabulary/signals.yaml or remove `signal`"
         )
 
 
@@ -742,13 +754,19 @@ class TestPairRules:
         assert _run(tmp_path, files).ok, _lines(_run(tmp_path, files))
 
     def test_setpoint_and_pair_are_owned_by_one_model(self, tmp_path: Path) -> None:
-        files = _tree(**{"models.yaml": [_wired("Q1:SP"), _wired("Q1:RB", model="other")]})
+        files = _tree(
+            **{"simulation/models.yaml": [_wired("Q1:SP"), _wired("Q1:RB", model="other")]}
+        )
         error = _rule(tmp_path, files, "pair-invalid")
         assert error.record_id == "Q1:SP"
 
     def test_element_and_slices_both_present(self, tmp_path: Path) -> None:
         files = _tree(
-            **{"models.yaml": [_wired("Q1:SP", element="Q1", slices=[{"element": "Q1"}])]}
+            **{
+                "simulation/models.yaml": [
+                    _wired("Q1:SP", element="Q1", slices=[{"element": "Q1"}])
+                ]
+            }
         )
         error = _rule(tmp_path, files, "pair-invalid")
         assert (error.record_kind, error.record_id) == ("wiring", "optics/Q1:SP")
@@ -756,7 +774,7 @@ class TestPairRules:
     @pytest.mark.parametrize("weight", [0, float("inf"), float("nan")], ids=["zero", "inf", "nan"])
     def test_slice_weight(self, tmp_path: Path, weight: float) -> None:
         slices = [{"element": "Q1", "weight": weight}]
-        files = _tree(**{"models.yaml": [_wired("Q1:SP", slices=slices)]})
+        files = _tree(**{"simulation/models.yaml": [_wired("Q1:SP", slices=slices)]})
         assert "zero or not finite" in _rule(tmp_path, files, "pair-invalid").detail
 
     def test_a_first_slice_curve(self, tmp_path: Path) -> None:
@@ -764,7 +782,7 @@ class TestPairRules:
             {"element": "Q1", "curve": {"linear": {"gain": 1.0, "offset": 0.0}}},
             {"element": "Q2"},
         ]
-        files = _tree(**{"models.yaml": [_wired("Q1:SP", slices=slices)]})
+        files = _tree(**{"simulation/models.yaml": [_wired("Q1:SP", slices=slices)]})
         error = _rule(tmp_path, files, "pair-invalid")
         assert error.detail == "the first slice states a `curve`"
         assert error.remedy == (
@@ -776,13 +794,13 @@ class TestPairRules:
             {"element": "Q1"},
             {"element": "Q2", "curve": {"linear": {"gain": 1.0, "offset": 0.0}}},
         ]
-        files = _tree(**{"models.yaml": [_wired("Q1:SP", slices=slices)]})
+        files = _tree(**{"simulation/models.yaml": [_wired("Q1:SP", slices=slices)]})
         assert _run(tmp_path, files).ok
 
     def test_a_wired_endpoint_device_is_named_by_a_slice(self, tmp_path: Path) -> None:
         channel = {"id": "PS", "endpoint_of": ["SR/Q1", "SR/BPM1"]}
         slices = [{"element": "Q1", "device": "SR/Q1"}]
-        files = _with_channels(channel, **{"models.yaml": [_wired("PS", slices=slices)]})
+        files = _with_channels(channel, **{"simulation/models.yaml": [_wired("PS", slices=slices)]})
         error = _rule(tmp_path, files, "pair-invalid")
         assert error.detail == "`endpoint_of` device SR/BPM1 is named by no slice"
 
@@ -796,7 +814,7 @@ class TestPairRules:
             {"element": "Q1", "device": "SR/Q1", "weight": 2.0},
             {"element": "B1", "device": "SR/BPM1"},
         ]
-        files = _with_channels(channel, **{"models.yaml": [_wired("PS", slices=slices)]})
+        files = _with_channels(channel, **{"simulation/models.yaml": [_wired("PS", slices=slices)]})
         assert _run(tmp_path, files).ok
 
 
@@ -867,15 +885,17 @@ class TestValueRules:
                     {**RB, "value_type": "int"},
                     X,
                 ],
-                "seeds.yaml": {"Q1:SP": seed},
+                "simulation/seeds.yaml": {"Q1:SP": seed},
             }
         )
         error = _rule(tmp_path, files, "value-invalid")
         assert "apply to float channels only" in error.detail
-        assert error.sources == ("seeds.yaml",)
+        assert error.sources == ("simulation/seeds.yaml",)
 
     def test_drift_period_must_be_positive(self, tmp_path: Path) -> None:
-        files = _tree(**{"seeds.yaml": {"Q1:RB": {"drift": {"amplitude": 1, "period_s": 0}}}})
+        files = _tree(
+            **{"simulation/seeds.yaml": {"Q1:RB": {"drift": {"amplitude": 1, "period_s": 0}}}}
+        )
         assert "period_s" in _rule(tmp_path, files, "value-invalid").detail
 
     @pytest.mark.parametrize(
@@ -884,36 +904,37 @@ class TestValueRules:
         ids=["low-above-high", "one-side", "infinite", "string"],
     )
     def test_clamp_shape(self, tmp_path: Path, clamp: list[Any]) -> None:
-        files = _tree(**{"seeds.yaml": {"Q1:RB": {"clamp": clamp}}})
+        files = _tree(**{"simulation/seeds.yaml": {"Q1:RB": {"clamp": clamp}}})
         result = _run(tmp_path, files)
         assert result.failed in ("schema", "records"), _lines(result)
         if result.failed == "records":
             assert [e.kind for e in result.errors] == ["value-invalid"]
 
     def test_clamp_with_open_sides_builds(self, tmp_path: Path) -> None:
-        files = _tree(**{"seeds.yaml": {"Q1:RB": {"clamp": [None, 5.0]}}})
+        files = _tree(**{"simulation/seeds.yaml": {"Q1:RB": {"clamp": [None, 5.0]}}})
         assert _run(tmp_path, files).ok
 
     def test_clamp_on_a_non_float(self, tmp_path: Path) -> None:
         files = _with_channels(
-            {"id": "T", "value_type": "int"}, **{"seeds.yaml": {"T": {"clamp": [0, 1]}}}
+            {"id": "T", "value_type": "int"}, **{"simulation/seeds.yaml": {"T": {"clamp": [0, 1]}}}
         )
         assert "`clamp`" in _rule(tmp_path, files, "value-invalid").detail
 
     def test_linear_with_nominal(self, tmp_path: Path) -> None:
         seeds = {"T": {"linear": {"BPM1:X": 1.0}, "nominal": 2.0}}
-        files = _with_channels({"id": "T"}, **{"seeds.yaml": seeds})
+        files = _with_channels({"id": "T"}, **{"simulation/seeds.yaml": seeds})
         assert "`nominal`" in _rule(tmp_path, files, "value-invalid").detail
 
     def test_linear_on_a_non_float(self, tmp_path: Path) -> None:
         seeds = {"T": {"linear": {"BPM1:X": 1.0}}}
-        files = _with_channels({"id": "T", "value_type": "int"}, **{"seeds.yaml": seeds})
+        files = _with_channels({"id": "T", "value_type": "int"}, **{"simulation/seeds.yaml": seeds})
         assert "`linear`" in _rule(tmp_path, files, "value-invalid").detail
 
     def test_linear_with_a_wired_input(self, tmp_path: Path) -> None:
         seeds = {"T": {"linear": {"Q1:SP": 1.0}}}
         files = _with_channels(
-            {"id": "T"}, **{"seeds.yaml": seeds, "models.yaml": [_wired("Q1:SP")]}
+            {"id": "T"},
+            **{"simulation/seeds.yaml": seeds, "simulation/models.yaml": [_wired("Q1:SP")]},
         )
         error = _rule(tmp_path, files, "value-invalid")
         assert error.detail == "`linear` input Q1:SP is wired"
@@ -921,19 +942,21 @@ class TestValueRules:
     def test_linear_with_a_non_float_input(self, tmp_path: Path) -> None:
         seeds = {"T": {"linear": {"S": 1.0}}}
         files = _with_channels(
-            {"id": "T"}, {"id": "S", "value_type": "string"}, **{"seeds.yaml": seeds}
+            {"id": "T"}, {"id": "S", "value_type": "string"}, **{"simulation/seeds.yaml": seeds}
         )
         assert "not float" in _rule(tmp_path, files, "value-invalid").detail
 
     def test_linear_cycle(self, tmp_path: Path) -> None:
         seeds = {"A": {"linear": {"B": 1.0}}, "B": {"linear": {"A": -1.0}}}
-        files = _with_channels({"id": "A"}, {"id": "B"}, **{"seeds.yaml": seeds})
+        files = _with_channels({"id": "A"}, {"id": "B"}, **{"simulation/seeds.yaml": seeds})
         error = _rule(tmp_path, files, "value-invalid")
         assert (error.record_id, error.detail) == ("A", "`linear` inputs form a cycle: A -> B -> A")
 
     def test_linear_over_unwired_inputs_builds(self, tmp_path: Path) -> None:
         seeds = {"NET": {"linear": {"FWD": 1.0, "REV": -1.0}}}
-        files = _with_channels({"id": "FWD"}, {"id": "REV"}, {"id": "NET"}, **{"seeds.yaml": seeds})
+        files = _with_channels(
+            {"id": "FWD"}, {"id": "REV"}, {"id": "NET"}, **{"simulation/seeds.yaml": seeds}
+        )
         assert _run(tmp_path, files).ok
 
     @pytest.mark.parametrize(
@@ -961,11 +984,11 @@ class TestValueRules:
         self, tmp_path: Path, channel: dict[str, Any], nominal: Any
     ) -> None:
         files = _with_channels(
-            {"id": "T", **channel}, **{"seeds.yaml": {"T": {"nominal": nominal}}}
+            {"id": "T", **channel}, **{"simulation/seeds.yaml": {"T": {"nominal": nominal}}}
         )
         error = _rule(tmp_path, files, "value-invalid")
         assert error.detail.startswith("`nominal` of channel T: ")
-        assert error.sources == ("seeds.yaml",)
+        assert error.sources == ("simulation/seeds.yaml",)
 
     def test_a_coercible_nominal_builds(self, tmp_path: Path) -> None:
         channels = [
@@ -974,7 +997,7 @@ class TestValueRules:
             {"id": "W", "value_type": "waveform", "shape": [2, 2]},
         ]
         seeds = {"I": {"nominal": 3.0}, "E": {"nominal": 1}, "W": {"nominal": [[1, 2], [3, 4]]}}
-        assert _run(tmp_path, _with_channels(*channels, **{"seeds.yaml": seeds})).ok
+        assert _run(tmp_path, _with_channels(*channels, **{"simulation/seeds.yaml": seeds})).ok
 
     def test_limit_bounds_on_a_non_numeric_channel(self, tmp_path: Path) -> None:
         limits = {
@@ -985,7 +1008,7 @@ class TestValueRules:
         assert (error.record_kind, error.record_id) == ("limit", "T")
 
     def test_override_is_coerced(self, tmp_path: Path) -> None:
-        files = _tree(**{"scenarios/s.yaml": {"overrides": {"Q1:SP": "high"}}})
+        files = _tree(**{"simulation/scenarios/s.yaml": {"overrides": {"Q1:SP": "high"}}})
         error = _rule(tmp_path, files, "value-invalid")
         assert (error.record_kind, error.record_id) == ("scenario", "s")
         assert error.detail.startswith("`overrides.Q1:SP` of channel Q1:SP: ")
@@ -993,16 +1016,18 @@ class TestValueRules:
     def test_fault_value_is_coerced(self, tmp_path: Path) -> None:
         files = _tree(
             **{
-                "models.yaml": [_wired("Q1:SP")],
-                "scenarios/s.yaml": {"faults": {"optics": {"Q1:RB": [1, 2]}}},
+                "simulation/models.yaml": [_wired("Q1:SP")],
+                "simulation/scenarios/s.yaml": {"faults": {"optics": {"Q1:RB": [1, 2]}}},
             }
         )
         error = _rule(tmp_path, files, "value-invalid")
         assert error.detail.startswith("`faults.optics.Q1:RB` of channel Q1:RB: ")
 
     def test_stuck_under_faults_is_moved_to_channel_faults(self, tmp_path: Path) -> None:
-        models = {"models.yaml": [_wired("Q1:SP")]}
-        files = _tree(**models, **{"scenarios/s.yaml": {"faults": {"optics": {"Q1:SP": "stuck"}}}})
+        models = {"simulation/models.yaml": [_wired("Q1:SP")]}
+        files = _tree(
+            **models, **{"simulation/scenarios/s.yaml": {"faults": {"optics": {"Q1:SP": "stuck"}}}}
+        )
         error = _rule(tmp_path, files, "value-invalid")
         assert error.format_message() == (
             "facility: value-invalid: scenario s — `faults.optics.Q1:SP` is `stuck`; "
@@ -1024,13 +1049,13 @@ class TestValueRules:
         for address in builds:
             files = _with_channels(
                 {"id": "N", "role": "none"},
-                **{"scenarios/s.yaml": {"channel_faults": {address: word}}},
+                **{"simulation/scenarios/s.yaml": {"channel_faults": {address: word}}},
             )
             assert _run(tmp_path / f"ok-{address}", files).ok
         for address in refused:
             files = _with_channels(
                 {"id": "N", "role": "none"},
-                **{"scenarios/s.yaml": {"channel_faults": {address: word}}},
+                **{"simulation/scenarios/s.yaml": {"channel_faults": {address: word}}},
             )
             error = _rule(tmp_path / f"bad-{address}", files, "value-invalid")
             assert error.detail == (
@@ -1041,22 +1066,22 @@ class TestValueRules:
             )
 
     def test_a_channel_fault_is_one_of_the_words(self, tmp_path: Path) -> None:
-        files = _tree(**{"scenarios/s.yaml": {"channel_faults": {"Q1:RB": "offline"}}})
+        files = _tree(**{"simulation/scenarios/s.yaml": {"channel_faults": {"Q1:RB": "offline"}}})
         error = _rule(tmp_path, files, "value-invalid")
         assert error.detail == "`channel_faults.Q1:RB` is `offline`"
         assert error.remedy == "write one of `stuck`, `frozen`, `disconnected`"
 
     @pytest.mark.parametrize("block", [["Q1:RB"], {"Q1:RB": 1}])
     def test_channel_faults_map_addresses_to_words(self, tmp_path: Path, block: Any) -> None:
-        files = _tree(**{"scenarios/s.yaml": {"channel_faults": block}})
+        files = _tree(**{"simulation/scenarios/s.yaml": {"channel_faults": block}})
         error = _rule(tmp_path, files, "value-invalid")
         assert error.detail == (f"`channel_faults` is {block!r}, not a mapping of address to fault")
 
     def test_stopped_servers_name_served_simulated_servers(self, tmp_path: Path) -> None:
         files = _tree(
             **{
-                "models.yaml": [_wired("Q1:SP")],
-                "scenarios/s.yaml": {"stopped_servers": ["sim-optics", "sim-texture"]},
+                "simulation/models.yaml": [_wired("Q1:SP")],
+                "simulation/scenarios/s.yaml": {"stopped_servers": ["sim-optics", "sim-texture"]},
             }
         )
         assert _run(tmp_path, files).ok
@@ -1064,8 +1089,8 @@ class TestValueRules:
     def test_a_stopped_ioc_the_facility_does_not_serve_is_refused(self, tmp_path: Path) -> None:
         files = _tree(
             **{
-                "models.yaml": [_wired("Q1:SP")],
-                "scenarios/s.yaml": {"stopped_servers": ["sim-nothing"]},
+                "simulation/models.yaml": [_wired("Q1:SP")],
+                "simulation/scenarios/s.yaml": {"stopped_servers": ["sim-nothing"]},
             }
         )
         error = _rule(tmp_path, files, "value-invalid")
@@ -1075,13 +1100,18 @@ class TestValueRules:
 
     @pytest.mark.parametrize("block", ["sim-texture", {"sim-texture": True}, [1]])
     def test_stopped_servers_is_a_list_of_names(self, tmp_path: Path, block: Any) -> None:
-        files = _tree(**{"scenarios/s.yaml": {"stopped_servers": block}})
+        files = _tree(**{"simulation/scenarios/s.yaml": {"stopped_servers": block}})
         assert not _run(tmp_path, files).ok
 
     def _monitor_map(self, faults: dict[str, Any]) -> dict[str, Any]:
         model = _wired("Q1:SP")
         model["wiring"].append({"address": "BPM1:X", "element": "BPM1", "engine": {"axis": "x"}})
-        return _tree(**{"models.yaml": [model], "scenarios/s.yaml": {"faults": {"optics": faults}}})
+        return _tree(
+            **{
+                "simulation/models.yaml": [model],
+                "simulation/scenarios/s.yaml": {"faults": {"optics": faults}},
+            }
+        )
 
     def test_a_fault_field_map_on_a_monitor_reading_builds(self, tmp_path: Path) -> None:
         files = self._monitor_map({"BPM1:X": {"offset": 1e-4, "roll": 0.01}})
@@ -1100,8 +1130,8 @@ class TestStillRules:
     def test_still_all_and_a_list_of_float_readings_build(self, tmp_path: Path) -> None:
         files = _tree(
             **{
-                "scenarios/a.yaml": {"still": "all"},
-                "scenarios/b.yaml": {"still": ["BPM1:X", "Q1:RB"]},
+                "simulation/scenarios/a.yaml": {"still": "all"},
+                "simulation/scenarios/b.yaml": {"still": ["BPM1:X", "Q1:RB"]},
             }
         )
         assert _run(tmp_path, files).ok
@@ -1110,7 +1140,7 @@ class TestStillRules:
         "still", ["none", [], [1.0], True], ids=["word", "empty", "number", "bool"]
     )
     def test_still_is_all_or_a_list_of_addresses(self, tmp_path: Path, still: Any) -> None:
-        files = _tree(**{"scenarios/s.yaml": {"still": still}})
+        files = _tree(**{"simulation/scenarios/s.yaml": {"still": still}})
         error = _rule(tmp_path, files, "value-invalid")
         assert (error.record_kind, error.record_id) == ("scenario", "s")
         assert error.detail == (
@@ -1121,8 +1151,8 @@ class TestStillRules:
     def test_a_still_entry_may_be_a_scoped_selection(self, tmp_path: Path) -> None:
         files = _tree(
             **{
-                "models.yaml": [{"name": "optics", "engine": "texture"}],
-                "scenarios/s.yaml": {
+                "simulation/models.yaml": [{"name": "optics", "engine": "texture"}],
+                "simulation/scenarios/s.yaml": {
                     "still": [
                         "BPM1:X",
                         {"model": "optics", "engine_role": "monitor", "plane": "x"},
@@ -1151,8 +1181,8 @@ class TestStillRules:
     ) -> None:
         files = _tree(
             **{
-                "models.yaml": [{"name": "optics", "engine": "texture"}],
-                "scenarios/s.yaml": {"still": [entry]},
+                "simulation/models.yaml": [{"name": "optics", "engine": "texture"}],
+                "simulation/scenarios/s.yaml": {"still": [entry]},
             }
         )
         error = _rule(tmp_path, files, "value-invalid")
@@ -1165,8 +1195,8 @@ class TestStillRules:
     ) -> None:
         files = _tree(
             **{
-                "models.yaml": [{"name": "optics", "engine": "texture"}],
-                "scenarios/s.yaml": {"still": [{"model": "optics", "role": "monitor"}]},
+                "simulation/models.yaml": [{"name": "optics", "engine": "texture"}],
+                "simulation/scenarios/s.yaml": {"still": [{"model": "optics", "role": "monitor"}]},
             }
         )
         error = _rule(tmp_path, files, "value-invalid")
@@ -1190,8 +1220,8 @@ class TestStillRules:
     ) -> None:
         files = _tree(
             **{
-                "models.yaml": [{"name": "optics", "engine": "texture"}],
-                "scenarios/s.yaml": {"still": [entry]},
+                "simulation/models.yaml": [{"name": "optics", "engine": "texture"}],
+                "simulation/scenarios/s.yaml": {"still": [entry]},
             }
         )
         error = _one(tmp_path, files, "references")
@@ -1200,7 +1230,7 @@ class TestStillRules:
 
     def test_still_lists_only_float_readings(self, tmp_path: Path) -> None:
         files = _with_channels(
-            {"id": "T", "value_type": "string"}, **{"scenarios/s.yaml": {"still": ["T"]}}
+            {"id": "T", "value_type": "string"}, **{"simulation/scenarios/s.yaml": {"still": ["T"]}}
         )
         error = _rule(tmp_path, files, "value-invalid")
         assert error.detail == "`still` lists T, a string channel"
@@ -1218,14 +1248,19 @@ class TestStillRules:
     def test_a_scenario_stilling_a_reading_sets_none_of_its_motion(
         self, tmp_path: Path, still: Any, slot: str, block: dict[str, Any]
     ) -> None:
-        files = _tree(**{"scenarios/s.yaml": {"still": still, slot: block}})
+        files = _tree(**{"simulation/scenarios/s.yaml": {"still": still, slot: block}})
         error = _rule(tmp_path, files, "value-invalid")
         assert error.detail == f"`{slot}.BPM1:X` sets the motion of a reading `still` stills"
         assert error.remedy == "a scenario either stills a reading or sets its motion"
 
     def test_a_scenario_stilling_one_reading_sets_anothers_noise(self, tmp_path: Path) -> None:
         files = _tree(
-            **{"scenarios/s.yaml": {"still": ["Q1:RB"], "noise": {"BPM1:X": {"absolute": 0.1}}}}
+            **{
+                "simulation/scenarios/s.yaml": {
+                    "still": ["Q1:RB"],
+                    "noise": {"BPM1:X": {"absolute": 0.1}},
+                }
+            }
         )
         assert _run(tmp_path, files).ok
 
@@ -1299,50 +1334,58 @@ class TestLimitRules:
 
 class TestSeedRules:
     def test_noise_on_a_setpoint(self, tmp_path: Path) -> None:
-        files = _tree(**{"seeds.yaml": {"Q1:SP": {"noise": {"absolute": 0.1}}}})
+        files = _tree(**{"simulation/seeds.yaml": {"Q1:SP": {"noise": {"absolute": 0.1}}}})
         error = _rule(tmp_path, files, "seed-invalid")
         assert error.detail == "a setpoint carries `noise`"
 
     def test_noise_on_a_wired_readback_builds(self, tmp_path: Path) -> None:
         files = _tree(
             **{
-                "models.yaml": [_wired("BPM1:X")],
-                "seeds.yaml": {"BPM1:X": {"noise": {"absolute": 1}}},
+                "simulation/models.yaml": [_wired("BPM1:X")],
+                "simulation/seeds.yaml": {"BPM1:X": {"noise": {"absolute": 1}}},
             }
         )
         assert _run(tmp_path, files).ok
 
     def test_nominal_on_a_wired_channel(self, tmp_path: Path) -> None:
         files = _tree(
-            **{"models.yaml": [_wired("BPM1:X")], "seeds.yaml": {"BPM1:X": {"nominal": 1.0}}}
+            **{
+                "simulation/models.yaml": [_wired("BPM1:X")],
+                "simulation/seeds.yaml": {"BPM1:X": {"nominal": 1.0}},
+            }
         )
         error = _rule(tmp_path, files, "seed-invalid")
         assert error.detail == "a `nominal` on a channel model optics wires"
 
     def test_non_integral_nominal_on_an_int_channel(self, tmp_path: Path) -> None:
         files = _with_channels(
-            {"id": "T", "value_type": "int"}, **{"seeds.yaml": {"T": {"nominal": 2.5}}}
+            {"id": "T", "value_type": "int"}, **{"simulation/seeds.yaml": {"T": {"nominal": 2.5}}}
         )
         error = _rule(tmp_path, files, "seed-invalid")
         assert error.detail == "`nominal` of int channel T is 2.5, not integral"
 
     def test_non_integral_override_on_an_int_channel(self, tmp_path: Path) -> None:
         files = _with_channels(
-            {"id": "T", "value_type": "int"}, **{"scenarios/s.yaml": {"overrides": {"T": 0.5}}}
+            {"id": "T", "value_type": "int"},
+            **{"simulation/scenarios/s.yaml": {"overrides": {"T": 0.5}}},
         )
         error = _rule(tmp_path, files, "seed-invalid")
         assert (error.record_kind, error.record_id) == ("scenario", "s")
 
     def test_a_paired_readback_starts_at_its_setpoint(self, tmp_path: Path) -> None:
-        agree = _tree(**{"seeds.yaml": {"Q1:SP": {"nominal": 2.0}, "Q1:RB": {"nominal": 2}}})
+        agree = _tree(
+            **{"simulation/seeds.yaml": {"Q1:SP": {"nominal": 2.0}, "Q1:RB": {"nominal": 2}}}
+        )
         assert _run(tmp_path / "agree", agree).ok
-        differ = _tree(**{"seeds.yaml": {"Q1:SP": {"nominal": 2.0}, "Q1:RB": {"nominal": 3.0}}})
+        differ = _tree(
+            **{"simulation/seeds.yaml": {"Q1:SP": {"nominal": 2.0}, "Q1:RB": {"nominal": 3.0}}}
+        )
         error = _rule(tmp_path / "differ", differ, "seed-invalid")
         assert error.record_id == "Q1:RB"
         assert error.detail == "`nominal` 3.0 differs from its setpoint Q1:SP's 2.0"
 
     def test_a_paired_readback_against_an_unseeded_setpoint(self, tmp_path: Path) -> None:
-        files = _tree(**{"seeds.yaml": {"Q1:RB": {"nominal": 1.0}}})
+        files = _tree(**{"simulation/seeds.yaml": {"Q1:RB": {"nominal": 1.0}}})
         error = _rule(tmp_path, files, "seed-invalid")
         assert error.detail == "`nominal` 1.0 differs from its setpoint Q1:SP's 0.0"
 
@@ -1351,21 +1394,22 @@ class TestFollowsSeed:
     """A readback's seed ``follows`` names the setpoint the simulation copies a write from."""
 
     def test_follows_names_the_one_setpoint_that_pairs_with_it(self, tmp_path: Path) -> None:
-        files = _tree(**{"seeds.yaml": {"Q1:RB": {"follows": "Q1:SP"}}})
+        files = _tree(**{"simulation/seeds.yaml": {"Q1:RB": {"follows": "Q1:SP"}}})
         assert _run(tmp_path / "sp", files).ok, _lines(_run(tmp_path / "sp", files))
-        files = _tree(**{"seeds.yaml": {"Q1:RB": {"follows": "none"}}})
+        files = _tree(**{"simulation/seeds.yaml": {"Q1:RB": {"follows": "none"}}})
         assert _run(tmp_path / "none", files).ok, _lines(_run(tmp_path / "none", files))
 
     def test_follows_a_channel_that_does_not_name_this_readback(self, tmp_path: Path) -> None:
         files = _with_channels(
-            {"id": "T", "role": "setpoint"}, **{"seeds.yaml": {"Q1:RB": {"follows": "T"}}}
+            {"id": "T", "role": "setpoint"},
+            **{"simulation/seeds.yaml": {"Q1:RB": {"follows": "T"}}},
         )
         error = _rule(tmp_path, files, "seed-invalid")
-        assert (error.record_id, error.sources) == ("Q1:RB", ("seeds.yaml",))
+        assert (error.record_id, error.sources) == ("Q1:RB", ("simulation/seeds.yaml",))
         assert error.detail == "`follows` names T, whose `pair` is not Q1:RB"
 
     def test_follows_on_a_channel_no_setpoint_names(self, tmp_path: Path) -> None:
-        files = _tree(**{"seeds.yaml": {"BPM1:X": {"follows": "none"}}})
+        files = _tree(**{"simulation/seeds.yaml": {"BPM1:X": {"follows": "none"}}})
         error = _rule(tmp_path, files, "seed-invalid")
         assert error.record_id == "BPM1:X"
         assert error.detail == "`follows` on a channel no setpoint names as its `pair`"
@@ -1373,7 +1417,7 @@ class TestFollowsSeed:
     def test_follows_on_a_readback_several_setpoints_name(self, tmp_path: Path) -> None:
         files = _with_channels(
             {"id": "T", "role": "setpoint", "pair": "Q1:RB"},
-            **{"seeds.yaml": {"Q1:RB": {"follows": "Q1:SP"}}},
+            **{"simulation/seeds.yaml": {"Q1:RB": {"follows": "Q1:SP"}}},
         )
         error = _rule(tmp_path, files, "seed-invalid")
         assert error.detail == (
@@ -1387,7 +1431,7 @@ class TestFollowsSeed:
         return _tree(
             **{
                 "records/channels.yaml": [{**SP, **setpoint}, {**RB, **readback}, X],
-                "seeds.yaml": {"Q1:RB": {"follows": "Q1:SP"}, **seeds},
+                "simulation/seeds.yaml": {"Q1:RB": {"follows": "Q1:SP"}, **seeds},
             }
         )
 
@@ -1454,10 +1498,10 @@ class TestFollowsSeed:
         setpoint = {"value_type": "enum", "options": ["Clear", "Set"]}
         readback = {"value_type": "bool", "options": ["Off", "On"]}
         agree = self._typed(setpoint, readback, **{"Q1:SP": {"nominal": "Set"}})
-        agree["seeds.yaml"]["Q1:RB"]["nominal"] = "On"
+        agree["simulation/seeds.yaml"]["Q1:RB"]["nominal"] = "On"
         assert _run(tmp_path / "agree", agree).ok, _lines(_run(tmp_path / "agree", agree))
         differ = self._typed(setpoint, readback, **{"Q1:SP": {"nominal": "Set"}})
-        differ["seeds.yaml"]["Q1:RB"]["nominal"] = "Off"
+        differ["simulation/seeds.yaml"]["Q1:RB"]["nominal"] = "Off"
         assert _rule(tmp_path / "differ", differ, "seed-invalid").record_id == "Q1:RB"
 
     def test_two_layers_that_state_follows_differently_conflict(self, tmp_path: Path) -> None:
@@ -1482,7 +1526,7 @@ class TestFollowsSeed:
     def test_a_followed_readback_with_a_value_of_its_own(
         self, tmp_path: Path, seed: dict[str, Any]
     ) -> None:
-        files = _tree(**{"seeds.yaml": {"Q1:RB": seed}})
+        files = _tree(**{"simulation/seeds.yaml": {"Q1:RB": seed}})
         error = _rule(tmp_path / "followed", files, "seed-invalid")
         key = next(iter(seed))
         assert error.record_id == "Q1:RB"
@@ -1491,13 +1535,13 @@ class TestFollowsSeed:
             f"would replace the value `{key}` gives it"
         )
         assert error.remedy == f"state `follows: none` on Q1:RB, or remove `{key}`"
-        files = _tree(**{"seeds.yaml": {"Q1:RB": {**seed, "follows": "none"}}})
+        files = _tree(**{"simulation/seeds.yaml": {"Q1:RB": {**seed, "follows": "none"}}})
         assert _run(tmp_path / "none", files).ok, _lines(_run(tmp_path / "none", files))
 
     def test_a_readback_followed_from_none_starts_at_its_own_seed(self, tmp_path: Path) -> None:
         files = _tree(
             **{
-                "seeds.yaml": {
+                "simulation/seeds.yaml": {
                     "Q1:SP": {"nominal": 2.0},
                     "Q1:RB": {"nominal": 3.0, "follows": "none"},
                 }
@@ -1534,7 +1578,7 @@ def _pulse_tree(*channels: dict[str, Any], **extra: Any) -> dict[str, Any]:
         COUNT,
         LAMP,
         *channels,
-        **{"seeds.yaml": seeds},
+        **{"simulation/seeds.yaml": seeds},
         **extra,
     )
 
@@ -1559,10 +1603,10 @@ class TestPulseRules:
             error.detail
             == "a float channel carries `pulse`; `pulse` applies to waveform channels only"
         )
-        assert error.sources == ("seeds.yaml",)
+        assert error.sources == ("simulation/seeds.yaml",)
 
     def test_a_wired_driver(self, tmp_path: Path) -> None:
-        files = _pulse_tree(**{"models.yaml": [_wired("SEK:SP")]})
+        files = _pulse_tree(**{"simulation/models.yaml": [_wired("SEK:SP")]})
         error = _rule(tmp_path, files, "value-invalid")
         assert error.record_id == "SEK:TRACE"
         assert error.detail == "`pulse.driver` SEK:SP is wired"
@@ -1589,7 +1633,7 @@ class TestPulseRules:
         assert error.detail == detail
 
     def test_a_wired_enable(self, tmp_path: Path) -> None:
-        files = _pulse_tree(**{"models.yaml": [_wired("SEK:STATUS:ON")]})
+        files = _pulse_tree(**{"simulation/models.yaml": [_wired("SEK:STATUS:ON")]})
         error = _rule(tmp_path, files, "value-invalid")
         assert error.detail == "`pulse.enable` SEK:STATUS:ON is wired"
 
@@ -1619,7 +1663,7 @@ class TestGateRules:
 
     def test_a_wired_input(self, tmp_path: Path) -> None:
         seeds = {"BPM1:SUM": _gate({"TV1:PADDLE:RB": "ON"}, 0.02)}
-        files = _pulse_tree(seeds=seeds, **{"models.yaml": [_wired("TV1:PADDLE:RB")]})
+        files = _pulse_tree(seeds=seeds, **{"simulation/models.yaml": [_wired("TV1:PADDLE:RB")]})
         error = _rule(tmp_path, files, "value-invalid")
         assert error.detail == "`gate` input TV1:PADDLE:RB is wired"
 
@@ -1711,11 +1755,11 @@ class TestRefusedArchiverEvents:
     )
     def test_an_event_on_a_refused_address(self, tmp_path: Path, channel: str, reason: str) -> None:
         files = _pulse_tree(
-            seeds=self.GATED, **{"scenarios/s.yaml": {"archiver": [_event(channel)]}}
+            seeds=self.GATED, **{"simulation/scenarios/s.yaml": {"archiver": [_event(channel)]}}
         )
         error = _rule(tmp_path, files, "seed-invalid")
         assert (error.record_kind, error.record_id) == ("scenario", "s")
-        assert error.sources == ("scenarios/s.yaml",)
+        assert error.sources == ("simulation/scenarios/s.yaml",)
         assert error.detail == f"`archiver` steps {channel}, {reason}"
         line = error.format_message()
         assert "\n" not in line
@@ -1723,27 +1767,33 @@ class TestRefusedArchiverEvents:
 
     def test_one_error_per_refused_entry(self, tmp_path: Path) -> None:
         archiver = [_event("SEK:SP"), _event("BPM1:X"), _event("TV1:PADDLE:RB")]
-        files = _pulse_tree(seeds=self.GATED, **{"scenarios/s.yaml": {"archiver": archiver}})
+        files = _pulse_tree(
+            seeds=self.GATED, **{"simulation/scenarios/s.yaml": {"archiver": archiver}}
+        )
         result = _run(tmp_path, files)
         assert result.failed == "records"
         assert [e.kind for e in result.errors] == ["seed-invalid", "seed-invalid"]
 
     def test_an_event_on_a_linear_input_builds(self, tmp_path: Path) -> None:
         seeds = {**self.GATED, "Q1:RB": {"linear": {"BPM1:X": 1.0}, "follows": "none"}}
-        files = _pulse_tree(seeds=seeds, **{"scenarios/s.yaml": {"archiver": [_event("BPM1:X")]}})
+        files = _pulse_tree(
+            seeds=seeds, **{"simulation/scenarios/s.yaml": {"archiver": [_event("BPM1:X")]}}
+        )
         result = _run(tmp_path, files)
         assert result.ok, _lines(result)
 
     def test_an_event_on_the_gated_channel_builds(self, tmp_path: Path) -> None:
         files = _pulse_tree(
-            seeds=self.GATED, **{"scenarios/s.yaml": {"archiver": [_event("BPM1:SUM")]}}
+            seeds=self.GATED, **{"simulation/scenarios/s.yaml": {"archiver": [_event("BPM1:SUM")]}}
         )
         result = _run(tmp_path, files)
         assert result.ok, _lines(result)
 
     def test_the_example_tree_builds(self) -> None:
         scenario = yaml.safe_load(
-            (EXAMPLE_TREE / "scenarios" / "rf-thermal.yaml").read_text(encoding="utf-8")
+            (EXAMPLE_TREE / "simulation" / "scenarios" / "rf-thermal.yaml").read_text(
+                encoding="utf-8"
+            )
         )
         stepped = {entry["channel"] for entry in scenario["archiver"]}
         assert "SR:RF:CAVITY:01:POWER:REV" in stepped

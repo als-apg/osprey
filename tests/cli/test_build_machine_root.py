@@ -3,8 +3,7 @@
 ``machine: <dir>`` names the facility directory of a machine repository inside
 the deployment repo. The build reads every machine fact from it and only the
 deployment's own content (``knowledge/``, ``ariel/``, ``benchmarks/``) from
-``data/facility``. The render assembles the two into one ``data/facility``
-again, so the runtime sees one tree as it does for a single-tree deployment.
+its ``facility/`` tree. The render assembles the two into one ``data/facility``, so the runtime sees one tree as it does for a single-tree deployment.
 
 The guards that protect deployment files keep checking the deployment; only
 their remedies name the machine. A deployment file restating a machine fact
@@ -22,8 +21,8 @@ from typing import Any, NoReturn
 import pytest
 import yaml
 
-from osprey.cli.build_persistence import _profile_known_root_entries
-from osprey.cli.build_profile_model import BuildProfile
+from osprey.cli.build_profile_resolve import resolve_build_document
+from osprey.cli.build_protected_paths import emit_protected_paths, root_entry_names
 from osprey_connectors.workspace import BUILD_DIR_NAME
 from osprey_facility.roots import DEPLOYMENT_CONTENT_DIRS
 from tests._builds import init_project, run_build
@@ -56,10 +55,10 @@ def initialised(tmp_path_factory: pytest.TempPathFactory) -> Path:
 
     The machine root is a git repository (it holds ``.git``), ships its own
     knowledge page and marks one scenario ``start: true``. The deployment's
-    ``data/facility`` keeps only its content directories.
+    ``facility/`` keeps only its content directories.
     """
     repo = init_project(tmp_path_factory.mktemp("mounted"), "demo", PROJECT)
-    facility = repo / "data" / "facility"
+    facility = repo / "facility"
     machine = repo / MACHINE_DIR
     machine.mkdir()
     for entry in sorted(facility.iterdir()):
@@ -69,7 +68,7 @@ def initialised(tmp_path_factory: pytest.TempPathFactory) -> Path:
     note = machine / MACHINE_KNOWLEDGE
     note.parent.mkdir(parents=True, exist_ok=True)
     note.write_text("# The machine repository's own note\n", encoding="utf-8")
-    scenario = machine / "scenarios" / f"{MARKED_SCENARIO}.yaml"
+    scenario = machine / "simulation" / "scenarios" / f"{MARKED_SCENARIO}.yaml"
     scenario.write_text(
         scenario.read_text(encoding="utf-8").rstrip("\n") + "\nstart: true\n", encoding="utf-8"
     )
@@ -135,9 +134,7 @@ def test_the_render_holds_the_machine_files_and_the_deployment_knowledge(
         for rel in _files(machine)
         if not rel.startswith(".git/") and rel.split("/", 1)[0] not in DEPLOYMENT_CONTENT_DIRS
     }
-    knowledge = {
-        rel for rel in _files(repo / "data" / "facility") if rel.split("/", 1)[0] == "knowledge"
-    }
+    knowledge = {rel for rel in _files(repo / "facility") if rel.split("/", 1)[0] == "knowledge"}
 
     assert machine_facts and knowledge
     assert machine_facts <= rendered
@@ -175,10 +172,13 @@ def test_a_mounted_build_prints_no_unrecognized_root_entry_warning(
     assert "unrecognized top-level" not in result.output
 
 
-def test_the_machine_root_is_a_known_root_entry() -> None:
-    profile = BuildProfile(name=PROJECT, data="data", machine="vendor/als-machine/facility")
+def test_the_machine_root_is_a_known_root_entry(initialised: Path) -> None:
+    loaded = resolve_build_document(initialised / "profile.yml", None, ())
+    emitted = emit_protected_paths(
+        [loaded], deployment_root=initialised, agent_data_root=Path("var/agent_data")
+    )
 
-    assert "vendor" in _profile_known_root_entries(profile, None)
+    assert Path(MACHINE_DIR).parts[0] in root_entry_names(emitted.entries)
 
 
 # --- stops ----------------------------------------------------------------------------
@@ -194,15 +194,17 @@ def test_a_preset_start_set_is_refused_when_mounted(repo: Path) -> None:
 
 
 def test_a_shipped_limits_file_stops_with_the_machine_limits_remedy(repo: Path) -> None:
-    (repo / "data" / "channel_limits.json").write_text('{"_version": "4.0"}\n', encoding="utf-8")
+    shipped = repo / "ops" / "project" / "data" / "channel_limits.json"
+    shipped.parent.mkdir(parents=True, exist_ok=True)
+    shipped.write_text('{"_version": "4.0"}\n', encoding="utf-8")
 
     result = run_build(repo)
 
     assert result.exit_code == 1, result.output
     assert result.stderr == (
-        "facility: profile-invalid: path data/channel_limits.json — the build writes "
-        "data/channel_limits.json from machine/limits.yaml; fix: move its limits into "
-        "machine/limits.yaml and remove data/channel_limits.json\n"
+        "facility: profile-invalid: path ops/project/data/channel_limits.json — the build "
+        "writes data/channel_limits.json from machine/limits.yaml; fix: move its limits into "
+        "machine/limits.yaml and remove ops/project/data/channel_limits.json\n"
     )
 
 
@@ -217,7 +219,7 @@ def test_a_restated_record_stops_before_the_venv(
         raise AssertionError("the project venv was created before the machine-restated stop")
 
     monkeypatch.setattr(build_cmd, "_create_project_venv", venv_spy)
-    restated = repo / "data" / "facility" / "identity.yaml"
+    restated = repo / "facility" / "identity.yaml"
     shutil.copy2(repo / MACHINE_DIR / "identity.yaml", restated)
 
     from osprey.cli.main import cli
@@ -226,9 +228,9 @@ def test_a_restated_record_stops_before_the_venv(
 
     assert result.exit_code == 1, result.output
     assert result.stderr == (
-        "facility: machine-restated: path data/facility/identity.yaml — the mounted machine "
-        "states machine/identity.yaml, and a mounted deployment's data/facility/ holds only "
-        "knowledge/, ariel/, benchmarks/; fix: remove data/facility/identity.yaml; edit "
+        "facility: machine-restated: path facility/identity.yaml — the mounted machine "
+        "states machine/identity.yaml, and a mounted deployment's facility/ holds only "
+        "knowledge/, ariel/, benchmarks/; fix: remove facility/identity.yaml; edit "
         "machine/identity.yaml in the machine repository instead\n"
     )
     assert not (repo / BUILD_DIR_NAME / "config.yml").exists()

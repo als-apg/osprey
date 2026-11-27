@@ -85,10 +85,12 @@ from typing import Any
 import pytest
 import yaml
 
+from osprey import repo_layout
 from osprey.deployment.compose_generator import ensure_control_target_dir, resolve_project_name
 from osprey_connectors import posture_store
 from osprey_connectors.types import TARGET_VA
 from osprey_connectors_tests._harness._ports import hold_ports
+from osprey_facility import source_tree
 from osprey_facility.records import FacilityRecords
 from tests._builds import FRAMEWORK_CHECKS
 from tests.e2e import _facility_select, _orm_stack, _queue_drive
@@ -320,7 +322,9 @@ def _select_sp_echo_pairs(repo: Path, count: int) -> list[tuple[str, str, float]
     from osprey_facility.build import build_facility
 
     facility = build_facility(
-        repo / "data" / "facility", project_name=repo.name, extra_checks=FRAMEWORK_CHECKS
+        repo / repo_layout.entry("facility").path,
+        project_name=repo.name,
+        extra_checks=FRAMEWORK_CHECKS,
     )
     coupled = {
         str(entry["address"])
@@ -368,7 +372,9 @@ def _select_stuck_corrector(repo: Path, limits: dict[str, Any]) -> tuple[str, st
     from osprey_facility.build import build_facility
 
     facility = build_facility(
-        repo / "data" / "facility", project_name=repo.name, extra_checks=FRAMEWORK_CHECKS
+        repo / repo_layout.entry("facility").path,
+        project_name=repo.name,
+        extra_checks=FRAMEWORK_CHECKS,
     )
     readback_of = {
         entry["setpoint"]: entry["readback"]
@@ -414,7 +420,11 @@ def _author_stuck_scenario(repo: Path, setpoint: str) -> None:
         "description": "One corrector setpoint takes writes and forwards none to the model.",
         "channel_faults": {setpoint: "stuck"},
     }
-    path = repo / "data" / "facility" / "scenarios" / f"{P5_STUCK_SCENARIO}.yaml"
+    path = (
+        repo
+        / repo_layout.entry("facility").path
+        / source_tree.keyed_file("scenarios", P5_STUCK_SCENARIO)
+    )
     path.write_text(yaml.safe_dump(scenario, sort_keys=False), encoding="utf-8")
 
 
@@ -425,7 +435,7 @@ def _author_sp_echo_records(repo: Path, nominals: dict[str, float]) -> None:
     The suite's own throwaway tree, written before the build so the render
     enforces the same records :func:`_orm_stack.channel_limits` reads back.
     """
-    limits_file = repo / "data" / "facility" / "limits.yaml"
+    limits_file = repo / repo_layout.entry("facility").path / source_tree.path("limits")
     limits = yaml.safe_load(limits_file.read_text(encoding="utf-8"))
     for setpoint, nominal in nominals.items():
         low, high = _sp_echo_band(nominal)

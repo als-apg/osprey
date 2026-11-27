@@ -120,7 +120,7 @@ services:
       # directory — the deployment REPO ROOT (`--project-directory <repo>`, see
       # compose_generator.compose_base_cmd) — never this file's own subdir. So
       # render output is addressed under build/, and the repo's own zones by
-      # their plain names (data/, .env). Same convention in the volumes below.
+      # their plain names (var/, .env). Same convention in the volumes below.
       context: ./build/services/bluesky
       dockerfile: Dockerfile
       args:
@@ -491,7 +491,7 @@ services:
       # secret, which lives only in the queueserver's own mount. An external
       # lane mounts none of this: it runs no document-plane proxy, so there is
       # no binding element to hold certificates for.
-      - ./data/.runtime/{{ lane_key }}_curve/bridge:/app/curve:ro
+      - ./var/runtime/{{ lane_key }}_curve/bridge:/app/curve:ro
 {%- endif %}
 {% if svc.plan_dir %}
       # Facility plan directory: operator-supplied host path via
@@ -902,9 +902,8 @@ services:
       # only read the secret it is supposed to hold: this one carries the
       # publisher's secret certificate and the bridge proxy's PUBLIC one, and
       # never the proxy's secret. Minted by `osprey up` itself, so it lives
-      # under data/.runtime/ — the runtime-output subpath the build-drift
-      # fingerprint reserves for exactly this material (#716).
-      - ./data/.runtime/{{ lane_key }}_curve/queueserver:/app/curve:ro
+      # under var/runtime/ in the state zone, which no build hashes or stages.
+      - ./var/runtime/{{ lane_key }}_curve/queueserver:/app/curve:ro
       # The control-identity script the command runs, with its catalog
       # closure beside it, staged into this build context by compose_generator
       # byte for byte. Read-only: it runs as root, so nothing inside may edit it.
@@ -912,7 +911,7 @@ services:
 {% if bluesky_devices | default(false) %}
       # The device file the env var above names. Unlike the limits DB, the
       # SOURCE is a literal staged path rather than a computed one: `osprey
-      # build` writes the devices view from the channels under data/facility/,
+      # build` writes the devices view from the channels under facility/,
       # and the staging step copies it unchanged into this service's build
       # context under a fixed basename it owns (`BLUESKY_DEVICES_FILENAME`), so
       # no configured path is left here to resolve. Both plan lanes declare the

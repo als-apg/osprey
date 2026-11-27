@@ -340,9 +340,9 @@ def resolve_registry_path(
     ``project_root``.
 
     A relative spelling is the documented one, and the anchor it means is the
-    deployment — the same anchor ``data/``, ``plans/`` and ``health.plugins``
-    use. Falling back to ``project_root`` is what makes that true for a caller
-    with no ``base_path`` to offer: every runtime reader reaches the registry
+    deployment — the same anchor ``plans/`` and ``health.plugins`` use. Falling
+    back to ``project_root`` is what makes that true for a caller with no
+    ``base_path`` to offer: every runtime reader reaches the registry
     through ``get_registry()`` with no config path, and anchoring on the
     working directory instead loaded a deployment's own registry from the repo
     root and nowhere else.

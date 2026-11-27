@@ -63,7 +63,6 @@ def _profile(deploy: dict[str, Any] | None, config: dict[str, Any] | None) -> di
         "name": "Demo",
         "project_name": "demo",
         "extends": "hello-world",
-        "data": "data",
     }
     if deploy is not None:
         raw["deploy"] = deploy
@@ -203,7 +202,6 @@ def _build_project(
 ) -> dict:
     """Write *profile_body* at the repo root, one file per tier, and build in place."""
     profile = tmp_path / "profile.yml"
-    (tmp_path / "data").mkdir(exist_ok=True)
     profile.write_text(yaml.safe_dump(profile_body, sort_keys=False), encoding="utf-8")
     for tier in tiers:
         tier_file = tmp_path / "tiers" / f"{tier}.yml"

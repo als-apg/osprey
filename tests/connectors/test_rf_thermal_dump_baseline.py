@@ -37,9 +37,9 @@ NOISE_SIGMAS = 6.0
 def facility(built_demo) -> dict[str, Any]:
     root = built_demo.facility_dir
     return {
-        "seeds": read_yaml((root / "seeds.yaml").read_text(encoding="utf-8")),
+        "seeds": read_yaml((root / "simulation" / "seeds.yaml").read_text(encoding="utf-8")),
         "scenario": yaml.safe_load(
-            (root / "scenarios" / "rf-thermal.yaml").read_text(encoding="utf-8")
+            (root / "simulation" / "scenarios" / "rf-thermal.yaml").read_text(encoding="utf-8")
         ),
     }
 

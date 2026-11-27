@@ -1,9 +1,9 @@
 """The profile hash covers every file the build reads, and renders resolve their root.
 
 ``compute_profile_hash`` is what the drift check (``check_drift``) compares
-against, so anything a build consumes has to be inside it. Beyond the ``data:``
-tree and ``overlay:`` sources pinned in ``test_profile_material_hash.py``, that
-means the profile's convention directories (``rules/``, ``skills/`` and the rest
+against, so anything a build consumes has to be inside it. Beyond the declared
+``facility/`` and ``web/`` sources and the ``overlay:`` sources pinned in ``test_profile_material_hash.py``, that
+means the profile's convention directories (``agent/rules/``, ``agent/skills/`` and the rest
 of the mapping table, including the ``project/`` verbatim mirror) and the
 trigger file its ``dispatch:`` block names — a rule the agent reads or a trigger
 a dispatcher fires on is as much build input as a channel database.
@@ -11,7 +11,7 @@ a dispatcher fires on is as much build input as a channel database.
 Renders are the second half. A ``tiers/<name>.yml`` file holds only a delta,
 so its hash is meaningless without the root it merges over: the hash resolves the
 same implicit merge the build does, anchored at the profile root, which is what
-makes an edit to the root — its YAML, its data tree, or its convention
+makes an edit to the root — its YAML, its facility tree, or its convention
 directories — mark every render's project stale too.
 
 That relationship runs both ways: the deltas in tiers/ are folded into
@@ -45,10 +45,10 @@ def _write(path: Path, text: str) -> Path:
 
 @pytest.fixture
 def profile(tmp_path):
-    """A materialized-looking profile root with a data tree."""
-    root = tmp_path / "facility"
-    _write(root / "data" / "channels.json", '{"channels": []}\n')
-    _write(root / "profile.yml", "name: Facility\napp_template: hello_world\ndata: data\n")
+    """A materialized-looking profile root with a facility tree."""
+    root = tmp_path / "deployment"
+    _write(root / "facility" / "channels.json", '{"channels": []}\n')
+    _write(root / "profile.yml", "name: Facility\napp_template: hello_world\n")
     return root
 
 
@@ -65,16 +65,16 @@ def render(profile):
 # category expects — the fold is shape-blind, but a realistic tree is the one
 # a facility will actually have.
 _CONVENTION_ARTIFACTS: dict[str, str] = {
-    "rules": "rules/safety.md",
-    "skills": "skills/orbit/SKILL.md",
-    "agents": "agents/orbit-writer.md",
-    "commands": "commands/scan.md",
-    "output-styles": "output-styles/terse.md",
-    "hooks": "hooks/facility_guard.py",
-    "web-terminal-context": "web-terminal-context/alice/notes.md",
-    "mcp_servers": "mcp_servers/facility/server.py",
-    "services": "services/archiver/compose.yml",
-    "project": "project/docs/runbook.md",
+    "rules": "agent/rules/safety.md",
+    "skills": "agent/skills/orbit/SKILL.md",
+    "agents": "agent/agents/orbit-writer.md",
+    "commands": "agent/commands/scan.md",
+    "output-styles": "agent/output-styles/terse.md",
+    "hooks": "agent/hooks/facility_guard.py",
+    "web-terminal-context": "agent/context/alice/notes.md",
+    "mcp_servers": "agent/mcp_servers/facility/server.py",
+    "services": "ops/services/archiver/compose.yml",
+    "project": "ops/project/docs/runbook.md",
 }
 
 
@@ -211,7 +211,7 @@ def test_unrelated_file_does_not_change_the_hash(profile):
 def test_hash_is_stable_across_repeated_calls(profile):
     """Nothing in the fold depends on walk order or wall-clock state: re-hashing
     unchanged content must not manufacture drift on every deploy."""
-    _write(profile / "rules" / "safety.md", "no writes above 1 A\n")
+    _write(profile / "agent" / "rules" / "safety.md", "no writes above 1 A\n")
 
     assert compute_profile_hash(profile / "profile.yml") == compute_profile_hash(
         profile / "profile.yml"
@@ -336,27 +336,27 @@ def test_editing_the_root_profile_changes_the_render_hash(profile, render):
 
     _write(
         profile / "profile.yml",
-        "name: Facility\napp_template: hello_world\ndata: data\nchannel_finder_mode: in_context\n",
+        "name: Facility\napp_template: hello_world\nchannel_finder_mode: in_context\n",
     )
 
     assert compute_profile_hash(render) != before
 
 
-def test_editing_the_root_data_tree_changes_the_render_hash(profile, render):
-    """A render reads the root's data tree, not one of its own."""
+def test_editing_the_root_facility_tree_changes_the_render_hash(profile, render):
+    """A render reads the root's facility tree, not one of its own."""
     before = compute_profile_hash(render)
 
-    _write(profile / "data" / "channels.json", '{"channels": ["BEAM:CURRENT"]}\n')
+    _write(profile / "facility" / "channels.json", '{"channels": ["BEAM:CURRENT"]}\n')
 
     assert compute_profile_hash(render) != before
 
 
 def test_editing_a_root_convention_dir_changes_the_render_hash(profile, render):
     """Convention artifacts reach render projects through the same root."""
-    _write(profile / "rules" / "safety.md", "original\n")
+    _write(profile / "agent" / "rules" / "safety.md", "original\n")
     before = compute_profile_hash(render)
 
-    _write(profile / "rules" / "safety.md", "edited\n")
+    _write(profile / "agent" / "rules" / "safety.md", "edited\n")
 
     assert compute_profile_hash(render) != before
 
@@ -386,7 +386,7 @@ def test_render_inherits_the_roots_declarations(profile):
     """
     _write(
         profile / "profile.yml",
-        "name: Facility\napp_template: hello_world\ndata: data\nmodel: claude-opus-5-5\n",
+        "name: Facility\napp_template: hello_world\nmodel: claude-opus-5-5\n",
     )
     inheriting = _write(profile / TIERS_DIRNAME / "inherits.yml", "name: Reader\n")
     overriding = _write(
@@ -405,7 +405,7 @@ def test_layer_delta_exclude_is_applied(profile):
     """
     _write(
         profile / "profile.yml",
-        "name: Facility\napp_template: hello_world\ndata: data\nskills:\n  - orbit\n  - scan\n",
+        "name: Facility\napp_template: hello_world\nskills:\n  - orbit\n  - scan\n",
     )
     plain = _write(profile / RETIRED_LAYER_DIRNAME / "plain.yml", "name: Reader\n")
     excluding = _write(

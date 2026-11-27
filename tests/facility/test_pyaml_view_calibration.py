@@ -36,7 +36,7 @@ BRHO = 3.0e9 / 299792458.0
 
 
 def _wiring(tree: dict[str, Any], model: str, address: str) -> dict[str, Any]:
-    (record,) = [m for m in tree["models.yaml"] if m["name"] == model]
+    (record,) = [m for m in tree["simulation/models.yaml"] if m["name"] == model]
     (entry,) = [w for w in record["wiring"] if w["address"] == address]
     return entry
 
@@ -166,8 +166,8 @@ def test_a_magnet_split_across_thin_and_thick_elements_is_left_out_with_a_note(
         return [*found[:after], thick, *found[after:]]
 
     tree = with_correctors(with_rf(measured_tree()))
-    tree["measurement/SR.yaml"] |= {"kinds": ["orm"], "corrector_delta": 1.0e-5}
-    tree["decks/sr.json"] = Deck(elements)
+    tree["simulation/measurement/SR.yaml"] |= {"kinds": ["orm"], "corrector_delta": 1.0e-5}
+    tree["simulation/decks/sr.json"] = Deck(elements)
     entry = _wiring(tree, "SR", "SCOR:H:SP")
     del entry["element"]
     entry["slices"] = [{"element": "SCOR"}, {"element": "SCORT"}]
@@ -202,7 +202,7 @@ def _thin_qd_tree() -> dict[str, Any]:
         ]
 
     tree = measured_tree()
-    tree["decks/sr.json"] = Deck(elements)
+    tree["simulation/decks/sr.json"] = Deck(elements)
     return tree
 
 
@@ -227,7 +227,7 @@ def test_a_thin_quadrupole_steps_the_tune_the_deck_s_strength_change_does(
     magnet.strength.set(held + step)
     after = design.get_lattice().get_tune()
 
-    deck = at.load_lattice(str(tmp_path / "data" / "facility" / "decks" / "sr.json"))
+    deck = at.load_lattice(str(tmp_path / "facility" / "simulation" / "decks" / "sr.json"))
     (quad,) = [element for element in deck if element.FamName == "QD"]
     expected_before = deck.get_tune()
     quad.PolynomB[1] += step

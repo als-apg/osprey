@@ -25,6 +25,7 @@ from functools import lru_cache
 from pathlib import Path, PurePosixPath
 from typing import Any
 
+from osprey import repo_layout
 from osprey.agent_record.config import parse_agent_record_block, refuse_retired_config_keys
 from osprey.agent_runner.build_artifacts.catalog import (
     DEFAULT_CLAUDE_MD_TEMPLATE,
@@ -39,6 +40,7 @@ from osprey.port_layout import (
     default_port,
     resolve_port_base,
 )
+from osprey.repo_layout import display_path
 from osprey.utils.workspace import PROFILE_FILENAME
 from osprey_connectors.call_timeout import refuse_renamed_timeout_keys
 from osprey_connectors.errors import BuildProfileError
@@ -206,8 +208,7 @@ def load_profile_document(path: Path) -> LoadedProfile:
 
 
 # Minimum OSPREY release that understands the current profile schema — the one
-# whose ``config:`` block is the deployment's whole declarative statement, whose
-# ``data:`` tree is required, and whose roster speaks the login vocabulary
+# whose ``config:`` block is the deployment's whole declarative statement, and whose roster speaks the login vocabulary
 # (``tiers/``, ``users[].tier``, ``default_tier``, ``shared:``). A
 # release older than this reads a repo spelled that way only in part, so it
 # must refuse it with the version message instead. Emitted profiles stamp
@@ -281,7 +282,6 @@ _KNOWN_PROFILE_KEYS = frozenset(
         "project_name",
         "extends",
         "exclude",
-        "data",
         "machine",
         "deploy",
         "deploy_services",
@@ -345,7 +345,6 @@ ROOT_KIND_KEYS = _KNOWN_PROFILE_KEYS
 ROOT_ONLY_KEYS = frozenset(
     {
         "extends",
-        "data",
         # The machine root the deployment mounts: one machine per deployment,
         # so no access level may point at another.
         "machine",
@@ -1089,10 +1088,10 @@ _RETIRED_APP_TEMPLATE_REFUSAL = (
 
 #: What a profile that spells the preset-side ``facility:`` key is told. The
 #: key only names which bundled facility ``osprey init`` copies into
-#: ``data/facility/``; a profile's facility is the tree under its own ``data:``.
+#: ``facility/``; a profile's facility is the tree beside it.
 _PRESET_FACILITY_REFUSAL = (
     "facility is a preset key, not a profile key — this profile's facility is "
-    "the data/facility/ tree under its own `data:`. Drop the key."
+    f"the {display_path('facility')}/ tree beside it. Drop the key."
 )
 
 
@@ -1108,7 +1107,7 @@ def _retired_tier_refusal() -> FacilityBuildError:
     return FacilityBuildError(
         "profile-invalid",
         _RETIRED_TIER_KEY,
-        ["profile.yml"],
+        [PROFILE_FILENAME],
         f"remove `{_RETIRED_TIER_KEY}` from the profile",
         record_kind="path",
         detail=(
@@ -1116,6 +1115,17 @@ def _retired_tier_refusal() -> FacilityBuildError:
             "selects the in_context subset"
         ),
     )
+
+
+_RETIRED_DATA_KEY = "data"
+
+_RETIRED_DATA_REFUSAL = (
+    f"`{_RETIRED_DATA_KEY}:` is a retired profile key: the deployment's facility tree is "
+    f"`{repo_layout.entry('facility').path}/` and its web content "
+    f"`{repo_layout.entry('web').path}/`, both beside the profile, so nothing names them. "
+    f"Delete the `{_RETIRED_DATA_KEY}:` line; `osprey init --revalidate` migrates a "
+    f"repository that still holds a `{_RETIRED_DATA_KEY}/` tree."
+)
 
 
 def _check_simulation_periods(raw: dict[str, Any]) -> None:
@@ -1137,7 +1147,7 @@ def _check_simulation_periods(raw: dict[str, Any]) -> None:
             raise FacilityBuildError(
                 "profile-invalid",
                 key,
-                ["profile.yml"],
+                [PROFILE_FILENAME],
                 f"set `{key}` to a number of seconds greater than 0",
                 record_kind="path",
                 detail=str(error),
@@ -1167,7 +1177,7 @@ def _check_default_scenarios(raw: dict[str, Any]) -> None:
         raise FacilityBuildError(
             "profile-invalid",
             DEFAULT_SCENARIOS_KEY,
-            ["profile.yml"],
+            [PROFILE_FILENAME],
             f"set `{DEFAULT_SCENARIOS_KEY}` to a list of scenario names, or to a mapping "
             "with such a list under `va` and under `standin`",
             record_kind="path",
@@ -1183,7 +1193,7 @@ def _check_limits_database_path(raw: dict[str, Any]) -> None:
     """Stop a profile that names its own limits database.
 
     The build writes ``data/channel_limits.json`` from
-    ``<data>/facility/limits.yaml`` and names it as the limits database, so a
+    ``facility/limits.yaml`` and names it as the limits database, so a
     profile stating ``database_path`` in a limits block, deployment-wide or per
     connector type, in any spelling, is refused. The deployment-wide key is
     named before a per-type one, and per-type keys in sorted type order.
@@ -1193,7 +1203,7 @@ def _check_limits_database_path(raw: dict[str, Any]) -> None:
     text is unchanged. Only this build-time site, which holds the profile,
     names the machine location: runtime and static strings (compose generator,
     roster constants, templates) keep saying ``data/facility``, because the
-    render still places the facility description there (D7).
+    render places the facility description there.
 
     Args:
         raw: The resolved raw profile dict.
@@ -1219,17 +1229,15 @@ def _check_limits_database_path(raw: dict[str, Any]) -> None:
 
     from .build_injectors import LIMITS_DATABASE_PATH
 
-    written_data = raw.get("data")
-    data = PurePosixPath(written_data).as_posix() if isinstance(written_data, str) else "data"
     machine = raw.get("machine")
     if isinstance(machine, str) and machine:
         limits = f"{PurePosixPath(machine).as_posix()}/limits.yaml"
     else:
-        limits = f"{data}/facility/limits.yaml"
+        limits = display_path("facility", "limits.yaml")
     raise FacilityBuildError(
         "profile-invalid",
         key,
-        ["profile.yml"],
+        [PROFILE_FILENAME],
         f"move its limits into {limits} and remove {key} from the profile",
         record_kind="path",
         detail=(
@@ -1237,6 +1245,23 @@ def _check_limits_database_path(raw: dict[str, Any]) -> None:
             "and names it as the limits database"
         ),
     )
+
+
+def _refuse_retired_keys(raw: Mapping[Any, Any]) -> None:
+    """Refuse a top-level key no profile file may spell, each with its own message.
+
+    Raises:
+        BuildProfileError: If *raw* names a preset-only or retired key.
+        FacilityBuildError: ``profile-invalid`` if it spells ``tier``.
+    """
+    if PRESET_DATA_BUNDLE_KEY in raw:
+        raise BuildProfileError(_RETIRED_APP_TEMPLATE_REFUSAL)
+    if PRESET_FACILITY_KEY in raw:
+        raise BuildProfileError(_PRESET_FACILITY_REFUSAL)
+    if _RETIRED_TIER_KEY in raw:
+        raise _retired_tier_refusal()
+    if _RETIRED_DATA_KEY in raw:
+        raise BuildProfileError(_RETIRED_DATA_REFUSAL)
 
 
 def _reject_unknown_keys(raw: dict[str, Any]) -> None:
@@ -1254,12 +1279,7 @@ def _reject_unknown_keys(raw: dict[str, Any]) -> None:
         BuildProfileError: If any key is unrecognized.
         FacilityBuildError: ``profile-invalid`` if the profile spells ``tier``.
     """
-    if PRESET_DATA_BUNDLE_KEY in raw:
-        raise BuildProfileError(_RETIRED_APP_TEMPLATE_REFUSAL)
-    if PRESET_FACILITY_KEY in raw:
-        raise BuildProfileError(_PRESET_FACILITY_REFUSAL)
-    if _RETIRED_TIER_KEY in raw:
-        raise _retired_tier_refusal()
+    _refuse_retired_keys(raw)
     _reject_unknown_block_keys(raw.keys(), _KNOWN_PROFILE_KEYS, "profile")
 
 
@@ -1287,12 +1307,7 @@ def reject_unknown_kind_keys(raw: Mapping[Any, Any], kind: ProfileKind, where: s
     if kind is ProfileKind.ROOT:
         _reject_unknown_keys(dict(raw))
         return
-    if PRESET_DATA_BUNDLE_KEY in raw:
-        raise BuildProfileError(_RETIRED_APP_TEMPLATE_REFUSAL)
-    if PRESET_FACILITY_KEY in raw:
-        raise BuildProfileError(_PRESET_FACILITY_REFUSAL)
-    if _RETIRED_TIER_KEY in raw:
-        raise _retired_tier_refusal()
+    _refuse_retired_keys(raw)
 
     legal = known_profile_keys(kind)
     offenders = sorted({key for key in raw if isinstance(key, str)} - legal)
@@ -2293,7 +2308,6 @@ def _parse_profile(raw: dict[str, Any]) -> BuildProfile:
     return BuildProfile(
         name=raw.get("name", ""),
         project_name=raw.get("project_name"),
-        data=raw.get("data"),
         machine=raw.get("machine"),
         deploy=parse_deploy_block(raw),
         deploy_services=raw.get("deploy_services", True),

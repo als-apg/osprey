@@ -31,6 +31,7 @@ from claude_agent_sdk import TextBlock
 from osprey.interfaces.common_middleware import OPERATOR_SECRET_HEADER
 from osprey.interfaces.web_auth import get_web_credentials
 from osprey.models.jev.config import TYPESAFE_KEY_ENV
+from osprey.repo_layout import watchdogs_source_dir
 from osprey.services.watchdog.config import WatchdogDefinition, parse_watchdogs_block
 from osprey.services.watchdog.runner import WatchdogRunner
 from tests.interfaces.web_terminal._chat_server import _FakeSDKClient, live_chat_server
@@ -58,7 +59,9 @@ class _SleepingAgent(_FakeSDKClient):
 
 def _decision_watchdog() -> WatchdogDefinition:
     document = yaml.safe_load((PRESET_DIR / "demo.yml").read_text(encoding="utf-8"))
-    definitions = parse_watchdogs_block(document["watchdogs"], base_dir=PRESET_DIR)
+    definitions = parse_watchdogs_block(
+        document["watchdogs"], watchdogs_dir=watchdogs_source_dir(PRESET_DIR)
+    )
     by_name = {definition.name: definition for definition in definitions}
     return replace(by_name[PRESET_WATCHDOG], enabled=True)
 

@@ -24,13 +24,13 @@ import pytest
 import yaml
 from click.testing import CliRunner
 
+from osprey.cli import variant_selection as variant_selection_module
 from osprey.cli.build_profile import compute_profile_hash, resolve_build_document
 from osprey.cli.init_cmd import _repo_gitignore
 from osprey.cli.profile_conventions import unknown_root_entries
 from osprey.cli.repo_resolver import PROFILE_FILENAME
 from osprey.cli.validate_cmd import validate
 from osprey.cli.variant_selection import (
-    _GIT_PROBE_TIMEOUT_S,
     VARIANT_DIRNAME,
     VARIANT_SETTING_FILENAME,
     VARIANT_SETTING_KEY,
@@ -48,6 +48,18 @@ from osprey_connectors.dotenv import ENV_CHAIN_FILENAMES
 from osprey_connectors.errors import BuildProfileError
 from tests._scoped_stdlib import scoped
 from tests.cli._lifecycle_build import invoke_build_in, rendered_config, stub_build
+
+#: How long git is given to answer the tracked probe here. The probe's own
+#: ceiling is sized for one build on an idle host; under the parallel sweep a
+#: starved host can take longer than that just to start git, which turns an
+#: "untracked" answer into "could not check" and fails a test for the host.
+_GIT_ANSWERS_WITHIN_S = 120.0
+
+
+@pytest.fixture(autouse=True)
+def _git_answers_on_a_loaded_host(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Every probe in this module waits :data:`_GIT_ANSWERS_WITHIN_S` for git."""
+    monkeypatch.setattr(variant_selection_module, "_GIT_PROBE_TIMEOUT_S", _GIT_ANSWERS_WITHIN_S)
 
 
 @pytest.fixture
@@ -256,7 +268,7 @@ class TestGitTrackedProbe:
         write_setting(repo, f"{VARIANT_SETTING_KEY}=teststand\n")
 
         def hang(cmd: list[str], **kwargs: object) -> None:
-            raise subprocess.TimeoutExpired(cmd, _GIT_PROBE_TIMEOUT_S)
+            raise subprocess.TimeoutExpired(cmd, _GIT_ANSWERS_WITHIN_S)
 
         scoped(monkeypatch, "osprey.cli.variant_selection", "subprocess", run=hang)
 
@@ -265,7 +277,7 @@ class TestGitTrackedProbe:
         assert selection.selected
         assert len(selection.notices) == 1
         assert selection.notices[0].startswith(_UNCHECKED)
-        assert f"{_GIT_PROBE_TIMEOUT_S:g} s" in selection.notices[0]
+        assert f"{_GIT_ANSWERS_WITHIN_S:g} s" in selection.notices[0]
 
     def test_an_unexpected_git_exit_inside_a_repo_names_itself(
         self, repo: Path, monkeypatch: pytest.MonkeyPatch

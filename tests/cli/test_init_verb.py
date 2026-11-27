@@ -8,14 +8,13 @@ What "reproduce" can mean is deliberately scoped, because the exemplar pins two
 different kinds of thing:
 
 * The files ``init`` AUTHORS — the anchored three-zone ``.gitignore``, the
-  README explaining the zones, the ``ci-extra.yml`` include point — are
+  README explaining the zones, the ``ops/ci-extra.yml`` include point — are
   compared BYTE FOR BYTE. Those are the repo's own shell, and the exemplar is
   their specification.
-* The ``data/`` tree is compared on SHAPE alone — ~2 MB of packaged bundle
-  against the exemplar's ~20 hand-authored files, which exist to pin paths
-  rather than content. Every path the exemplar names must be present.
-* ``data/README.md`` is the exception: it is copied from the package, the
-  exemplar reads that same file, and the two are compared byte for byte.
+* The ``facility/`` and ``web/`` trees are compared on SHAPE alone — ~2 MB
+  of packaged bundle against the exemplar's ~20 hand-authored files, which
+  exist to pin paths rather than content. Every path the exemplar names must
+  be present.
 * The files ``init`` RENDERS from packaged material — ``profile.yml``,
   ``the retired layer directory*.yml``, ``.env.example`` — are compared BYTE FOR BYTE too.
   That is the full TR-4 contract: the packaged prose is the exemplar's, down
@@ -43,6 +42,7 @@ from click.testing import CliRunner
 from rich.console import Console
 
 from osprey.cli.init_cmd import (
+    _ALREADY_A_REPO,
     _PRESERVED_PROSE,
     CI_EMITTED_PATHS,
     FACILITY_RULE_DIR,
@@ -50,6 +50,7 @@ from osprey.cli.init_cmd import (
     REPO_VERIFY_PATH,
     WRITE_ONCE_DIRS,
     WRITE_ONCE_FILES,
+    _settings_row,
     _source_zone_prose,
     _surviving_project_resources,
     init,
@@ -58,6 +59,7 @@ from osprey.cli.main import cli
 from osprey.cli.phase_reporter import PhaseReporter
 from osprey.cli.profile_conventions import unknown_root_entries
 from osprey.cli.styles import osprey_theme
+from osprey.repo_layout import display_path
 from osprey.utils.workspace import APPS_DIRNAME, TIERS_DIRNAME
 from tests._scoped_stdlib import scoped
 from tests.cli._reporters import installed
@@ -74,7 +76,7 @@ EXEMPLAR_NAME = "Als Exemplar"
 
 #: Files ``init`` authors itself, and therefore the ones the exemplar specifies
 #: down to the byte.
-AUTHORED_FILES = (".gitignore", "README.md", "ci-extra.yml")
+AUTHORED_FILES = (".gitignore", "README.md", "ops/ci-extra.yml")
 
 
 pytestmark = pytest.mark.usefixtures("container_runtime_is_up")
@@ -338,12 +340,6 @@ def test_the_preset_lists_no_application(exemplar_repo: Path) -> None:
     assert not (exemplar_repo / APPS_DIRNAME).exists()
 
 
-def test_the_data_readme_is_the_packaged_one(exemplar_repo: Path) -> None:
-    """Init copies the preset's ``data/README.md`` through unchanged."""
-    emitted = exemplar_repo.joinpath("data/README.md").read_text(encoding="utf-8")
-    assert emitted == exemplar_source_files(with_ci=False)["data/README.md"]
-
-
 def test_source_lives_at_the_repo_root(exemplar_repo: Path) -> None:
     """No ``profile/`` nesting: the repo root IS the profile root."""
     assert (exemplar_repo / "profile.yml").is_file()
@@ -461,9 +457,9 @@ def test_init_refuses_a_stated_name_compose_would_rewrite(
     assert not target.exists()
 
 
-def test_data_key_names_the_repos_own_tree(exemplar_repo: Path) -> None:
+def test_the_profile_names_no_data_tree(exemplar_repo: Path) -> None:
     profile = yaml.safe_load((exemplar_repo / "profile.yml").read_text(encoding="utf-8"))
-    assert profile["data"] == "data"
+    assert "data" not in profile
     assert profile["provenance"]["preset"] == "demo"
 
 
@@ -689,7 +685,7 @@ def _seed_survivor(repo: Path, entry: str) -> Path:
         relative = ".git/sentinel.txt"
     if entry.rstrip("/") in WRITE_ONCE_DIRS:
         relative = f"{entry.rstrip('/')}/sentinel/sentinel.txt"
-    if entry.rstrip("/") == FACILITY_RULE_DIR:
+    if entry.rstrip("/") == display_path(FACILITY_RULE_DIR):
         relative = f"{entry.rstrip('/')}/sentinel.md"
     survivor = repo / relative
     survivor.parent.mkdir(parents=True, exist_ok=True)
@@ -727,7 +723,11 @@ def test_every_file_a_rendered_repo_ships_is_in_a_named_category(
         # this command writes, so neither is a category's to claim.
         if relative.parts[0] in {".git", "var"}:
             continue
-        if relative.parts[0] in top_level or relative.as_posix() in CI_EMITTED_PATHS:
+        if relative.as_posix() in CI_EMITTED_PATHS or any(
+            relative.as_posix() == entry.rstrip("/")
+            or relative.as_posix().startswith(entry.rstrip("/") + "/")
+            for entry in top_level
+        ):
             continue
         uncategorised.append(relative.as_posix())
 
@@ -764,7 +764,7 @@ def test_force_replaces_the_source_zone_and_nothing_else(
     # assertion below reads a re-materialized file as the operator's edit.
     replaced_marker = "REPLACED-BY-FORCE-MARKER"
     (exemplar_repo / "profile.yml").write_text(f"name: {replaced_marker}\n", encoding="utf-8")
-    (exemplar_repo / "data" / "stale.json").write_text("{}\n", encoding="utf-8")
+    (exemplar_repo / "facility" / "stale.json").write_text("{}\n", encoding="utf-8")
 
     result = init_exemplar(runner, exemplar_repo, "--force")
 
@@ -786,7 +786,7 @@ def test_force_replaces_the_source_zone_and_nothing_else(
     assert destroyed == []
     # …and the source zone really was re-materialized, so the test cannot pass
     # by the command having done nothing at all.
-    assert not (exemplar_repo / "data" / "stale.json").exists()
+    assert not (exemplar_repo / "facility" / "stale.json").exists()
     assert replaced_marker not in (exemplar_repo / "profile.yml").read_text(encoding="utf-8")
 
 
@@ -832,6 +832,79 @@ def test_the_zone_row_names_a_seeded_directory_only_when_one_was_seeded() -> Non
     assert entries.index("mcp_servers/") == len(MATERIALIZED_SOURCE_ENTRIES)
     assert entries.index("mcp_servers/") < entries.index(next(iter(WRITE_ONCE_FILES)))
     assert "mcp_servers" not in _source_zone_prose()
+
+
+def test_the_settings_row_lists_the_source_entries_in_table_order() -> None:
+    """The README's "Your settings" cell: the replaced source entries but OSPREY's record."""
+    assert _settings_row() == (
+        "`profile.yml`, `providers.yml`, `facility/`, `web/`, `tiers/`, `apps/`, `triggers.yml`, "
+        "`agent/context/`, `agent/watchdogs/`, `agent/code_review/`"
+    )
+    assert _settings_row(("agent/mcp_servers",), True).endswith(
+        "`agent/code_review/`, `agent/mcp_servers/`, `agent/rules/`"
+    )
+    assert _settings_row(
+        (), True, frozenset({"tiers/", "apps/", "agent/watchdogs/", "agent/code_review/"})
+    ) == (
+        "`profile.yml`, `providers.yml`, `facility/`, `web/`, `triggers.yml`, `agent/context/`, "
+        "`agent/rules/`"
+    )
+
+
+def test_the_zone_sentence_leaves_out_what_the_repo_lacks() -> None:
+    """The "In full" sentence drops an absent replaced entry or CI file, never a write-once one."""
+    entries = _source_zone_prose((), False, frozenset({"apps/", ".gitlab-ci.yml"})).split(", ")
+
+    assert "`apps/`" not in entries
+    assert "`.gitlab-ci.yml`" not in entries
+    assert entries[:4] == ["`profile.yml`", "`providers.yml`", "`facility/`", "`web/`"]
+    assert [f"`{name}`" for name in WRITE_ONCE_FILES] == entries[-len(WRITE_ONCE_FILES) - 1 : -1]
+    assert entries[-1] == f"`{CI_EMITTED_PATHS[-1]}`"
+
+
+@pytest.mark.parametrize(
+    ("preset", "with_ci"), [("hello-world", False), ("demo", False), ("hello-world", True)]
+)
+def test_the_readme_names_only_entries_the_repo_has(
+    runner: CliRunner, tmp_path: Path, preset: str, with_ci: bool
+) -> None:
+    """Every entry the README's settings row and zone sentence name exists under the target."""
+    target = tmp_path / "named"
+    coordinates = DEPLOY_COORDINATES if with_ci else ()
+    assert (
+        run_init(runner, str(target), "--preset", preset, *coordinates, "--no-git").exit_code == 0
+    )
+    readme = (target / "README.md").read_text(encoding="utf-8")
+
+    (row,) = re.findall(r"^\| Your settings \| (.+?) \| yes \| yes \|$", readme, re.MULTILINE)
+    (sentence,) = re.findall(r"^In full, the first row is: (.+)\.$", readme, re.MULTILINE)
+    named = [name.strip("`") for name in (*row.split(", "), *sentence.split(", "))]
+
+    assert {"profile.yml", "providers.yml", "facility/"} <= set(named)
+    assert [name for name in named if not (target / name.rstrip("/")).exists()] == []
+    if with_ci:
+        assert {*CI_EMITTED_PATHS} <= set(named)
+
+
+def test_the_already_a_repo_message_lists_the_replaced_entries_in_table_order() -> None:
+    assert (
+        "which replaces profile.yml, facility/, web/, tiers/, apps/, triggers.yml, "
+        "agent/context/, .env.example, agent/watchdogs/ and agent/code_review/, losing any "
+        "edit to them, "
+        "and rewrites .osprey/. In providers.yml the entries OSPREY ships are reset"
+    ) in _ALREADY_A_REPO
+
+
+def test_the_force_help_lists_the_replaced_entries_in_table_order() -> None:
+    option_help = {
+        param.name: param.help for param in init.params if isinstance(param, click.Option)
+    }
+    assert option_help["force"].startswith(
+        "Re-materialize the source zone of an existing deployment repo, discarding edits to "
+        "profile.yml, facility/, web/, tiers/, apps/, triggers.yml, agent/context/, "
+        ".env.example, agent/watchdogs/, and agent/code_review/, and rewriting .osprey/. In providers.yml the entries "
+        "OSPREY ships are reset"
+    )
 
 
 def test_force_never_regenerates_a_hand_written_pipeline(runner: CliRunner, tmp_path: Path) -> None:
@@ -968,7 +1041,8 @@ EXEMPLAR_REPORT = f"""\
 ✓ Created {EXEMPLAR_DIRNAME}
 
   profile.yml   your assistant's settings; edit this
-  data/         channel lists and facility docs; edit these
+  facility/     channel lists and facility docs; edit these
+  web/          the screens and pages the web panels show
   tiers/        the logins of your assistant: admin, channel-finder, knowledge, logbook, readonly, readwrite
   .env          seeded: OSPREY_AUTH_PW_ALICE, OSPREY_AUTH_PW_BOB, OSPREY_AUTH_PW_CAROL. Add your API key; not in git
   .env.shared   settings shared by every host; your .env wins
@@ -1098,7 +1172,7 @@ def test_ci_pipeline_and_health_check_are_emitted_together(
 
     assert result.exit_code == 0, result.output
     assert (target / ".gitlab-ci.yml").is_file()
-    verify = target / "scripts" / "verify.sh"
+    verify = target / "ops" / "scripts" / "verify.sh"
     assert verify.is_file()
     assert stat.S_IMODE(verify.stat().st_mode) & stat.S_IXUSR
     assert unknown_root_entries(target) == []
@@ -1107,7 +1181,7 @@ def test_ci_pipeline_and_health_check_are_emitted_together(
 def test_no_deploy_block_emits_no_pipeline(exemplar_repo: Path) -> None:
     """Presets ship the deploy block commented out; a repo from one is complete without it."""
     assert not (exemplar_repo / ".gitlab-ci.yml").exists()
-    assert not (exemplar_repo / "scripts").exists()
+    assert not (exemplar_repo / "ops" / "scripts").exists()
 
 
 # ---------------------------------------------------------------------------
@@ -1526,7 +1600,7 @@ class TestResetFlag:
         monkeypatch.setattr("osprey.deployment.reset.reset_for_reinit", _completed_reset)
         stale_marker = "STALE-FROM-THE-LAST-DEPLOYMENT"
         (exemplar_repo / "profile.yml").write_text(f"name: {stale_marker}\n", encoding="utf-8")
-        (exemplar_repo / "data" / "orphan.json").write_text("{}\n", encoding="utf-8")
+        (exemplar_repo / "facility" / "orphan.json").write_text("{}\n", encoding="utf-8")
         env = exemplar_repo / ".env"
         env.write_text("MY_PROVIDER_KEY=keepme\n", encoding="utf-8")
 
@@ -1534,7 +1608,7 @@ class TestResetFlag:
 
         assert result.exit_code == 0, result.output
         assert stale_marker not in (exemplar_repo / "profile.yml").read_text(encoding="utf-8")
-        assert not (exemplar_repo / "data" / "orphan.json").exists()
+        assert not (exemplar_repo / "facility" / "orphan.json").exists()
         assert "MY_PROVIDER_KEY=keepme" in env.read_text(encoding="utf-8")
 
     def test_init_reset_sweeps_the_recorded_project_with_the_recorded_runtime(

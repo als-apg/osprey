@@ -16,7 +16,7 @@ from osprey.cli.templates import claude_code
 from osprey.cli.templates.manager import TemplateManager
 from osprey.utils.facility import facility_identity
 from osprey_facility.validate import FACILITY_HEADER
-from tests._preset_data import bundle_data_root, create_project_as_built
+from tests._preset_data import bundle_source_root, create_project_as_built
 
 # ---------------------------------------------------------------------------
 # Build path: build_claude_code_context feeds `{{ facility_name }}`
@@ -142,7 +142,7 @@ def _first_render(tmp_path_factory, name: str, context: dict) -> Path:
         project_name=name,
         output_dir=tmp_path_factory.mktemp(name),
         data_bundle="demo",
-        data_root=bundle_data_root("demo"),
+        repo_root=bundle_source_root("demo"),
         context={"channel_finder_mode": "in_context", "default_provider": "anthropic", **context},
     )
 

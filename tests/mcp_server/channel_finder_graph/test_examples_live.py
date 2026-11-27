@@ -92,6 +92,15 @@ DEMO = "demo"
 #: asking whether the query bounds itself.
 LANE_ROW_CAP = 600
 
+#: The lane's store runs its queries on no clock. The product default sizes a
+#: query against an agent's turn on a deployed store with a machine of its own;
+#: this store is a container sharing a host with the rest of the suite, where how
+#: long a traversal takes is a fact about the host's load. This lane asserts what
+#: each example answers, never how quickly. Zero is the driver's "no transaction
+#: timeout"; a query that would never return is ended by the suite's per-test
+#: cap. A deployment cannot reach this: ``positive_int`` refuses zero.
+LANE_QUERY_TIMEOUT_S = 0
+
 
 # ---------------------------------------------------------------------------
 # Plugins + container
@@ -190,6 +199,7 @@ def _installed_context(uri: str, monkeypatch: pytest.MonkeyPatch) -> Iterator[An
             "the graph context did not read the container as a configured store"
         )
         context.query_max_rows = LANE_ROW_CAP
+        context.query_timeout_s = LANE_QUERY_TIMEOUT_S
         yield context
     finally:
         graph_ctx.reset_server_context()

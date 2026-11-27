@@ -24,7 +24,7 @@ through :func:`scenario_logbook`; each entry's ``when`` is ``{days_ago,
 time}``, resolved against the activation anchor when the entry is seeded.
 An entry's ``attachments`` list names its pictures, each item one of
 ``{path: <picture file>}`` or ``{plot: <plot spec .json>}``, relative to the
-scenario's own directory ``scenarios/<name>/``.
+scenario's own directory ``simulation/scenarios/<name>/``.
 
 A scenario's ``sessions`` block parses through
 :func:`~osprey_facility.sessions.parse_sessions`;
@@ -47,6 +47,7 @@ from typing import Any
 
 from osprey_connectors.relative_time import RelativeTimestamp
 from osprey_connectors.simulation.logbook import ScenarioLogEntry, parse_log_attachments
+from osprey_facility import source_tree
 from osprey_facility.errors import FacilityBuildError, exact_number, quoted_slots
 from osprey_facility.sessions import SessionTurn, parse_sessions
 
@@ -410,7 +411,7 @@ def check_scenario_attachments(
     """Check every file a scenario's logbook entries attach.
 
     Each item of an entry's ``attachments`` is one of ``{path: <picture>}`` or
-    ``{plot: <plot spec .json>}``, relative to ``scenarios/<name>/``. A path
+    ``{plot: <plot spec .json>}``, relative to ``simulation/scenarios/<name>/``. A path
     that leaves that directory, an item of another shape, a picture whose
     suffix or bytes are not an accepted image, or a plot spec that is not a
     valid ``.json`` spec is ``value-invalid``; a named file that does not
@@ -418,7 +419,7 @@ def check_scenario_attachments(
 
     Args:
         document: The combined document.
-        facility_dir: The ``data/facility`` directory the scenarios came from.
+        facility_dir: The ``facility`` directory the scenarios came from.
 
     Returns:
         Every stop, in scenario, entry and item order.
@@ -428,8 +429,8 @@ def check_scenario_attachments(
         if not isinstance(scenario, dict) or not isinstance(scenario.get("logbook"), list):
             continue
         name = str(scenario.get("name"))
-        files = [f"scenarios/{name}.yaml"]
-        root = (facility_dir / "scenarios" / name).resolve()
+        files = [source_tree.keyed_file("scenarios", name)]
+        root = (facility_dir / source_tree.keyed_dir("scenarios", name)).resolve()
         for entry in scenario["logbook"]:
             if not isinstance(entry, dict):
                 continue
@@ -462,7 +463,7 @@ def _attachment_errors(
         parse_plot_spec,
     )
 
-    where = f"scenarios/{name}/"
+    where = f"{source_tree.keyed_dir('scenarios', name)}/"
     if not isinstance(item, Mapping) or len(item) != 1 or next(iter(item)) not in ("path", "plot"):
         yield _error(
             "value-invalid",
@@ -608,7 +609,7 @@ def check_scenario_events(document: Mapping[str, Any]) -> list[FacilityBuildErro
         if not isinstance(scenario, dict) or not isinstance(scenario.get("archiver"), list):
             continue
         name = str(scenario.get("name"))
-        files = [f"scenarios/{name}.yaml"]
+        files = [source_tree.keyed_file("scenarios", name)]
         for entry in scenario["archiver"]:
             if not isinstance(entry, dict) or str(entry.get("channel")) not in channels:
                 continue
@@ -673,7 +674,7 @@ def check_scenario_sessions(document: Mapping[str, Any]) -> list[FacilityBuildEr
         if scenario.get("sessions") is None:
             continue
         name = str(scenario.get("name"))
-        files = [f"scenarios/{name}.yaml"]
+        files = [source_tree.keyed_file("scenarios", name)]
         try:
             sessions = parse_sessions(scenario["sessions"], prefix=f"{files[0]} `sessions`")
         except ValueError as exc:
@@ -945,7 +946,7 @@ def check_scenario_engines(document: Mapping[str, Any]) -> list[FacilityBuildErr
         if not isinstance(scenario, dict) or not isinstance(scenario.get("faults"), dict):
             continue
         name = str(scenario.get("name"))
-        files = [f"scenarios/{name}.yaml"]
+        files = [source_tree.keyed_file("scenarios", name)]
         for model_name, targets in sorted(scenario["faults"].items(), key=lambda kv: str(kv[0])):
             model = models.get(str(model_name))
             if model is None or not isinstance(targets, dict):
@@ -980,7 +981,7 @@ def _roster_refused(model: Mapping[str, Any], roster: FaultRoster) -> FacilityBu
     return FacilityBuildError(
         "engine-invalid",
         str(model.get("name")),
-        stating_files(model, None, fallback="models.yaml"),
+        stating_files(model, None, fallback=source_tree.path("models")),
         f"correct the model's settings or wiring so its {roster.engine} engine can declare its "
         "faults",
         record_kind="model",

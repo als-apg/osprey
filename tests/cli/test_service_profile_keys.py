@@ -121,9 +121,8 @@ def test_a_custom_service_with_a_template_directory_keeps_open_sub_keys() -> Non
 
 
 def test_a_malformed_axis_keeps_its_own_message(tmp_path: Path) -> None:
-    (tmp_path / "data").mkdir()
     profile = _parse_profile(
-        {"name": "probe", "data": "data", "config": {"services.gchat_bridge.network": "hostnet"}}
+        {"name": "probe", "config": {"services.gchat_bridge.network": "hostnet"}}
     )
 
     with pytest.raises(BuildProfileError) as caught:

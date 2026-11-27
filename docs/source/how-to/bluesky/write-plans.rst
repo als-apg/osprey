@@ -204,7 +204,7 @@ settable with a separate readback also carries its setpoint's unit, as
 figure state each column's unit.
 
 Don't edit this file: the build rewrites it every time. To change the device
-set, change the channels under ``data/facility/`` and build again.
+set, change the channels under ``facility/`` and build again.
 
 A plan the agent writes during a session names channels from this same set.
 ``list_devices`` reads it. When the queue worker is running, two checks refuse
@@ -263,7 +263,7 @@ fault, and the build says so in its output.
 .. note::
 
    **The limits database is not the channel list.** The limits are the
-   records of ``data/facility/limits.yaml``. ``osprey build`` renders them
+   records of ``facility/limits.yaml``. ``osprey build`` renders them
    into ``build/data/channel_limits.json``. The connector's reference monitor
    and the runtime's limits check enforce that file on every write.
 

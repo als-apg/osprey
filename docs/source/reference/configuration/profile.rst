@@ -40,21 +40,15 @@ Profile YAML reference
        first sets its own value in a variant overlay (see
        :ref:`profile-host-variants`). Changing it renames the deployment, and
        the volumes follow the new name.
-   * - ``data``
-     - string
-     - *required*
-     - Facility data tree, relative to the profile directory (``data`` in a
-       materialized profile). It is the only source of the project's ``data/``
-       tree, so a profile that names none is refused. Must resolve inside the
-       repository; a path outside it is refused (see :ref:`profile-self-contained`).
    * - ``machine``
      - string
      - ``None``
      - The facility directory of a mounted machine repository, relative to the
-       profile directory (e.g. ``vendor/example-machine/data/facility``). The
-       machine facts then come from there, and the deployment's ``data/facility/``
-       keeps only ``knowledge/``, ``ariel/`` and ``benchmarks/``. Resolved and
-       folded into the profile hash like ``data``; only the root profile may
+       profile directory (e.g. ``vendor/example-machine/facility``). The
+       machine facts then come from there, and the deployment's ``facility/``
+       keeps only ``knowledge/``, ``ariel/`` and ``benchmarks/``. Must resolve
+       inside the repository (see :ref:`profile-self-contained`) and is folded
+       into the profile hash; only the root profile may
        state it (see :doc:`/how-to/control-systems/machine-repository`).
    * - ``extends``
      - string
@@ -128,7 +122,7 @@ Profile YAML reference
      - The bundled ``templates/claude_code/`` template rendered as the
        project's ``CLAUDE.md``, for a preset that ships an alternate render. A
        name that is not a bundled render is refused. The project copy is the
-       build's, so a hand-written ``CLAUDE.md`` in the ``project/`` mirror is
+       build's, so a hand-written ``CLAUDE.md`` in the ``ops/project/`` mirror is
        refused.
    * - ``config``
      - mapping
@@ -237,7 +231,7 @@ Profile YAML reference
      - mapping
      - ``{}``
      - The deployment's watchdogs, by name; each one's files live in
-       ``watchdogs/<name>/`` beside the profile
+       ``agent/watchdogs/<name>/`` in the repository
        (see :ref:`profile-watchdogs-block`).
    * - ``apps``
      - mapping
@@ -562,7 +556,7 @@ Code review
      - ``block``
      - ``flag`` or ``block``
    * - ``code_review.prompt``
-     - ``data/code_review/reviewer.md``
+     - ``agent/code_review/reviewer.md``
      - The reviewer's prompt file; a relative path is anchored at the repository root
    * - ``code_review.modes``
      - ``[readwrite]``
@@ -750,18 +744,19 @@ from which it is refused.
 Shipping the server's code
 --------------------------
 
-Put the package in the profile's ``mcp_servers/`` directory — one directory per
-server. The build copies it to ``build/_mcp_servers/`` in the project, so the
+Put the package in the profile's ``agent/mcp_servers/`` directory — one directory
+per server. The build copies it to ``build/_mcp_servers/`` in the project, so the
 launch command finds it:
 
 .. code-block:: text
 
    my-facility/
-     mcp_servers/
-       my_server/
-         __init__.py
-         __main__.py
-         server.py
+     agent/
+       mcp_servers/
+         my_server/
+           __init__.py
+           __main__.py
+           server.py
 
 .. code-block:: yaml
 
@@ -933,7 +928,7 @@ alongside OSPREY's built-in ones.
 
    services:
      typesense:
-       template: services/typesense     # relative to the profile directory
+       template: ops/services/typesense  # relative to the profile directory
        config:
          port: 8108
          api_key: "${TYPESENSE_API_KEY}"
@@ -944,7 +939,7 @@ refused, see :ref:`profile-self-contained`), and its contents are folded into th
 profile hash. It is copied into the project's ``services/`` tree, and the
 service is registered in ``config.yml``. Optional ``config`` values land under ``services.<name>``.
 
-A service directory placed in the profile's ``services/`` convention directory is
+A service directory placed in the profile's ``ops/services/`` convention directory is
 carried across the same way and marked as yours — that is what
 ``osprey scaffold claim services/<name>`` produces.
 
@@ -967,7 +962,7 @@ write them.
 
    services:
      typesense:
-       template: services/typesense
+       template: ops/services/typesense
        config:
          env: [TYPESENSE_TELEMETRY, HTTPS_PROXY]
 
@@ -1149,7 +1144,6 @@ keys and the ``graphdb`` entry in ``deployed_services`` into the profile's
    name: control-room
    provider: anthropic
    channel_finder_mode: graph
-   data: data
    config:
      services.graphdb.path: ./services/graphdb
      services.graphdb.image: neo4j:5.26-community

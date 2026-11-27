@@ -28,6 +28,7 @@ from pathlib import Path
 
 import pytest
 
+from osprey import repo_layout
 from osprey.cli.build_cmd import _profile_data_bundle
 from osprey.cli.build_profile import compute_profile_hash
 from osprey.cli.build_profile_load import load_profile, load_profile_document
@@ -41,7 +42,6 @@ from osprey_connectors.errors import BuildProfileError
 # interchangeable when they are not.
 _HOST = """\
 name: Facility
-data: data
 provider: anthropic
 model: claude-sonnet-5
 channel_finder_mode: in_context
@@ -126,11 +126,10 @@ def test_root_extends_chain_is_resolved_before_the_merge(tmp_path: Path) -> None
     has by way of its ``extends`` base still reaches the render.
     """
     root = tmp_path / "facility"
-    (root / "data").mkdir(parents=True)
     _write(root / "base.yml", "name: Base\nmodel: claude-opus-5\n")
     _write(
         root / "profile.yml",
-        "extends: ./base.yml\nname: Facility\ndata: data\nprovider: cborg\n",
+        "extends: ./base.yml\nname: Facility\nprovider: cborg\n",
     )
     render = _render(root, "reader", "name: Reader\n")
 
@@ -169,18 +168,20 @@ def test_two_renders_under_one_root_resolve_independently(host: Path) -> None:
 
 
 def test_relative_paths_anchor_at_the_root_not_at_renders(host: Path) -> None:
-    """``data: data`` on the root means the root's tree, read from a render too.
+    """The root's facility tree is the one a render reads too.
 
-    Anchored at the delta's own parent it would resolve to
-    ``tiers/data`` — absent — and every render would build without the
-    facility's channel database.
+    Anchored at the delta's own parent it would resolve under ``tiers/`` —
+    absent — and every render would build without the facility's channel
+    database.
     """
     render = _render(host, "reader", "name: Reader\n")
 
     loaded = load_profile_document(render)
 
     assert loaded.profile_dir == host
-    assert loaded.profile.resolved_data_root(loaded.profile_dir) == (host / "data").resolve()
+    assert loaded.profile.resolved_facility_roots(loaded.profile_dir).content == (
+        host / repo_layout.entry("facility").path
+    )
 
 
 def test_render_and_root_read_the_same_data_tree(host: Path) -> None:
@@ -190,16 +191,16 @@ def test_render_and_root_read_the_same_data_tree(host: Path) -> None:
     render_loaded = load_profile_document(render)
     root_loaded = load_profile_document(host / "profile.yml")
 
-    assert render_loaded.profile.resolved_data_root(
+    assert render_loaded.profile.resolved_facility_roots(
         render_loaded.profile_dir
-    ) == root_loaded.profile.resolved_data_root(root_loaded.profile_dir)
+    ) == root_loaded.profile.resolved_facility_roots(root_loaded.profile_dir)
 
 
 def test_a_standalone_profile_anchors_at_its_own_directory(tmp_path: Path) -> None:
     """Only layer files re-anchor; every other file is unaffected."""
     root = tmp_path / "plain"
     _write(root / "data" / "channels.json", "{}\n")
-    profile_path = _write(root / "profile.yml", "name: Plain\ndata: data\n")
+    profile_path = _write(root / "profile.yml", "name: Plain\n")
 
     loaded = load_profile_document(profile_path)
 
@@ -209,8 +210,7 @@ def test_a_standalone_profile_anchors_at_its_own_directory(tmp_path: Path) -> No
 
 def test_a_bare_file_outside_any_profile_still_loads(tmp_path: Path) -> None:
     """A one-off YAML in a scratch directory is not a delta and needs no root."""
-    (tmp_path / "data").mkdir()
-    profile_path = _write(tmp_path / "scratch.yml", "name: Scratch\ndata: data\n")
+    profile_path = _write(tmp_path / "scratch.yml", "name: Scratch\n")
 
     loaded = load_profile_document(profile_path)
 
@@ -330,7 +330,7 @@ def test_excluding_a_shadow_keeps_the_built_in_selected(host: Path) -> None:
     still-selected built-in agent renders again. Dropping the list entry too
     would make the agent vanish altogether — the opposite of restoring it.
     """
-    _write(host / "agents" / "channel-finder.md", "facility override\n")
+    _write(host / "agent" / "agents" / "channel-finder.md", "facility override\n")
     render = _excluding(
         host, "reader", "name: Reader\nexclude:\n  agents: [agents/channel-finder]\n"
     )
@@ -369,7 +369,7 @@ def test_the_two_spellings_are_not_interchangeable(host: Path) -> None:
 
 def test_a_bare_non_library_name_records_a_file_omission(host: Path) -> None:
     """It cannot be a built-in selection, so the profile's own file is what it means."""
-    _write(host / "agents" / "orbit-writer.md", "facility agent\n")
+    _write(host / "agent" / "agents" / "orbit-writer.md", "facility agent\n")
     render = _excluding(host, "reader", "name: Reader\nexclude:\n  agents: [orbit-writer]\n")
 
     assert load_profile_document(render).excluded_artifacts == frozenset({"agents/orbit-writer"})
@@ -410,7 +410,7 @@ def test_a_malformed_exclusion_is_rejected(host: Path, exclude: str, match: str)
 
 def test_a_convention_dir_with_no_list_field_can_be_excluded(host: Path) -> None:
     """``commands/`` has no profile list, so exclusion is the only way to drop one."""
-    _write(host / "commands" / "scan.md", "slash command\n")
+    _write(host / "agent" / "commands" / "scan.md", "slash command\n")
     render = _excluding(host, "reader", "name: Reader\nexclude:\n  commands: [scan]\n")
 
     assert load_profile_document(render).excluded_artifacts == frozenset({"commands/scan"})
@@ -418,7 +418,7 @@ def test_a_convention_dir_with_no_list_field_can_be_excluded(host: Path) -> None
 
 def test_the_hyphenated_directory_is_reachable_by_its_field_spelling(host: Path) -> None:
     """A profile writes ``output_styles``; the directory is ``output-styles/``."""
-    _write(host / "output-styles" / "terse.md", "style\n")
+    _write(host / "agent" / "output-styles" / "terse.md", "style\n")
     render = _excluding(host, "reader", "name: Reader\nexclude:\n  output_styles: [terse]\n")
 
     assert load_profile_document(render).excluded_artifacts == frozenset({"output-styles/terse"})
@@ -426,7 +426,7 @@ def test_the_hyphenated_directory_is_reachable_by_its_field_spelling(host: Path)
 
 def test_an_underscored_directory_is_not_rewritten(host: Path) -> None:
     """``mcp_servers/`` really does carry an underscore — it must survive intact."""
-    (host / "mcp_servers" / "facility").mkdir(parents=True)
+    (host / "agent" / "mcp_servers" / "facility").mkdir(parents=True)
     render = _excluding(host, "reader", "name: Reader\nexclude:\n  mcp_servers: [facility]\n")
 
     assert load_profile_document(render).excluded_artifacts == frozenset({"mcp_servers/facility"})
@@ -436,7 +436,7 @@ def test_a_dict_shaped_declaration_is_dropped_with_its_files(host: Path) -> None
     """Omitting an MCP server's sources while keeping its declaration deploys a
     server whose code is not there — and there is no built-in one to fall back
     to, so both halves go together whichever spelling is used."""
-    (host / "mcp_servers" / "facility").mkdir(parents=True)
+    (host / "agent" / "mcp_servers" / "facility").mkdir(parents=True)
     _write(
         host / "profile.yml",
         _HOST + "mcp_servers:\n  facility:\n    command: run-it\n  other:\n    command: keep-me\n",
@@ -480,7 +480,7 @@ def test_the_hash_path_does_not_repeat_the_warning(host: Path, caplog) -> None:
 
 def test_a_matching_exclusion_is_not_warned_about(host: Path, caplog) -> None:
     """The warning must not cry wolf on the case it exists to contrast with."""
-    _write(host / "agents" / "channel-finder.md", "facility override\n")
+    _write(host / "agent" / "agents" / "channel-finder.md", "facility override\n")
     render = _excluding(
         host, "reader", "name: Reader\nexclude:\n  agents: [agents/channel-finder]\n"
     )
@@ -500,7 +500,7 @@ def test_a_bare_exclusion_of_a_shadowed_name_is_warned_about(host: Path, caplog)
     file omission, ``_warn_unmatched_exclusions`` has nothing to look at either.
     Without this the author's intent fails in complete silence.
     """
-    _write(host / "agents" / "channel-finder.md", "facility override\n")
+    _write(host / "agent" / "agents" / "channel-finder.md", "facility override\n")
     render = _excluding(host, "reader", "name: Reader\nexclude:\n  agents: [channel-finder]\n")
 
     with caplog.at_level("WARNING"):
@@ -524,7 +524,7 @@ def test_a_bare_exclusion_of_an_unshadowed_name_is_not_warned_about(host: Path, 
 
 def test_the_shadow_warning_is_suppressed_on_the_hash_path(host: Path, caplog) -> None:
     """Same reason as every other exclusion diagnostic: a build loads AND hashes."""
-    _write(host / "agents" / "channel-finder.md", "facility override\n")
+    _write(host / "agent" / "agents" / "channel-finder.md", "facility override\n")
     render = _excluding(host, "reader", "name: Reader\nexclude:\n  agents: [channel-finder]\n")
 
     with caplog.at_level("WARNING"):
@@ -535,7 +535,7 @@ def test_the_shadow_warning_is_suppressed_on_the_hash_path(host: Path, caplog) -
 
 def test_a_root_exclusion_reaches_its_renders(host: Path) -> None:
     """The root's own exclusions are part of what a render inherits."""
-    _write(host / "agents" / "orbit-writer.md", "facility agent\n")
+    _write(host / "agent" / "agents" / "orbit-writer.md", "facility agent\n")
     _write(host / "profile.yml", _HOST + "exclude:\n  agents: [agents/orbit-writer]\n")
     render = _render(host, "reader", "name: Reader\n")
 
@@ -576,7 +576,7 @@ def test_a_convention_only_exclusion_moves_the_hash(host: Path) -> None:
     folding that record, neither render would ever report itself stale against
     the other.
     """
-    _write(host / "commands" / "scan.md", "slash command\n")
+    _write(host / "agent" / "commands" / "scan.md", "slash command\n")
     plain = _excluding(host, "plain", "name: Reader\n")
     excluding = _excluding(host, "excl", "name: Reader\nexclude:\n  commands: [scan]\n")
 
@@ -594,7 +594,7 @@ def test_a_shadowed_bare_exclusion_still_moves_the_hash(host: Path) -> None:
     failure the advisory exists to catch. An extra idempotent rebuild is cheap;
     a project that silently stops matching its source is not.
     """
-    _write(host / "agents" / "channel-finder.md", "facility override\n")
+    _write(host / "agent" / "agents" / "channel-finder.md", "facility override\n")
     plain = _excluding(host, "plain", "name: Reader\n")
     excluding = _excluding(host, "excl", "name: Reader\nexclude:\n  agents: [channel-finder]\n")
 

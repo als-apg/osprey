@@ -10,8 +10,8 @@ Extracted from test_claude_code_sdk_e2e.py to avoid circular imports.
 :func:`init_project` returns and what ``osprey init`` creates — so a test
 carries one handle. A repo has three zones the helpers resolve internally:
 
-* ``<repo>/`` — SOURCE: ``profile.yml``, the operator-owned ``data/`` tree
-  (including ``data/simulation/``), ``tiers/``, ``apps/``, and the ``.env`` secret store.
+* ``<repo>/`` — SOURCE: ``profile.yml``, the operator-owned ``facility/``,
+  ``web/`` and ``agent/`` trees, ``tiers/``, ``apps/``, and the ``.env`` secret store.
 * ``<repo>/build/`` — the RENDER (see :func:`render_dir`): ``config.yml``,
   ``.mcp.json``, ``CLAUDE.md``, ``.claude/``, and the render's own ``data/``
   copy. This is the Claude Code agent's working directory.
@@ -37,6 +37,7 @@ from typing import Any, Literal
 
 import yaml
 
+from osprey import repo_layout
 from osprey.agent_runner.claude_state import is_untrusted_allow_rules_notice, seed_claude_state
 from osprey.facility.views.simulator import withdraw_scenarios
 from osprey.port_layout import BLOCK_SIZE
@@ -45,6 +46,7 @@ from osprey_connectors.identity import acting_identity
 from osprey_connectors.simulation.view import SimulatorView
 from osprey_connectors.types import WRITES_KEY, baseline_target
 from osprey_connectors_tests._harness import ci_diagnostics
+from osprey_facility import source_tree
 from tests.e2e import refusals
 from tests.e2e.profile_edits import e2e_scenario_pin, set_pairs
 from tests.e2e.provider import build_model, build_provider
@@ -368,8 +370,8 @@ def init_project(
     """Create a deployment repo at ``tmp_path/name`` and build it; return the repo root.
 
     Two commands, because the surface has two: ``osprey init <dir> --preset P``
-    writes the repo's source zone (``profile.yml``, ``data/``, ``tiers/``, ``apps/``,
-    ``.env.example``), and ``osprey build --repo <dir>`` renders ``build/`` from
+    writes the repo's source zone (``profile.yml``, ``facility/``, ``web/``,
+    ``agent/``, ``tiers/``, ``apps/``, ``.env.example``), and ``osprey build --repo <dir>`` renders ``build/`` from
     it. The directory name IS the deployment name.
 
     Returns the REPO ROOT, not the render: it is what
@@ -1020,7 +1022,7 @@ def activate_scenario(repo: Path, scenario: str) -> None:
 
     Takes the REPO ROOT. Writes the scenario name into
     ``<repo>/var/agent_data/simulation/active_scenarios`` — mutable state, which
-    is why it lives under ``var/`` rather than in either ``data/`` tree; the
+    is why it lives under ``var/`` rather than in the source zone or the render; the
     simulation engine re-reads the state file on mtime change and clears any
     session writes (fresh machine state). Telemetry only — for scenarios whose
     diagnosis needs a seeded logbook, use :func:`activate_scenarios`, which also
@@ -1059,7 +1061,7 @@ def activate_scenarios(repo: Path, *names: str, now=None):
 #
 # A scenario benchmark asks the agent to *derive* a fault from instrument data.
 # Its ground truth ships inside the deployment repo as the facility's
-# ``data/facility/scenarios/<name>.yaml``, whose ``description`` names the
+# ``facility/simulation/scenarios/<name>.yaml``, whose ``description`` names the
 # seeded fault outright — and the agent's cwd IS the render, whose simulator
 # view lists every scenario with its blocks in ``data/simulator/scenarios.json``
 # and copies its attached files under ``data/simulator/scenarios/<name>/``. Left alone, the cheapest route to a correct
@@ -1090,8 +1092,8 @@ def conceal_scenario_ground_truth(repo: Path, *scenarios: str) -> None:
     """Delete the named scenarios' definitions from the deployment repo.
 
     Takes the REPO ROOT and scrubs every copy of a scenario's answer key: the
-    facility's ``<name>.yaml`` and ``<name>/`` under ``<repo>/data/facility/
-    scenarios`` and the render's ``build/data/facility/scenarios``, the
+    facility's ``<name>.yaml`` and ``<name>/`` under ``<repo>/facility/
+    simulation/scenarios`` and the render's copy of that directory, the
     simulator view's ``build/data/simulator/scenarios/<name>/`` files, and the
     scenario's entry in the view's ``scenarios.json``. Leaving any would leave
     the answer key one ``Read`` away.
@@ -1115,9 +1117,10 @@ def conceal_scenario_ground_truth(repo: Path, *scenarios: str) -> None:
             concealed.
         AssertionError: a concealed name is still readable from the agent's tree.
     """
+    scenarios_rel = source_tree.path("scenarios")
     facility_dirs = (
-        Path(repo) / "data" / "facility" / "scenarios",
-        render_dir(repo) / "data" / "facility" / "scenarios",
+        Path(repo) / repo_layout.entry("facility").path / scenarios_rel,
+        render_dir(repo) / repo_layout.render_path("facility") / scenarios_rel,
     )
     view = SimulatorView.of_render(render_dir(repo))
     withdraw_scenarios(view.path, scenarios)

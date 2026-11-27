@@ -1,7 +1,7 @@
 """The benchmarks view: the channel-finder benchmark query file a render carries.
 
 The facility tree ships one scored query set per pipeline family under
-``data/facility/benchmarks/cross_paradigm/queries/``: ``in_context_queries.json``
+``facility/benchmarks/channel_finder/``: ``in_context_queries.json``
 for the ``in_context`` pipeline and ``tree_queries.json`` for every other mode.
 A render whose ``config.yml`` states ``channel_finder.benchmark.dataset_path``
 carries the one its ``channel_finder.pipeline_mode`` selects, byte-equal, at
@@ -15,6 +15,8 @@ from pathlib import Path, PurePosixPath
 from typing import TYPE_CHECKING, Any
 
 from osprey.facility.views import PIPELINE_MODE_KEY
+from osprey.repo_layout import display_path
+from osprey_facility import source_tree
 
 if TYPE_CHECKING:
     from osprey.facility.views import ViewInputs
@@ -34,7 +36,7 @@ BENCHMARK_DATASET_KEY = "channel_finder.benchmark.dataset_path"
 
 #: The query sources' directory, relative to the content root (the facility
 #: tree of a single-tree deployment).
-QUERY_SOURCES = "benchmarks/cross_paradigm/queries"
+QUERY_SOURCES = source_tree.path("benchmark_queries")
 
 #: The pipeline mode whose query set is its own file; every other mode reads the
 #: tree set.
@@ -50,7 +52,12 @@ def query_source_name(mode: str | None) -> str:
     Returns:
         ``in_context_queries.json`` for ``in_context``, else ``tree_queries.json``.
     """
-    return "in_context_queries.json" if mode == _IN_CONTEXT_MODE else "tree_queries.json"
+    return source_tree.slot(_query_slot(mode)).path
+
+
+def _query_slot(mode: str | None) -> str:
+    """The facility slot holding the query source a pipeline mode reads."""
+    return "in_context_queries" if mode == _IN_CONTEXT_MODE else "tree_queries"
 
 
 def _channel_finder(config: Mapping[str, Any]) -> Mapping[str, Any]:
@@ -81,7 +88,7 @@ def benchmarks_wanted(inputs: ViewInputs) -> tuple[bool, str]:
     if _dataset_path(inputs.rendered_config) is None:
         return False, BENCHMARK_DATASET_KEY
     if not (inputs.content_root / QUERY_SOURCES).is_dir():
-        return False, f"data/facility/{QUERY_SOURCES}"
+        return False, display_path("facility", QUERY_SOURCES)
     return True, BENCHMARK_DATASET_KEY
 
 
@@ -127,13 +134,14 @@ def write_benchmarks_view(root: Path, inputs: ViewInputs) -> list[Path]:
             "such as `data/benchmarks/queries.json`",
         )
     mode = _channel_finder(inputs.rendered_config).get("pipeline_mode")
-    source = inputs.content_root / QUERY_SOURCES / query_source_name(mode)
+    source = inputs.content_root / source_tree.path(_query_slot(mode))
     if not source.is_file():
         raise _refusal(
             "view-unsupported",
             PIPELINE_MODE_KEY,
-            f"selects {mode} and the facility ships no data/facility/{QUERY_SOURCES}/{source.name}",
-            f"add {source.name} to data/facility/{QUERY_SOURCES}/, "
+            f"selects {mode} and the facility ships no "
+            f"{display_path('facility', QUERY_SOURCES, source.name)}",
+            f"add {source.name} to {display_path('facility', QUERY_SOURCES)}/, "
             "or select another channel_finder_mode",
         )
     target = root.parent.joinpath(*relative.parts)

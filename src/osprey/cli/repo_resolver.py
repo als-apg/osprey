@@ -31,11 +31,13 @@ from typing import Any, TypeVar
 
 import click
 
+from osprey.repo_layout import entry
+
 #: The marker that makes a directory a deployment repo root. It sits at the
 #: repo root rather than one level down: the root is the deployment, and
 #: everything beside the manifest — ``data/``, ``tiers/``, the CI files —
 #: is content the manifest refers to.
-PROFILE_FILENAME = "profile.yml"
+PROFILE_FILENAME = entry("profile.yml").path
 
 #: Where ``osprey init --force`` holds the source zone it is replacing while the
 #: new one renders. Spelled here, beside the marker it temporarily displaces,
@@ -73,7 +75,7 @@ REPO_FREE_COMMANDS: frozenset[str] = frozenset(
 #: above it, so this module's marker cannot find one. They resolve through
 #: :func:`osprey.cli.project_utils.resolve_project_path`, which applies exactly
 #: the walk below whenever the directory in hand is not itself a project — which
-#: is what makes ``osprey health`` run from ``<repo>/data/raw`` report on that
+#: is what makes ``osprey health`` run from ``<repo>/facility/knowledge`` report on that
 #: repo, like every repo-scoped verb. ``health`` reports ON a deployment, so
 #: it is not a member of :data:`REPO_FREE_COMMANDS`, whose members act on the
 #: machine or the installed framework.

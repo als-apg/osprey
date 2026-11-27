@@ -42,7 +42,7 @@ names another one explicitly.
    osprey health             # Check system health
    osprey channel-finder     # Channel finder CLI
    osprey knowledge          # Facility knowledge bundles and graph corpus
-   osprey facility           # Check and show the facility description under data/facility/
+   osprey facility           # Check and show the facility description under facility/
    osprey app                # Make and check a deployment's apps
    osprey sim                # Simulation scenario commands
    osprey ariel              # ARIEL logbook search service
@@ -103,7 +103,8 @@ output, and durable state:
    DIRECTORY/
      profile.yml                    the manifest; everything the preset configures
      providers.yml                  the model-provider catalog `provider:` picks from
-     data/ tiers/ apps/ triggers.yml  the material it names — yours to edit
+     facility/ web/                 the facility tree and the web content — yours to edit
+     tiers/ apps/ triggers.yml      the material the profile names — yours to edit
      .env                           provider keys, seeded from your shell
      build/                         rendered by `osprey build`; gitignored
      var/                           agent memory and audit log; gitignored
@@ -131,13 +132,13 @@ deployment onto another thousand-port block, e.g. ``--set port_base=42000`` —
 handy for a second stack beside one already on the default 10000 block).
 
 ``--force`` — Re-materialize the source zone of an existing deployment
-repository, discarding edits to ``profile.yml``, ``data/``, ``tiers/``,
-``apps/``, ``triggers.yml``, ``web-terminal-context/``, ``watchdogs/``, and
-``.env.example``. In ``providers.yml`` the entries OSPREY ships are reset to the
+repository, discarding edits to ``profile.yml``, ``facility/``, ``web/``, ``tiers/``,
+``apps/``, ``triggers.yml``, ``agent/context/``, ``.env.example``,
+``agent/watchdogs/``, and ``agent/code_review/``, and rewriting ``.osprey/``. In ``providers.yml`` the entries OSPREY ships are reset to the
 packaged values and the ones you added are kept. Never touches ``.env``,
 ``.git``, ``var/``, ``build/``, ``.gitignore``, ``.env.shared``, ``README.md``,
-``ci-extra.yml``, the CI file, ``scripts/verify.sh``, ``mcp_servers/``, or
-``rules/``.
+``ops/ci-extra.yml``, the CI file, ``ops/scripts/verify.sh``, ``agent/mcp_servers/``,
+or ``agent/rules/``.
 
 ``--reset`` — Start over on a name used before. Deleting a deployment's
 directory leaves its containers and data volumes behind, because they are keyed
@@ -152,6 +153,8 @@ no container runtime answers. To keep the old data instead, pass
 ``--reuse-stores`` to ``osprey up``.
 
 ``--no-git`` — Skip ``git init`` and the initial commit.
+
+.. _cli-osprey-init-revalidate:
 
 ``--revalidate [--preset NAME]`` — Bring an existing deployment repository to
 this OSPREY in place: the current profile vocabulary, what the presets changed
@@ -184,6 +187,13 @@ output. Retired write keys are rewritten to the tier key
 ``control_system.writes`` in every layer (:ref:`write-safety-upgrade`), and
 retired per-tool policies for switch-governed tools are removed. Prints
 a diff to review and commit.
+
+A repository at a retired layout is moved to the current one (``git mv`` where
+tracked), and the lines that name a moved path are rewritten. What stays with
+you is printed under "Left for you to do by hand"; that includes the commands
+for a facility tree in another repository, such as a mounted machine repository
+(:ref:`upgrade order <machine-repository-upgrade>`). The retired paths and what
+the run leaves to you are under :ref:`profile-root-migration`.
 
 The step is one-way: an older OSPREY refuses the revalidated repository. To go
 back, check out the repository as it was before the commit and install the
@@ -262,7 +272,7 @@ directory. ``TARGET`` names a different profile to check instead — a login
 file under ``tiers/``, or a directory holding a ``profile.yml``.
 
 Resolves ``extends:`` chains and runs the full consistency check — convention
-directories, the ``data:`` tree, service templates, lifecycle steps, env vars —
+directories, the facility tree, service templates, lifecycle steps, env vars —
 then lints the declared web stack against the config a build would render. Every
 problem found is reported, not just the first. Exits 0 when the profile is
 valid, 2 with the accumulated errors when it is not, so a CI job can gate on it.
@@ -350,7 +360,7 @@ source a deployment is built from — see :doc:`/how-to/build-profiles`.
 ``osprey profile validate TARGET``
    Check a profile without building anything. ``TARGET`` is a directory holding
    a ``profile.yml`` or a path to a profile file. Resolves ``extends:`` chains
-   and reports every problem found — convention directories, the ``data:``
+   and reports every problem found — convention directories, the facility
    tree, service templates, lifecycle steps, env vars. Exits 0 when valid, 2
    with the accumulated errors when not. Inside a deployment repository, plain
    ``osprey validate`` checks that repository without naming a target.
@@ -404,7 +414,7 @@ Render this deployment repository's ``build/`` from its profile.
 
 Run it with no arguments, anywhere inside a deployment repository. It walks up
 to the repository's ``profile.yml`` and renders the whole output zone from it:
-``config.yml``, the OSPREY agent artifacts, the data tree, the service templates
+``config.yml``, the OSPREY agent artifacts, ``data/``, the service templates
 and the compose files that deploy them.
 
 ``build/`` is derived in full and holds nothing durable — your keys are in
@@ -594,9 +604,11 @@ What survives, the plan lists before you confirm:
 - ``var/archive/`` — the archive: the record's daily exports, with the artifact
   and Bluesky copies beside them;
 - ``var/state/`` — each identity's locks, leases and markers;
+- ``var/runtime/`` — the Bluesky document-plane certificates ``osprey up``
+  minted, which the next start keeps rather than rotating;
 - everything in ``.env`` that a deploy did not mint — your provider keys.
 
-The source zone is never touched: ``profile.yml``, ``data/``, ``tiers/``,
+The source zone is never touched: ``profile.yml``, ``facility/``, ``web/``, ``tiers/``,
 ``apps/``, ``triggers.yml`` and ``.git`` are exactly what they were.
 
 Reset refuses, touching nothing, while a host ``osprey web``, ``chat`` or
@@ -1174,7 +1186,7 @@ up`` seeds the store from that view. See
 
 .. code-block:: bash
 
-   osprey knowledge seed-from-ttl data/facility/knowledge
+   osprey knowledge seed-from-ttl facility/knowledge
    osprey knowledge validate
 
 .. _cli-osprey-app:
@@ -1219,14 +1231,14 @@ is :doc:`/how-to/apps/index`.
 osprey facility
 ===============
 
-Check and show the facility description under ``data/facility/`` and import
+Check and show the facility description under ``facility/`` and import
 an export into it. See :doc:`/how-to/import-mml-export` for the import end to end.
 The operator screens drawn from the built facility are written by
 ``osprey-panels``, a command of its own that is installed from a checkout: see
 :ref:`reference-osprey-panels`.
 
 ``osprey facility validate [--repo DIRECTORY] [--all-limits]``
-   Run every check ``osprey build`` makes of ``data/facility/`` and render the
+   Run every check ``osprey build`` makes of ``facility/`` and render the
    facility views against the repo's main profile in a temporary directory.
    Nothing is written into the repo. A clean tree reports two limits findings
    on stderr, each a ``limits:`` count line and one indented line per
@@ -1254,7 +1266,7 @@ The operator screens drawn from the built facility are written by
    modulo the deck's length, and both ``osprey build`` and this command print
    one ``facility: place-wrapped: device <id> — …; fix: …`` warning per device
    on stderr; the exit code is unchanged.
-   Each link of a knowledge page under ``data/facility/knowledge`` that the
+   Each link of a knowledge page under ``facility/knowledge`` that the
    facility file does not hold, a ``device_id`` that is no device id or a
    ``facility:`` link in the body that names no channel or device (or, as
    ``facility:place/<id>``, no place), prints one
@@ -1333,12 +1345,12 @@ The operator screens drawn from the built facility are written by
 
 ``osprey facility import``
    Group for the importers that write an export as sources under
-   ``data/facility/imported/``; the importers are ``mml``, ``list`` and
+   ``facility/imported/``; the importers are ``mml``, ``list`` and
    ``relations``.
 
 ``osprey facility import mml EXPORT... [--repo DIRECTORY]``
    Write MML exports as the mml layer's sources under
-   ``data/facility/imported/mml/`` and seed each authored file that does not
+   ``facility/imported/mml/`` and seed each authored file that does not
    exist yet. ``EXPORT`` is an export's ``<stem>.ao.json``; give every export
    the mapping names. Each export's deck is held to the lattice fingerprint
    the export states: a deck with another element count, family-name digest
@@ -1351,14 +1363,14 @@ The operator screens drawn from the built facility are written by
    states no fingerprint prints one ``import mml: deck unchecked:`` line.
    The mapping is then checked against the exports: a
    problem prints one ``<key>: <message>`` line per problem, then
-   ``<n> problems in data/facility/imported/mml/mapping.yaml; fix each and
+   ``<n> problems in facility/imported/mml/mapping.yaml; fix each and
    check again.`` (``1 problem`` for one), writes nothing and exits 1. A system
    the mapping names and no given export carries is one such line,
    ``models.<system>: <system> is no exported system``. A mapping with the
    wrong structure, or a profile that does not resolve, prints a one-line
    failure with its cause and exits 1. Before it reads an export, the import runs one step that every format runs.
    Hand-written records of a kind the format writes print
-   ``import mml: data/facility/ holds hand-written <kinds> records, which this
+   ``import mml: facility/ holds hand-written <kinds> records, which this
    import writes:``, each file, and a remedy, then exit 1 with nothing changed.
    A facility that already holds an imported layer is not refused: records
    written by hand beside a layer stay.
@@ -1375,7 +1387,7 @@ The operator screens drawn from the built facility are written by
 
 ``osprey facility import list FILE [--repo DIRECTORY]``
    Write a CSV channel list as the list layer's sources,
-   ``data/facility/imported/list/channels.yaml``, one channel record per row.
+   ``facility/imported/list/channels.yaml``, one channel record per row.
    It runs the same step as the mml import under the prefix ``import list:``,
    refuses only hand-written channel and device records, and seeds the knowledge
    stub. ``FILE`` is UTF-8 CSV whose header row names
@@ -1386,7 +1398,7 @@ The operator screens drawn from the built facility are written by
    whose first row names no ``address`` column holds one address per line.
    ``s`` and ``model`` are the position of the row's device: for each device a
    row names, the import writes ``id``, ``s`` where stated and ``model`` when
-   stated, to ``data/facility/imported/list/devices.yaml``, and no other
+   stated, to ``facility/imported/list/devices.yaml``, and no other
    device field, so the device merges with one another source declares, or is
    created holding only its id and position. A list naming no device leaves
    no ``devices.yaml``. ``osprey build`` places a device with an ``s`` by the
@@ -1406,7 +1418,7 @@ The operator screens drawn from the built facility are written by
 
 ``osprey facility import relations TABLE --layer NAME [--names FILE] [--places FILE] [--members FILE] [--stub-unknown] [--repo DIRECTORY]``
    Write relation tables as the sources of the layer ``NAME`` under
-   ``data/facility/imported/<NAME>/``. ``TABLE`` holds the claims;
+   ``facility/imported/<NAME>/``. ``TABLE`` holds the claims;
    ``--names``, ``--places`` and ``--members`` name the three optional tables
    the claims lean on. The tables and their columns are in
    :ref:`how-to-describe-your-facility-relations`. A device end the facility
@@ -1429,7 +1441,7 @@ osprey sim
 ==========
 
 List, inspect and apply the scenarios of a simulated deployment. The scenarios
-are authored under ``data/facility/scenarios/`` and served from the simulator
+are authored under ``facility/simulation/scenarios/`` and served from the simulator
 view the build writes under ``build/data/simulator/``; a repo with no build, or
 a build with no simulator view, exits 1 with ``run 'osprey build' first``.
 ``osprey sim`` alone prints its help, naming the three verbs. All three verbs
@@ -1604,7 +1616,7 @@ database that refuses the connection fails at once.
 
    osprey ariel quickstart
    osprey ariel search "RF cavity fault"
-   osprey ariel vocab-check data/facility/ariel/vocabulary.yml
+   osprey ariel vocab-check facility/ariel/vocabulary.yml
 
 osprey web
 ==========
@@ -1749,18 +1761,18 @@ All subcommands accept a common flag:
 ``osprey scaffold ci [--force]``
    Emit this repository's CI pipeline and health check from the profile's
    ``deploy:`` block: the pipeline at the repository root and the post-deploy
-   health check at ``scripts/verify.sh``. Run it again whenever the block
+   health check at ``ops/scripts/verify.sh``. Run it again whenever the block
    changes. Re-running is safe — a file whose content already matches is left
    untouched, stamp included, so an OSPREY upgrade alone produces no diff. A
    file the scaffolder did not write is reported and left alone unless
-   ``--force`` is given. ``ci-extra.yml`` is never touched: it is yours, and the
+   ``--force`` is given. ``ops/ci-extra.yml`` is never touched: it is yours, and the
    pipeline includes it. The health check exits 0 unless run with ``--strict``,
    which exits 1 when a container or a probe is flagged.
 
 ``osprey scaffold systemd [--force]``
    Emit the files that start this deployment at boot: a systemd user unit,
-   ``osprey.service`` at the repository root, and a boot hook,
-   ``scripts/osprey-boot-hook.sh``, plus the commands to install the unit. The unit runs
+   ``ops/osprey.service``, and a boot hook, ``ops/scripts/osprey-boot-hook.sh``,
+   plus the commands to install the unit. The unit runs
    ``osprey up -d`` from this repository and ``osprey down`` on stop, with both
    the repository and the ``osprey`` program written in as full paths — systemd
    starts a unit with no working directory and a short ``PATH``. Run it on the
@@ -1786,7 +1798,7 @@ All subcommands accept a common flag:
 ``osprey scaffold pull PRESET[:PATH] [--list] [--force] [--with-content] [--repo DIRECTORY]``
    Copy a preset's packaged content into this repo, each file at the same path,
    for you to edit and commit: ``demo`` copies the whole app
-   template, ``demo:data/facility/knowledge`` one subtree of it.
+   template, ``demo:facility/knowledge`` one subtree of it.
    ``--list`` prints every path the preset offers and copies nothing. The
    knowledge base arrives as its ``index.md`` files alone, rebuilt from what
    landed; ``--with-content`` brings its documents too. A file that is already

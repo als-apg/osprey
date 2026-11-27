@@ -391,10 +391,7 @@ def _replaced(verb: str, name: str, count: int) -> str:
 
 
 def _refused_first_line(verb: str, kinds: str) -> str:
-    return (
-        f"import {verb}: data/facility/ holds hand-written {kinds} records, "
-        "which this import writes:"
-    )
+    return f"import {verb}: facility/ holds hand-written {kinds} records, which this import writes:"
 
 
 class TestCommand:
@@ -409,11 +406,11 @@ class TestCommand:
 
         assert result.exit_code == 0, result.output
         assert result.stdout == (
-            "wrote data/facility/knowledge/index.md\n"
+            "wrote facility/knowledge/index.md\n"
             f"{KNOWLEDGE_PLACEHOLDER_LINE}\n"
-            f"wrote data/facility/{LAYER_DIR}/channels.yaml\n"
+            f"wrote facility/{LAYER_DIR}/channels.yaml\n"
         )
-        assert _channels(repo / "data" / "facility") == [{"id": "LAB:TEMP:01"}]
+        assert _channels(repo / "facility") == [{"id": "LAB:TEMP:01"}]
 
     def test_a_list_naming_devices_and_no_s_validates(self, tmp_path: Path) -> None:
         from osprey.cli.main import cli
@@ -432,8 +429,8 @@ class TestCommand:
 
         assert imported.exit_code == 0, imported.output
         assert imported.stdout.splitlines()[-2:] == [
-            f"wrote data/facility/{LAYER_DIR}/channels.yaml",
-            f"wrote data/facility/{LAYER_DIR}/devices.yaml",
+            f"wrote facility/{LAYER_DIR}/channels.yaml",
+            f"wrote facility/{LAYER_DIR}/devices.yaml",
         ]
         assert "reference-missing" not in validated.stderr
         assert validated.exit_code == 0, validated.output
@@ -445,7 +442,7 @@ class TestCommand:
         from tests._builds import init_project
 
         repo = init_project(tmp_path, "hello-world", "demo")
-        facility = repo / "data" / "facility"
+        facility = repo / "facility"
         count = sum(1 for path in facility.rglob("*") if path.is_file())
         listing = _csv(tmp_path, "address\nLAB:TEMP:01\n")
 
@@ -460,7 +457,7 @@ class TestCommand:
         from tests._builds import init_project
 
         repo = init_project(tmp_path, "hello-world", "demo")
-        channels = repo / "data" / "facility" / "records" / "channels.yaml"
+        channels = repo / "facility" / "records" / "channels.yaml"
         channels.write_text(
             channels.read_text(encoding="utf-8").split("\n", 1)[1], encoding="utf-8"
         )
@@ -471,16 +468,16 @@ class TestCommand:
         assert result.exit_code == 1
         lines = result.stderr.splitlines()
         assert lines[0] == _refused_first_line("list", "channel")
-        assert lines[1] == "data/facility/records/channels.yaml"
-        assert lines[2].startswith("move corrections into fixes.yaml")
-        assert not (repo / "data" / "facility" / LAYER_DIR).exists()
+        assert lines[1] == "facility/records/channels.yaml"
+        assert lines[2].startswith("move corrections into provenance/fixes.yaml")
+        assert not (repo / "facility" / LAYER_DIR).exists()
 
     def test_import_list_prints_each_refusal_and_exits_1(self, tmp_path: Path) -> None:
         from osprey.cli.main import cli
         from tests._builds import init_project
 
         repo = init_project(tmp_path, "hello-world", "demo")
-        facility = repo / "data" / "facility"
+        facility = repo / "facility"
         count = sum(1 for path in facility.rglob("*") if path.is_file())
         listing = _csv(tmp_path, "address,device,place\nQ1:SP,SR/Q1,SR\n", name="two.csv")
 

@@ -27,19 +27,19 @@ from .profile_root import ProfileKind
 
 _PRESETS_PACKAGE = "osprey.profiles.presets"
 
-#: The preset-side key naming the data bundle a preset's ``data/`` tree comes
-#: from (``templates/apps/<bundle>/``). Preset-side ONLY: it is not a profile
+#: The preset-side key naming the data bundle a preset's ``web/`` and ``agent/``
+#: content comes from (``templates/apps/<bundle>/``). Preset-side ONLY: it is not a profile
 #: key, so :func:`_load_preset_raw` consumes it the way ``extends:`` is
 #: consumed and a repo ``profile.yml`` spelling it is refused by
 #: :func:`~osprey.cli.build_profile_load._reject_unknown_keys`. What a
-#: deployment builds is stated by its own ``config:`` block and its ``data:``
+#: deployment builds is stated by its own ``config:`` block and its source
 #: tree; the bundle name only says which packaged tree ``osprey init`` copied.
 PRESET_DATA_BUNDLE_KEY = "app_template"
 
 #: The bundle used when no preset is in play, or when the preset names none.
 DEFAULT_DATA_BUNDLE = "demo"
 
-#: The preset-side key naming the bundled facility a preset's ``data/facility/``
+#: The preset-side key naming the bundled facility a preset's ``facility/``
 #: tree comes from (``templates/facilities/<name>/``). Preset-side ONLY, handled
 #: exactly like :data:`PRESET_DATA_BUNDLE_KEY`: :func:`_load_preset_raw`
 #: consumes it, and a repo ``profile.yml`` spelling it is refused. A facility is
@@ -89,8 +89,8 @@ def is_bundled_preset_dir(path: Path) -> bool:
     The question a caller holding a resolved profile's directory asks to find
     out whether it is looking at a bundled preset rather than at a facility's
     own profile — a bundled preset has no profile directory of its own, so the
-    rules anchored on one (the ``data:`` requirement above all) do not apply to
-    it.
+    rules anchored on one (the source tree beside ``profile.yml`` above all) do
+    not apply to it.
 
     It lives here, beside :func:`_presets_dir`, so the directory is read in one
     place. A caller that imported ``_presets_dir`` by name and compared for

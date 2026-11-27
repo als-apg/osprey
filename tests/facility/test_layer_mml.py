@@ -132,7 +132,7 @@ def _by(rows: list[dict[str, Any]], key: str = "id") -> dict[str, dict[str, Any]
 
 @pytest.fixture(scope="module")
 def small(tmp_path_factory: pytest.TempPathFactory) -> Path:
-    facility = tmp_path_factory.mktemp("small") / "data" / "facility"
+    facility = tmp_path_factory.mktemp("small") / "facility"
     write_records(Exports(ao=_export()), parse_mapping(_document()), facility)
     return facility
 
@@ -179,14 +179,14 @@ def test_a_null_direction_has_no_role() -> None:
 def test_a_null_direction_writes_no_record(tmp_path: Path) -> None:
     document = _document()
     document["directions"]["Q.Trim"] = _direction(None)
-    facility = tmp_path / "data" / "facility"
+    facility = tmp_path / "facility"
     with pytest.raises(ImportStop, match="mapping-undecided: directions.Q.Trim.direction"):
         write_records(Exports(ao=_export()), parse_mapping(document), facility)
     assert not facility.exists()
 
 
 def test_a_null_direction_stops_the_import_of_a_fixture_tree(tmp_path: Path) -> None:
-    facility = tmp_path / "data" / "facility"
+    facility = tmp_path / "facility"
     target = facility / MAPPING_FILE
     target.parent.mkdir(parents=True)
     document = yaml.safe_load((FIXTURES / "spear3" / MAPPING_FILE).read_text(encoding="utf-8"))
@@ -351,7 +351,7 @@ def test_an_imported_model_merges_per_field_with_an_authored_one(
     (imported,) = _rows(facility, "models.yaml")
     settings = {"pyat": {"solve": "closed_orbit"}}
     authored = [{"name": "StorageRing", "settings": settings}]
-    (facility / "models.yaml").write_text(yaml.safe_dump(authored), encoding="utf-8")
+    (facility / "simulation" / "models.yaml").write_text(yaml.safe_dump(authored), encoding="utf-8")
 
     result = _combined(facility)
 
@@ -370,7 +370,7 @@ def test_a_field_both_layers_state_alike_merges(spear3: Path, tmp_path: Path) ->
     facility = tmp_path / "facility"
     shutil.copytree(spear3, facility)
     authored = [{"name": "StorageRing", "engine": "pyat"}]
-    (facility / "models.yaml").write_text(yaml.safe_dump(authored), encoding="utf-8")
+    (facility / "simulation" / "models.yaml").write_text(yaml.safe_dump(authored), encoding="utf-8")
     assert [error.format_message() for error in _combined(facility).errors] == []
 
 
@@ -381,14 +381,15 @@ def test_settings_the_two_layers_state_in_part_conflict_whole(tmp_path: Path) ->
     layer = tmp_path / LAYER_DIR
     layer.mkdir(parents=True)
     (layer / "models.yaml").write_text(yaml.safe_dump(imported), encoding="utf-8")
-    (tmp_path / "models.yaml").write_text(yaml.safe_dump(authored), encoding="utf-8")
+    (tmp_path / "simulation").mkdir()
+    (tmp_path / "simulation" / "models.yaml").write_text(yaml.safe_dump(authored), encoding="utf-8")
 
     (error,) = _combined(tmp_path).errors
 
     assert (error.kind, error.record_kind, error.record_id) == ("layer-conflict", "model", "line")
     assert error.detail.startswith("`settings` differs:")
     assert "authored=" in error.detail and "mml=" in error.detail
-    assert set(error.sources) == {"models.yaml", "imported/mml/models.yaml"}
+    assert set(error.sources) == {"simulation/models.yaml", "imported/mml/models.yaml"}
 
 
 def test_the_imported_transfer_line_conflicts_with_authored_twiss(
@@ -399,7 +400,7 @@ def test_the_imported_transfer_line_conflicts_with_authored_twiss(
     imported = _by(_rows(facility, "models.yaml"), "name")["LTB"]
     assert imported["settings"]["pyat"]["solve"] == "single_pass"
     authored = [{"name": "LTB", "settings": {"pyat": {"twiss_in": {"beta": [1.0, 1.0]}}}}]
-    (facility / "models.yaml").write_text(yaml.safe_dump(authored), encoding="utf-8")
+    (facility / "simulation" / "models.yaml").write_text(yaml.safe_dump(authored), encoding="utf-8")
 
     (error,) = _combined(facility).errors
 
@@ -411,7 +412,7 @@ def test_an_exported_family_the_mapping_leaves_out_writes_no_record(tmp_path: Pa
     document = _document()
     del document["families"]["S"]
     del document["directions"]["S.Setpoint"]
-    facility = tmp_path / "data" / "facility"
+    facility = tmp_path / "facility"
     with pytest.raises(MappingProblems, match="families: leaves out the exported family S"):
         write_records(Exports(ao=_export()), parse_mapping(document), facility)
     assert not facility.exists()

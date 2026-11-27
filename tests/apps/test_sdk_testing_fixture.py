@@ -378,6 +378,30 @@ def test_the_facility_is_the_tree_the_caller_hands_in(tmp_path: Path, app_source
     assert "EXTRA:RB" in {c["id"] for c in rendered.facility["channels"]}
 
 
+def test_the_sdk_trees_lay_their_files_where_the_facility_tree_declares_them() -> None:
+    from osprey.apps.sdk.testing import deck_tree, measured_tree, model, with_correctors, with_rf
+    from osprey_facility import source_tree
+
+    models = source_tree.path("models")
+    decks = source_tree.path("decks")
+    deck = deck_tree()
+    measured = with_correctors(with_rf(measured_tree()))
+
+    for tree in (deck, measured):
+        assert {f"{decks}/sr.json", f"{decks}/line.json", models} <= set(tree)
+        assert {record["name"]: record["deck"] for record in tree[models]} == {
+            "SR": f"{decks}/sr.json",
+            "LINE": f"{decks}/line.json",
+        }
+    assert model(deck, "SR") is deck[models][0]
+    sr_measurement = measured[source_tree.keyed_file("measurement", "SR")]
+    assert sr_measurement["instruments"]["rf"] == "RF:SP"
+    assert sr_measurement["groups"]["hcor"] == "SR/HCM"
+    assert source_tree.keyed_file("measurement", "LINE") in measured
+    sr_wiring = {row["address"] for row in model(measured, "SR")["wiring"]}
+    assert {"RF:SP", "SCOR:H:SP", "SCOR:V:SP"} <= sr_wiring
+
+
 def test_a_failed_build_names_what_the_build_said(tmp_path: Path, app_source: Path) -> None:
     deployment = _deployment(tmp_path, app_source, logins={"operator": "sometimes"})
 

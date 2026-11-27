@@ -99,7 +99,11 @@ def _save_deck(path: Path) -> None:
 def _model(
     name: str, engine: str, wiring: list[dict[str, Any]], inputs: list[Any] | None
 ) -> dict[str, Any]:
-    model: dict[str, Any] = {"name": name, "engine": engine, "deck": f"decks/{name}.json"}
+    model: dict[str, Any] = {
+        "name": name,
+        "engine": engine,
+        "deck": f"simulation/decks/{name}.json",
+    }
     model["wiring"] = wiring
     if inputs is not None:
         model["inputs"] = inputs
@@ -131,7 +135,7 @@ def _files(
         [{"address": "DOWN:X", "element": "BPM1", "engine": reading}],
         down_inputs,
     )
-    return {"records/channels.yaml": channels, "models.yaml": [up, down]}
+    return {"records/channels.yaml": channels, "simulation/models.yaml": [up, down]}
 
 
 def _run(tmp_path: Path, files: dict[str, Any]) -> StageReport:
@@ -140,7 +144,7 @@ def _run(tmp_path: Path, files: dict[str, Any]) -> StageReport:
         path = root / rel
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(yaml.safe_dump(data, sort_keys=False), encoding="utf-8")
-    for model in files["models.yaml"]:
+    for model in files["simulation/models.yaml"]:
         _save_deck(root / model["deck"])
     return run_stages(root, project_name="p", later=LATER_STAGES, extra_checks=FRAMEWORK_CHECKS)
 

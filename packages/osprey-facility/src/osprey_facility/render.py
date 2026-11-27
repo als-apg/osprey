@@ -62,7 +62,7 @@ _serialised: _Serialised | None = None
 def facility_digest(facility_dir: Path, *, content_dir: Path | None = None) -> str:
     """Hash a deployment's facility facts: every file's relative path and bytes.
 
-    A single tree hashes every file of ``data/facility``. A mounted deployment
+    A single tree hashes every file of ``facility``. A mounted deployment
     hashes the machine entries of its machine root (:func:`is_machine_entry`)
     and the content directories of its content root
     (:data:`DEPLOYMENT_CONTENT_DIRS`), each keyed by its path relative to its
@@ -70,7 +70,7 @@ def facility_digest(facility_dir: Path, *, content_dir: Path | None = None) -> s
     so a clone's history moves no digest.
 
     Args:
-        facility_dir: The machine root, the ``data/facility`` directory of a
+        facility_dir: The machine root, the ``facility`` directory of a
             single tree; a missing one hashes as an empty tree.
         content_dir: The content root when mounted; ``None``, or the same
             directory, is a single tree.

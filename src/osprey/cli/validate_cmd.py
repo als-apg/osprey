@@ -1,7 +1,7 @@
 """The ``osprey validate`` verb — check a deployment's source without building.
 
 Validation is the cheap half of a build: resolve the ``extends:`` chain, check
-the convention directories, the ``data:`` tree, service templates, lifecycle
+the convention directories, the facility tree, service templates, lifecycle
 steps and env vars, then lint the web stack against the config a build would
 render. Nothing is written and nothing is started, which is what makes this the
 verb a CI pipeline runs first and an operator runs after every profile edit.
@@ -120,7 +120,14 @@ def check_profile_file(profile_file: Path) -> None:
         click.UsageError: With every accumulated problem, so the caller exits 2.
         FacilityBuildError: When ``machine:`` names no usable machine root, the
             same stop ``osprey build`` raises.
+        RetiredRootRefused: When the deployment the file belongs to holds
+            anything at a retired root path, the same stop ``osprey build``
+            raises, before the profile is read.
+        RetiredLayoutRefused: When the facility tree holds a source at a
+            retired path, the same stop ``osprey build`` raises.
     """
+    from osprey.repo_retired import refuse_retired_layout
+
     from .build_profile import resolve_build_profile
     from .build_profile_canopy import profile_home_screen_errors, repo_home_screen_errors
     from .build_profile_deploy import (
@@ -139,13 +146,23 @@ def check_profile_file(profile_file: Path) -> None:
     if layer_refusal is not None:
         raise click.UsageError(layer_refusal)
 
+    try:
+        root_dir, kind = resolve_profile_root(profile_file)
+    except BuildProfileError as e:
+        raise click.UsageError(str(e)) from e
+    # The file belongs to a deployment when its profile root holds the
+    # deployment's profile; a deployment holding anything at a retired path
+    # stops here, before any of its profiles is read.
+    deployment = (root_dir / PROFILE_FILENAME).is_file()
+    if deployment:
+        refuse_retired_layout(root_dir)
+
     variant = VariantSelection(name=None, path=None)
     try:
         # Only a deployment has a host variant, and it overlays the deployment's
         # profile.yml: a login file named directly is judged over the root its
         # render merges over, so the setting is read off that root, never off
         # the `tiers/` or `apps/` directory.
-        root_dir, kind = resolve_profile_root(profile_file)
         if kind.is_layer or profile_file.name == PROFILE_FILENAME:
             variant = resolve_variant_selection(root_dir)
         _reject_unknown_layer_keys(profile_file)
@@ -159,9 +176,16 @@ def check_profile_file(profile_file: Path) -> None:
         raise click.UsageError(str(e)) from e
 
     # Where the deployment reads its facility, checked exactly as the build
-    # checks it: a `machine:` naming an empty submodule or overlapping `data:`
-    # stops here with the same facility stop the build would raise.
-    build_profile.resolved_facility_roots(profile_dir)
+    # checks it: a `machine:` naming an empty submodule or overlapping the
+    # facility tree, or a facility tree holding sources at retired paths, stops
+    # here with the same facility stop the build would raise.
+    facility_roots = build_profile.resolved_facility_roots(profile_dir)
+    if deployment:
+        refuse_retired_layout(root_dir, facility_roots)
+    else:
+        from osprey_facility.retired import refuse_retired
+
+        refuse_retired(facility_roots.machine, facility_roots.content)
 
     # The multi-user web stack the profile declares, judged on the config the
     # build would render — the `config:` block with the `deploy:` block's
@@ -198,7 +222,7 @@ def check_profile_file(profile_file: Path) -> None:
     ]
     # The CANOPY home screen, as `osprey build` judges it: a repo's profile
     # together with every login file the build renders, a file named
-    # directly on its own, against the library under the profile's data root.
+    # directly on its own, against the library under the deployment's `web/`.
     try:
         if profile_file.name == PROFILE_FILENAME:
             web_errors.extend(repo_home_screen_errors(build_profile, profile_root, overlays))

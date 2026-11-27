@@ -92,7 +92,7 @@ def test_a_malformed_section_warns_and_renders_every_key_false(
 
 
 def _card_keys(config: dict[str, Any], delta: dict[str, Any] | None = None) -> dict[str, bool]:
-    profile = _parse_profile({"name": "x", "data": "data", "config": config})
+    profile = _parse_profile({"name": "x", "config": config})
     ctx = _registry_context(profile, _render_config(profile, delta))
     return {key: ctx[key] for key in PREDICATES}
 

@@ -6,8 +6,8 @@ Import a MATLAB Middle Layer export
 
 ``osprey facility import mml`` reads a MATLAB Middle Layer (MML) export and
 writes it as sources of your facility description, under
-``data/facility/imported/mml/``. ``osprey build`` merges those sources with
-everything else under ``data/facility/``; the import itself builds nothing.
+``facility/imported/mml/``. ``osprey build`` merges those sources with
+everything else under ``facility/``; the import itself builds nothing.
 
 Export from MATLAB
 ==================
@@ -110,7 +110,7 @@ Run the import
    osprey facility import mml mymachine.storagering.ao.json mymachine.booster.ao.json
 
 The first run finds no mapping, writes a draft to
-``data/facility/imported/mml/mapping.yaml`` and stops with
+``facility/imported/mml/mapping.yaml`` and stops with
 ``import mml: mapping-draft``. No record is written. Review the draft, then
 run the same command again.
 
@@ -200,9 +200,9 @@ The optional top-level ``branches:`` block declares classes the shared
 vocabulary lacks, each as ``<class>: {parent, description}``. A family whose
 ``class`` is neither a vocabulary class nor a declared branch names the class
 it extends as its ``branch``. The import writes each class the vocabulary
-lacks to ``classes.yaml``.
+lacks to ``vocabulary/classes.yaml``.
 
-The ``facility:`` block seeds ``data/facility/identity.yaml`` on the first
+The ``facility:`` block seeds ``facility/identity.yaml`` on the first
 import and is then removed from the mapping.
 
 A mapping that disagrees with the exports prints one ``<key>: <message>`` line
@@ -212,10 +212,10 @@ What the import writes
 ======================
 
 A clean run prints one ``wrote <path>`` line per file. The record files under
-``data/facility/imported/mml/`` are rewritten by every import; ``mapping.yaml``
+``facility/imported/mml/`` are rewritten by every import; ``mapping.yaml``
 is yours and is only drafted when absent. The authored files beside them ---
-``limits.yaml``, ``seeds.yaml``, ``identity.yaml``,
-``measurement/<model>.yaml`` and ``scenarios/readout.yaml`` --- are created
+``limits.yaml``, ``simulation/seeds.yaml``, ``identity.yaml``,
+``simulation/measurement/<model>.yaml`` and ``simulation/scenarios/readout.yaml`` --- are created
 only when absent and never rewritten, so your edits to them survive a
 re-import. Beside an existing ``limits.yaml`` the import prints a
 ``limits differ: <address> file [..] export [..]`` line for each record whose
@@ -224,9 +224,9 @@ counting the setpoints the export bands that the file has no record for,
 followed by the first ten with their band; it writes none of them. A
 ``Range`` given as one row per device whose row count is not the family's
 device count gives no band, and the import prints one ``limits table
-skipped:`` line for that field. ``classes.yaml`` is created when absent; when it exists, the import
+skipped:`` line for that field. ``vocabulary/classes.yaml`` is created when absent; when it exists, the import
 appends only the classes it lacks and leaves its rows as written.
-``measurement/<model>.yaml`` names, as ``quad`` and ``sext``, the families the
+``simulation/measurement/<model>.yaml`` names, as ``quad`` and ``sext``, the families the
 export tags as tune and chromaticity correctors, and lists every kind those
 groups and instruments allow; the import names the wired families it left out.
 
@@ -334,7 +334,7 @@ whose conversion curves the pass cut, and
 whose supplies feed several devices. Both go to stdout and never stop the
 import.
 
-Before it reads an export, the import looks at ``data/facility/``:
+Before it reads an export, the import looks at ``facility/``:
 
 * Hand-written records of a kind this format writes refuse the import, which
   names each file, changes nothing and exits 1. The mml format writes channel,
@@ -345,7 +345,7 @@ Before it reads an export, the import looks at ``data/facility/``:
   ``# Seeded once by the facility import; edit this file by hand.``
   A file that opens with the retired header is read as seeded, and the import
   prints one warning that lists each such file and the line to set.
-  Corrections belong in ``fixes.yaml``.
+  Corrections belong in ``provenance/fixes.yaml``.
 * Once the facility holds an imported layer, records written by hand beside it
   stay and stop no import. They are the facility's own additions, such as a
   model no export states, and the build combines them with the layers.
@@ -353,7 +353,7 @@ Before it reads an export, the import looks at ``data/facility/``:
   ``import mml: replaced the bundled example facility (<n> files)``. The line
   prints before the export is read, so a stop that follows it, such as a mapping
   draft, comes after the replacement.
-* Everything else of your own stays, such as ``fixes.yaml``, your knowledge pages
+* Everything else of your own stays, such as ``provenance/fixes.yaml``, your knowledge pages
   and hand-written records of other kinds.
 
 The import regenerates the knowledge indexes, so your kept pages are listed, and

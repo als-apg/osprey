@@ -43,16 +43,28 @@ from functools import lru_cache
 from pathlib import Path, PurePosixPath
 from typing import TYPE_CHECKING, Any
 
-from osprey.profiles.providers import PROVIDERS_FILENAME
+from osprey.repo_layout import (
+    RootEntry,
+    Zone,
+    convention_rows,
+    display_path,
+    non_convention_source_rows,
+    paths,
+    render_path,
+    retired_paths,
+    rows_in_zone,
+    top_level_names,
+    zoned_rows,
+)
+from osprey.repo_layout import (
+    entry as root_entry,
+)
 
 # Free at module level: ``osprey_connectors.logger`` above already pulls
 # ``osprey_connectors.config`` into this module's import closure, so naming it
 # here adds no load time to the CLI's lazy-command budget. Imported rather than
 # restated — see :data:`PROTECTED_CONFIG_KEYS`.
 from osprey.utils.workspace import (
-    APPS_DIRNAME,
-    LAYER_DIRNAMES,
-    PRESET_TRACKING_DIRNAME,
     PROTECTED_PATHS_CONFIG_KEY,
     RUNTIME_WRITE_PATH_KEYS,
     STATE_DIR_NAME,
@@ -60,6 +72,7 @@ from osprey.utils.workspace import (
 from osprey_connectors.errors import BuildProfileError
 from osprey_connectors.logger import get_logger
 from osprey_connectors.workspace import BUILD_DIR_NAME
+from osprey_facility import source_tree
 
 if TYPE_CHECKING:
     from osprey_facility.errors import FacilityBuildError
@@ -96,20 +109,30 @@ class EntryShape(Enum):
 class ConventionDir:
     """One row of the profile → project mapping table.
 
+    Three names stand for the row, and each use takes the one that matches what
+    it means. :attr:`key` is its identity: profile list prefixes, ``exclude:``
+    fields, artifact and ownership names, copy categories, lookups, and hash
+    labels. :attr:`source` is its location, joined to the profile root to read
+    it. A message that names a file on disk spells it with
+    :func:`osprey.repo_layout.display_path`. The key never changes when the
+    entry moves; the location and the display follow it.
+
     Attributes:
-        source: Directory name at the profile root.
+        key: The convention's identity, the ``key`` of its deployment-root row.
+        source: Directory at the profile root, relative to it: the row's path.
         destination: Project-relative destination prefix; empty for the
             ``project/`` mirror, which lands on the project root itself.
         shape: How entries below ``source`` map into ``destination``.
         entry_noun: What one entry *is*, for error messages ("skill", "service").
-        description: Human-readable purpose, for docs and error messages.
+        description: Human-readable purpose, for docs and error messages: the
+            row's :attr:`~osprey.repo_layout.RootEntry.purpose`.
         per_user: Entries are web-terminal users resolved from the build's
             roster rather than free-form names, so the build seeds missing ones
             and skips departed ones (see :func:`partition_context_users`).
         list_field: The profile list field that selects this directory's
             entries, or ``None``. An entry of a directory that has one renders
-            only where the render's resolved list names it by its path
-            (``skills/beam-check``, ``output-styles/terse``); a bare entry in
+            only where the render's resolved list names it by its key-prefixed
+            name (``skills/beam-check``, ``output-styles/terse``); a bare entry in
             the same list always means a library artifact. A hook is the one
             exception: a list names ``hooks/<file>`` only to replace an OSPREY
             hook, and any other hook file renders wherever a
@@ -118,6 +141,7 @@ class ConventionDir:
             wholesale into every render.
     """
 
+    key: str
     source: str
     destination: str
     shape: EntryShape
@@ -127,93 +151,90 @@ class ConventionDir:
     list_field: str | None = None
 
 
-CONVENTION_DIRS: tuple[ConventionDir, ...] = (
-    ConventionDir(
-        source="rules",
-        destination=".claude/rules",
-        shape=EntryShape.MARKDOWN,
-        entry_noun="rule",
-        description="Agent behavior rules",
-        list_field="rules",
-    ),
-    ConventionDir(
-        source="skills",
-        destination=".claude/skills",
-        shape=EntryShape.DIRECTORY,
-        entry_noun="skill",
-        description="Agent skills (one directory per skill)",
-        list_field="skills",
-    ),
-    ConventionDir(
-        source="agents",
-        destination=".claude/agents",
-        shape=EntryShape.MARKDOWN,
-        entry_noun="agent",
-        description="Subagent definitions",
-        list_field="agents",
-    ),
-    ConventionDir(
-        source="commands",
-        destination=".claude/commands",
-        shape=EntryShape.MARKDOWN,
-        entry_noun="command",
-        description="Slash commands",
-    ),
-    ConventionDir(
-        source="output-styles",
-        destination=".claude/output-styles",
-        shape=EntryShape.MARKDOWN,
-        entry_noun="output style",
-        description="Output styles",
-        list_field="output_styles",
-    ),
-    ConventionDir(
-        source="hooks",
-        destination=".claude/hooks",
-        shape=EntryShape.FILE,
-        entry_noun="hook",
-        description="Claude Code hook scripts",
-        list_field="hooks",
-    ),
-    ConventionDir(
-        source="web-terminal-context",
-        destination="docker/web-terminal-context",
-        shape=EntryShape.DIRECTORY,
-        entry_noun="web-terminal user",
-        description="Per-user web-terminal context (one directory per user, plus a shared base.md)",
-        per_user=True,
-    ),
-    ConventionDir(
-        source="mcp_servers",
-        destination="_mcp_servers",
-        shape=EntryShape.DIRECTORY,
-        entry_noun="MCP server",
-        description="Facility MCP server sources (one directory per server)",
-    ),
-    ConventionDir(
-        source="services",
-        destination="services",
-        shape=EntryShape.DIRECTORY,
-        entry_noun="service",
-        description="Facility-owned compose services (one directory per service)",
-    ),
-    ConventionDir(
-        source="project",
-        destination="",
-        shape=EntryShape.MIRROR,
-        entry_noun="file",
-        description="Verbatim mirror onto the project root (escape hatch)",
-    ),
-)
+@dataclass(frozen=True)
+class _ConventionRender:
+    """How the build renders one convention: every attribute its row does not carry."""
 
-_BY_SOURCE: dict[str, ConventionDir] = {c.source: c for c in CONVENTION_DIRS}
+    destination: str
+    shape: EntryShape
+    entry_noun: str
+    per_user: bool = False
+    list_field: str | None = None
+
+
+#: The render attributes of each convention, keyed by the convention's key.
+#: Where a convention sits, what it is for and the order of the table are its
+#: deployment-root row's (:func:`osprey.repo_layout.convention_rows`); this
+#: mapping says only how the build renders it.
+_CONVENTION_RENDER: dict[str, _ConventionRender] = {
+    "rules": _ConventionRender(".claude/rules", EntryShape.MARKDOWN, "rule", list_field="rules"),
+    "skills": _ConventionRender(
+        ".claude/skills", EntryShape.DIRECTORY, "skill", list_field="skills"
+    ),
+    "agents": _ConventionRender(
+        ".claude/agents", EntryShape.MARKDOWN, "agent", list_field="agents"
+    ),
+    "commands": _ConventionRender(".claude/commands", EntryShape.MARKDOWN, "command"),
+    "output-styles": _ConventionRender(
+        ".claude/output-styles", EntryShape.MARKDOWN, "output style", list_field="output_styles"
+    ),
+    "hooks": _ConventionRender(".claude/hooks", EntryShape.FILE, "hook", list_field="hooks"),
+    "web-terminal-context": _ConventionRender(
+        "docker/web-terminal-context", EntryShape.DIRECTORY, "web-terminal user", per_user=True
+    ),
+    "mcp_servers": _ConventionRender("_mcp_servers", EntryShape.DIRECTORY, "MCP server"),
+    "services": _ConventionRender("services", EntryShape.DIRECTORY, "service"),
+    "project": _ConventionRender("", EntryShape.MIRROR, "file"),
+}
+
+
+def _convention_dirs(
+    rows: Iterable[RootEntry], render: Mapping[str, _ConventionRender]
+) -> tuple[ConventionDir, ...]:
+    """The convention table: one entry per convention row, in row order.
+
+    Raises:
+        ValueError: A key is a convention row with no render attributes, or has
+            render attributes and no convention row.
+    """
+    rows = tuple(rows)
+    declared = {row.key for row in rows}
+    unrendered = sorted(declared - set(render))
+    undeclared = sorted(set(render) - declared)
+    if unrendered or undeclared:
+        raise ValueError(
+            "the convention rows and their render attributes disagree: "
+            f"rows without render attributes {unrendered}, "
+            f"render attributes without a row {undeclared}"
+        )
+    return tuple(
+        ConventionDir(
+            key=row.key,
+            source=row.path,
+            destination=render[row.key].destination,
+            shape=render[row.key].shape,
+            entry_noun=render[row.key].entry_noun,
+            description=row.purpose,
+            per_user=render[row.key].per_user,
+            list_field=render[row.key].list_field,
+        )
+        for row in rows
+    )
+
+
+#: The profile -> project mapping, one entry per convention row of the
+#: deployment root, in declaration order.
+CONVENTION_DIRS: tuple[ConventionDir, ...] = _convention_dirs(convention_rows(), _CONVENTION_RENDER)
+
+_BY_KEY: dict[str, ConventionDir] = {c.key: c for c in CONVENTION_DIRS}
 
 _PER_USER_CONVENTION: ConventionDir = next(c for c in CONVENTION_DIRS if c.per_user)
 
-#: Profile-root directory holding one subdirectory of context per web-terminal
-#: user. Public because ``osprey init`` seeds those subdirectories from
-#: the roster and must name the same directory this table maps.
-PER_USER_CONTEXT_DIRNAME: str = _PER_USER_CONVENTION.source
+#: The key of the convention holding one subdirectory of context per
+#: web-terminal user. Public because ``osprey init`` seeds those subdirectories
+#: from the roster and must name the same convention this table maps; its
+#: location is :func:`convention_source` of this key.
+PER_USER_CONTEXT_DIRNAME: str = _PER_USER_CONVENTION.key
 
 #: The one loose file the per-user convention directory accepts: the shared
 #: baseline every seeded user's ``CLAUDE.md`` starts from. It rides the same
@@ -230,7 +251,7 @@ def context_baseline_slot(root: Path) -> Path:
 
     Args:
         root: A per-user context directory — a profile's
-            ``web-terminal-context/``, the framework's template copy of it, or
+            ``agent/context/``, the framework's template copy of it, or
             an app bundle's.
 
     Returns:
@@ -247,17 +268,30 @@ def context_baseline_slot(root: Path) -> Path:
     return root / CONTEXT_BASELINE_FILENAME
 
 
-CONVENTION_SOURCES: tuple[str, ...] = tuple(c.source for c in CONVENTION_DIRS)
+#: Every convention's key, in table order.
+CONVENTION_SOURCES: tuple[str, ...] = tuple(c.key for c in CONVENTION_DIRS)
 
-#: The convention directories whose entries a render selects by name, keyed by
+#: The keys of the conventions whose entries a render selects by name, keyed by
 #: the profile list field that selects them (``output_styles`` →
 #: ``output-styles``). One list carries both spellings: a bare entry names a
-#: library artifact, a directory-prefixed one the profile's own.
+#: library artifact, a key-prefixed one the profile's own.
 SELECTED_CONVENTION_SOURCES: dict[str, str] = {
-    c.list_field: c.source for c in CONVENTION_DIRS if c.list_field is not None
+    c.list_field: c.key for c in CONVENTION_DIRS if c.list_field is not None
 }
 
+#: The key of the verbatim mirror convention; its location is
+#: :func:`convention_source` of this key.
 PROJECT_MIRROR_DIR = "project"
+
+
+def convention_source(key: str) -> str:
+    """Where the convention *key* sits, relative to the profile root.
+
+    Raises:
+        KeyError: No convention has that key.
+    """
+    return _BY_KEY[key].source
+
 
 #: The disposable output zone. Every ``osprey build`` wipes and re-renders it,
 #: so nothing durable may live there. Spelled here under this module's own name
@@ -268,106 +302,64 @@ PROJECT_MIRROR_DIR = "project"
 #: one literal and two names for it.
 BUILD_OUTPUT_DIR = BUILD_DIR_NAME
 
-# File name the resolved trigger config gets at the profile root, and the value
-# `osprey init` writes to the emitted `dispatch.triggers` key (FR-3). One
-# constant so the copy target and the emitted key cannot drift apart.
-PROFILE_TRIGGERS_FILENAME = "triggers.yml"
+#: File name the resolved trigger config gets at the profile root, and the value
+#: ``osprey init`` writes to the emitted ``dispatch.triggers`` key. One name so
+#: the copy target and the emitted key cannot drift apart.
+PROFILE_TRIGGERS_FILENAME = root_entry("triggers.yml").path
 
 #: The durable state zone (``var/agent_data`` and the record's directories) — git-ignored,
 #: never rendered, and never wiped by a build. Aliased for the same reason.
 STATE_DIR = STATE_DIR_NAME
 
-#: The boot unit ``osprey scaffold systemd`` writes beside the profile, spelled
-#: as a literal because :mod:`~osprey.cli.deploy_scaffold_templates` — which
-#: owns the name as ``SYSTEMD_UNIT_NAME`` — imports *from* this module, so
-#: importing it back would close a cycle. The two spellings are pinned to each
-#: other by a test rather than by an import.
-_SYSTEMD_UNIT_ENTRY = "osprey.service"
-
 #: The deployment repo's own root ``.dockerignore``: the repo files it names
 #: are kept out of the deployment's images when the build stages them.
-REPO_DOCKERIGNORE_FILENAME = ".dockerignore"
+REPO_DOCKERIGNORE_FILENAME = root_entry(".dockerignore").path
 
-#: SOURCE zone: tracked, user-edited. ``profile.yml`` plus the material it
-#: names, and the files a deployment's scaffolding verbs emit into the root:
-#: the CI pair (``scripts/verify.sh`` beside ``ci-extra.yml``;
-#: ``.gitlab-ci.yml`` is dot-prefixed and exempt already) and the systemd boot
-#: unit. Those are OSPREY's own output, so a build that flagged them would be
-#: warning about a file OSPREY told the operator to create.
-#: ``profiles/`` holds the host-variant overlays
-#: (:mod:`~osprey.cli.variant_selection`) — tracked like everything else here,
-#: since which hosts a deployment has is part of what the deployment is. Only
-#: the *choice* between them is host-local, and that lives in an ignored
-#: dot-file the warning never sees.
+# The zone tables below are views of the deployment-root rows
+# (:mod:`osprey.repo_layout`): a root entry is added, moved or retired there,
+# never here. Each names what an entry occupies at the root — the first segment
+# of its live path, and each retired path as declared — because the unknown-entry
+# warning judges top-level names.
+
+#: SOURCE zone, conventions aside: tracked, user-edited. ``profile.yml`` plus
+#: the material it names, and the files a deployment's scaffolding verbs emit
+#: into the root (the CI pair and the systemd boot unit). Those are OSPREY's own
+#: output, so a build that flagged them would be warning about a file OSPREY
+#: told the operator to create. A retired location of a source entry is still
+#: read as that entry, so it is listed too.
 _SOURCE_ZONE_ENTRIES: frozenset[str] = frozenset(
-    {
-        "profile.yml",
-        # The provider catalog `osprey init` writes beside the profile and the
-        # build renders into `api.providers`. Source zone like the profile
-        # itself: tracked, and the file an operator adds a gateway to.
-        PROVIDERS_FILENAME,
-        PROFILE_TRIGGERS_FILENAME,
-        "data",
-        # The login files laid over the profile, by location.
-        *LAYER_DIRNAMES,
-        # The applications, one `apps/<name>/` directory each.
-        APPS_DIRNAME,
-        "profiles",
-        "scripts",
-        # The watchdogs' instructions and references. Source zone so executed
-        # code cannot rewrite what judges it; the build copies only the enabled
-        # watchdogs' directories.
-        "watchdogs",
-        "ci-extra.yml",
-        _SYSTEMD_UNIT_ENTRY,
-        # The deployment's own list of repo files kept out of its image.
-        REPO_DOCKERIGNORE_FILENAME,
-        # The saved copy of what the presets produced (`.osprey/preset-base/`).
-        # Dot-prefixed, so the unknown-entry warning never saw it; listed
-        # because this table is also what executed code may not write, and
-        # `osprey init --revalidate` reads the saved copy to decide which
-        # source files it may rewrite.
-        PRESET_TRACKING_DIRNAME,
-    }
+    (*top_level_names(non_convention_source_rows()), *retired_paths(non_convention_source_rows()))
 )
 
 #: SECRETS zone: git-ignored, durable. Dot-prefixed, so already exempt from the
 #: warning — listed anyway so this table reads as the whole layout rather than
 #: leaving one zone to the dotfile exemption by coincidence.
-_SECRETS_ZONE_ENTRIES: frozenset[str] = frozenset({".env", ".env.example"})
+_SECRETS_ZONE_ENTRIES: frozenset[str] = frozenset(paths(rows_in_zone(Zone.SECRETS)))
 
 #: OUTPUT and STATE zones: git-ignored and generated. Both sit at the repo root
 #: the profile is read from, so the warning must not read them as typos of a
 #: convention directory — a build would otherwise flag its own output.
-_GENERATED_ZONE_ENTRIES: frozenset[str] = frozenset({BUILD_OUTPUT_DIR, STATE_DIR})
+_GENERATED_ZONE_ENTRIES: frozenset[str] = frozenset(paths(rows_in_zone(Zone.GENERATED)))
 
 #: The repo's own Claude Code files, for whoever edits the deployment repo:
 #: tracked or host-local, never rendered, and never in a container image. An
 #: image's agent runs one directory below the repo root, and Claude Code reads
 #: ``CLAUDE.md`` from every ancestor of its working directory; the render's own
 #: copies live under ``build/``.
-REPO_CLAUDE_CODE_ENTRIES: frozenset[str] = frozenset(
-    {"CLAUDE.md", "CLAUDE.local.md", ".claude", ".mcp.json"}
-)
+REPO_CLAUDE_CODE_ENTRIES: frozenset[str] = frozenset(paths(rows_in_zone(Zone.CLAUDE_CODE)))
 
 #: Repo-root entries that are neither convention directories nor typos — the
 #: four-zone layout in full, the repo's own Claude Code files, and every
-#: convention source. The repo root *is* the profile root, so a deployment's
-#: own generated zones and its developer files are entries this module has to
-#: recognize rather than warn about (SC-9).
-KNOWN_ROOT_ENTRIES: frozenset[str] = (
-    _SOURCE_ZONE_ENTRIES
-    | _SECRETS_ZONE_ENTRIES
-    | _GENERATED_ZONE_ENTRIES
-    | REPO_CLAUDE_CODE_ENTRIES
-    | frozenset(CONVENTION_SOURCES)
+#: convention source, by the name each occupies at the root. The repo root *is*
+#: the profile root, so a deployment's own generated zones and its developer
+#: files are entries this module has to recognize rather than warn about.
+KNOWN_ROOT_ENTRIES: frozenset[str] = frozenset(
+    (*top_level_names(zoned_rows()), *retired_paths(zoned_rows()))
 )
 
 #: Name prefixes exempt from the unknown-root-entry warning. Dot-prefixed
 #: entries (``.git/``, ``.DS_Store``) and ``docs/`` are exempt too — a profile
-#: is a directory someone keeps in version control and documents. What the
-#: CANOPY ``pre_build`` step puts in the repo root is exempt as well; see
-#: :func:`_root_warning_exempt_prefixes`.
+#: is a directory someone keeps in version control and documents.
 _ROOT_WARNING_EXEMPT_PREFIXES = ("README", "LICENSE")
 _ROOT_WARNING_EXEMPT_NAMES = frozenset({"docs"})
 
@@ -409,8 +401,8 @@ RESERVED_PROJECT_PATHS: tuple[ReservedPath, ...] = (
     ReservedPath("CLAUDE.md", "the profile's `claude_md_template:` key"),
     ReservedPath(
         "docker/web-terminal-context/base.md",
-        "the profile's `web-terminal-context/base.md` slot — the shared baseline "
-        "sits beside the per-user directories, not in the mirror",
+        f"the profile's `{display_path(PER_USER_CONTEXT_DIRNAME, CONTEXT_BASELINE_FILENAME)}` "
+        "slot — the shared baseline sits beside the per-user directories, not in the mirror",
     ),
 )
 
@@ -487,6 +479,15 @@ class ReservedPattern:
         )
 
 
+#: The profile tree every :data:`RESERVED_MIRROR_PATTERNS` path is authored in,
+#: as a message names it.
+FACILITY_AUTHORING_ROUTE = f"{display_path('facility')}/"
+
+#: The render's facility tree, relative to the project root: where the build
+#: lays the facility down and the runtime reads it. A render path, which does
+#: not follow :data:`FACILITY_AUTHORING_ROUTE`.
+_RENDER_FACILITY_DIR = render_path("facility")
+
 #: Project paths no agent-side writer may touch, matched by shape. These are
 #: whole classes of artifact rather than named files, which is why they cannot
 #: live in :data:`RESERVED_PROJECT_PATHS` — that table is the exact set the
@@ -504,18 +505,18 @@ class ReservedPattern:
 RESERVED_PATH_PATTERNS: tuple[ReservedPattern, ...] = (
     ReservedPattern(
         ".claude/hooks/osprey_*.py",
-        "the profile's `hooks/` convention directory — the `osprey_` hooks are the "
+        f"the profile's `{display_path('hooks')}/` convention directory — the `osprey_` hooks are the "
         "write-safety layer itself, and an agent editing one would be disarming the "
         "check that guards its own writes",
     ),
     ReservedPattern(
         ".claude/skills/**",
-        "the profile's `skills/` convention directory — a skill is instruction text "
+        f"the profile's `{display_path('skills')}/` convention directory — a skill is instruction text "
         "the agent would otherwise be rewriting for itself",
     ),
     ReservedPattern(
         ".claude/rules/**",
-        "the profile's `rules/` convention directory — a rule is instruction text "
+        f"the profile's `{display_path('rules')}/` convention directory — a rule is instruction text "
         "the agent would otherwise be rewriting for itself",
     ),
     ReservedPattern(
@@ -525,76 +526,78 @@ RESERVED_PATH_PATTERNS: tuple[ReservedPattern, ...] = (
     ),
     ReservedPattern(
         "data/channel_limits.json",
-        "the profile's `data/facility/limits.yaml`, which the build renders into it — "
+        f"the profile's `{FACILITY_AUTHORING_ROUTE}{source_tree.path('limits')}`, which the "
+        "build renders into it — "
         "this is the limits table every setpoint is checked against before it reaches "
         "the control system",
     ),
     ReservedPattern(
         "data/bluesky_devices.yml",
-        "the profile's `data/` directory — this is the device table that decides "
+        f"the profile's `{FACILITY_AUTHORING_ROUTE}` tree — this is the device table that "
+        "decides "
         "which channels a Bluesky plan may drive",
     ),
     ReservedPattern(
         "facility.json",
-        "the build, from the profile's `data/facility/` tree — this is the facility "
+        f"the build, from the profile's `{FACILITY_AUTHORING_ROUTE}` tree — this is the facility "
         "file every view and served channel is derived from",
         mirror=True,
     ),
     ReservedPattern(
-        "data/facility/**",
-        "the profile's `data/facility/` tree — the facility is authored there and the "
+        f"{_RENDER_FACILITY_DIR}/**",
+        f"the profile's `{FACILITY_AUTHORING_ROUTE}` tree — the facility is authored there and the "
         "build derives the facility file from it",
         mirror=True,
         # The knowledge bundle is prose the agent drafts; no view is derived
         # from it.
-        agent_writable=("data/facility/knowledge",),
+        agent_writable=(f"{_RENDER_FACILITY_DIR}/knowledge",),
     ),
     ReservedPattern(
         "data/simulator/**",
-        "the build, from the profile's `data/facility/` tree — the simulator view is "
+        f"the build, from the profile's `{FACILITY_AUTHORING_ROUTE}` tree — the simulator view is "
         "derived from the facility file, and a hand copy would be served in its place",
         mirror=True,
     ),
     ReservedPattern(
         "data/pyaml/**",
-        "the build, from the profile's `data/facility/` tree — the pyAML view is derived "
+        f"the build, from the profile's `{FACILITY_AUTHORING_ROUTE}` tree — the pyAML view is derived "
         "from the facility file, and a hand copy would be measured with in its place",
         mirror=True,
     ),
     ReservedPattern(
         "data/facility_facts.json",
-        "the build, from the profile's `data/facility/` tree — the facts view is derived "
+        f"the build, from the profile's `{FACILITY_AUTHORING_ROUTE}` tree — the facts view is derived "
         "from the facility file, and a hand copy would be read in its place",
         mirror=True,
     ),
     ReservedPattern(
         "data/facility_facts.md",
-        "the build, from the profile's `data/facility/` tree — the facts page is derived "
+        f"the build, from the profile's `{FACILITY_AUTHORING_ROUTE}` tree — the facts page is derived "
         "from the facility file, and a hand copy would be read in its place",
         mirror=True,
     ),
     ReservedPattern(
         "data/channel_finder/**",
-        "the build, from the profile's `data/facility/` tree — the channel-finder indexes "
+        f"the build, from the profile's `{FACILITY_AUTHORING_ROUTE}` tree — the channel-finder indexes "
         "are derived from the facility file, and a hand copy would be searched in their place",
         mirror=True,
     ),
     ReservedPattern(
         "data/graph/**",
-        "the build, from the profile's `data/facility/` tree — the graph view is derived "
+        f"the build, from the profile's `{FACILITY_AUTHORING_ROUTE}` tree — the graph view is derived "
         "from the facility file, and a hand copy would be seeded in its place",
         mirror=True,
     ),
     ReservedPattern(
         "data/channel_databases/graph.duckdb",
-        "the build, from the profile's `data/facility/` tree — the graph index is derived "
+        f"the build, from the profile's `{FACILITY_AUTHORING_ROUTE}` tree — the graph index is derived "
         "from the facility file, and a hand copy would be searched in its place",
         mirror=True,
     ),
 )
 
 
-#: Project paths the facility build writes from the profile's ``data/facility/``
+#: Project paths the facility build writes from the profile's ``facility/``
 #: tree, as globs matched like :class:`ReservedPattern` (``*`` spans path
 #: separators, both sides casefolded). A ``project/`` mirror file at one of them
 #: stops the build with a ``profile-invalid`` line
@@ -609,9 +612,6 @@ RESERVED_PATH_PATTERNS: tuple[ReservedPattern, ...] = (
 RESERVED_MIRROR_PATTERNS: tuple[str, ...] = tuple(
     reserved.pattern for reserved in RESERVED_PATH_PATTERNS if reserved.mirror
 )
-
-#: The profile tree every :data:`RESERVED_MIRROR_PATTERNS` path is authored in.
-FACILITY_AUTHORING_ROUTE = "data/facility/"
 
 
 #: Config keys no agent-side writer may set, keyed by the file that carries
@@ -711,7 +711,7 @@ class ConventionCopy:
     """One planned copy from a profile convention directory into a project.
 
     Attributes:
-        category: Convention source directory the copy came from.
+        category: The key of the convention the copy came from.
         source: Absolute path in the profile.
         destination: Project-relative posix destination path.
         is_directory: True when the whole directory is copied as a unit.
@@ -723,17 +723,18 @@ class ConventionCopy:
     is_directory: bool
 
 
-def convention_for(source_name: str) -> ConventionDir | None:
-    """Return the convention row for a profile-root directory name, if any."""
-    return _BY_SOURCE.get(source_name)
+def convention_for(key: str) -> ConventionDir | None:
+    """Return the convention row whose key is *key*, if any."""
+    return _BY_KEY.get(key)
 
 
 def destination_for(source_rel: str | PurePosixPath) -> str:
-    """Map a profile-relative convention path to its project destination.
+    """Map a convention entry, named by its key and its path inside, to its project destination.
 
     Args:
-        source_rel: Path relative to the profile root, e.g. ``rules/safety.md``
-            or ``project/docs/runbook.md``.
+        source_rel: The convention's key followed by the entry's path inside
+            the convention, e.g. ``rules/safety.md`` or
+            ``project/docs/runbook.md``.
 
     Returns:
         The project-relative posix destination (empty string for the
@@ -745,7 +746,7 @@ def destination_for(source_rel: str | PurePosixPath) -> str:
     parts = PurePosixPath(source_rel).parts
     if not parts:
         raise BuildProfileError("Empty convention path — expected a profile-relative path.")
-    convention = _BY_SOURCE.get(parts[0])
+    convention = _BY_KEY.get(parts[0])
     if convention is None:
         known = ", ".join(f"{name}/" for name in CONVENTION_SOURCES)
         raise BuildProfileError(
@@ -814,7 +815,7 @@ def reserved_path_channel(dest_rel: str) -> str | None:
     for convention in CONVENTION_DIRS:
         prefix = convention.destination
         if prefix.startswith(".claude/") and normalized.startswith(f"{prefix}/"):
-            return f"the profile's `{convention.source}/` convention directory"
+            return f"the profile's `{display_path(convention.key)}/` convention directory"
 
     if normalized in _framework_rendered_outputs():
         return FRAMEWORK_RENDER_CHANNEL
@@ -844,7 +845,7 @@ def is_reserved_write(project_rel: str) -> str | None:
     :func:`reserved_path_channel`, and the two must not be conflated:
 
     * :func:`reserved_path_channel` asks *which build channel owns this path*,
-      so that the profile's ``project/`` mirror cannot become a second writer on
+      so that the profile's ``ops/project/`` mirror cannot become a second writer on
       an artifact some convention directory already produces. It covers every
       ``.claude/`` subtree that has a channel.
     * This function asks *may a running agent rewrite this*. It is narrower
@@ -1252,14 +1253,15 @@ def convention_slot_for(dest_rel: str) -> str | None:
         dest_rel: Project-relative posix path.
 
     Returns:
-        ``hooks/custom.py`` for ``.claude/hooks/custom.py``, or ``None`` when no
+        ``agent/hooks/custom.py`` for ``.claude/hooks/custom.py``, as a message names
+        it (:func:`~osprey.repo_layout.display_path`), or ``None`` when no
         convention directory owns that destination.
     """
     normalized = PurePosixPath(dest_rel).as_posix()
     for convention in CONVENTION_DIRS:
         prefix = convention.destination
         if prefix and normalized.startswith(f"{prefix}/"):
-            return f"{convention.source}/{normalized[len(prefix) + 1 :]}"
+            return display_path(convention.key, normalized[len(prefix) + 1 :])
     return None
 
 
@@ -1350,20 +1352,20 @@ def _format_mirror_violations(violations: Sequence[tuple[str, str]]) -> str:
     reserved path gets no move advice: its reservation means no convention slot
     accepts it either, so the named channel is the only way to carry the change.
     """
+    mirror = display_path(PROJECT_MIRROR_DIR)
     lines = [
-        f"{PROJECT_MIRROR_DIR}/ mirror writes {len(violations)} build-owned "
+        f"{mirror}/ mirror writes {len(violations)} build-owned "
         f"path(s) — each already has a channel:"
     ]
     for rel, channel in violations:
-        lines.append(f"  {PROJECT_MIRROR_DIR}/{rel} → {rel} is written by {channel}")
+        lines.append(f"  {mirror}/{rel} → {rel} is written by {channel}")
         slot = None if rel in RESERVED_PATH_CHANNELS else convention_slot_for(rel)
         if slot is not None:
             lines.append(
-                f"      Move it: {PROJECT_MIRROR_DIR}/{rel} → {slot} "
-                "(both paths relative to the profile root)."
+                f"      Move it: {mirror}/{rel} → {slot} (both paths relative to the profile root)."
             )
     lines.append(
-        f"Remove them from {PROJECT_MIRROR_DIR}/ and carry the change through "
+        f"Remove them from {mirror}/ and carry the change through "
         "the named channel; the mirror is for files the build does not own."
     )
     return "\n".join(lines)
@@ -1377,11 +1379,11 @@ def facility_mirror_violation(
     Files are visited in sorted order, so the answer is the same on every run.
 
     Args:
-        mirror_dir: The profile's ``project/`` directory (missing is fine).
+        mirror_dir: The profile's ``ops/project/`` directory (missing is fine).
         authoring_route: The tree the facility is authored in, as the remedy
             names it. ``None`` names :data:`FACILITY_AUTHORING_ROUTE`; a
             deployment that mounts a machine root passes ``<machine>/``. The
-            guard itself always checks the deployment's ``project/``.
+            guard itself always checks the deployment's ``ops/project/``.
 
     Returns:
         A ``profile-invalid`` error naming the first mirror file matching
@@ -1397,7 +1399,7 @@ def facility_mirror_violation(
             continue
         from osprey_facility.errors import FacilityBuildError
 
-        mirrored = f"{PROJECT_MIRROR_DIR}/{rel}"
+        mirrored = display_path(PROJECT_MIRROR_DIR, rel)
         return FacilityBuildError(
             "profile-invalid",
             mirrored,
@@ -1405,7 +1407,7 @@ def facility_mirror_violation(
             f"remove {mirrored} and author the facility in {route}",
             record_kind="path",
             detail=(
-                f"the {PROJECT_MIRROR_DIR}/ mirror writes {rel}, which the build writes "
+                f"the {display_path(PROJECT_MIRROR_DIR)}/ mirror writes {rel}, which the build writes "
                 f"from {route}"
             ),
         )
@@ -1428,7 +1430,7 @@ def _first_restated_file(content: Path, allowed: Collection[str]) -> Path | None
 def machine_restated_violation(roots: FacilityRoots) -> FacilityBuildError | None:
     """The stop for a deployment file that restates a mounted machine's facts.
 
-    While a profile mounts a machine root, the content root (``<data>/facility``)
+    While a profile mounts a machine root, the content root (``facility/``)
     holds only :data:`~osprey_facility.roots.DEPLOYMENT_CONTENT_DIRS`; every
     other entry is a machine fact and belongs to the machine repository. Only
     files are judged: stated settings (the probe and freshness channels, ARIEL
@@ -1437,7 +1439,7 @@ def machine_restated_violation(roots: FacilityRoots) -> FacilityBuildError | Non
     :mod:`osprey.facility.settings`.
 
     Paths are shown relative to the nearest directory holding both roots, so
-    the message reads ``data/facility/records/x.yaml`` beside
+    the message reads ``facility/records/x.yaml`` beside
     ``machine/records/x.yaml``.
 
     Args:
@@ -1494,46 +1496,59 @@ def machine_restated_violation(roots: FacilityRoots) -> FacilityBuildError | Non
 
 
 def handwritten_limits_violation(
-    data_root: Path, repo_root: Path, *, machine_root: Path | None = None
+    repo_root: Path, *, machine_root: Path | None = None
 ) -> FacilityBuildError | None:
-    """The stop for a limits file the profile ships itself.
+    """The stop for a limits file the deployment ships itself.
 
-    The build writes the limits database from ``<data>/facility/limits.yaml``,
-    so a profile's own copy at a path the build writes is refused rather than
-    overwritten. The paths are checked in a fixed order and the first match is
-    returned; a render under ``build/`` is never consulted.
+    The build writes the limits database from the facility's ``limits.yaml``,
+    so a deployment file that the render would land at a path the build
+    writes is refused rather than overwritten. The candidates are every
+    source that renders there: each declared source
+    (:func:`~osprey.repo_layout.rendered_sources`) whose render holds that
+    path, then the verbatim project mirror. They are checked in a fixed order
+    and the first match is returned; a render under ``build/`` is never
+    consulted.
 
     Args:
-        data_root: The profile's resolved ``data:`` tree. The guard checks the
-            deployment's files whether or not a machine root is mounted.
-        repo_root: The repo the profile lives in.
+        repo_root: The deployment root the profile lives in.
         machine_root: The mounted machine root, when the profile names one.
             The machine repository owns ``limits.yaml`` then, so the remedy
-            names ``<machine>/limits.yaml``; ``None`` names
-            ``<data>/facility/limits.yaml`` as for a single tree.
+            names ``<machine>/limits.yaml``; ``None`` names the deployment's
+            own facility ``limits.yaml`` as for a single tree.
 
     Returns:
         A ``profile-invalid`` error naming the file found, the file the build
         writes in its place and the facility's ``limits.yaml`` as where its
-        limits go, or ``None`` when the profile ships none.
+        limits go, or ``None`` when the deployment ships none.
     """
     from osprey.facility.views.limits import LIMITS_FILE
+    from osprey.repo_layout import rendered_sources
     from osprey_facility.errors import FacilityBuildError
+
+    from .build_injectors import LIMITS_DATABASE_PATH
 
     def shown(path: Path) -> str:
         return (
             path.relative_to(repo_root).as_posix() if path.is_relative_to(repo_root) else str(path)
         )
 
-    candidates = (
-        (data_root / LIMITS_FILE, f"data/{LIMITS_FILE}"),
-        (data_root / "simulation" / LIMITS_FILE, f"data/simulation/{LIMITS_FILE}"),
-        (repo_root / PROJECT_MIRROR_DIR / "data" / LIMITS_FILE, f"data/{LIMITS_FILE}"),
-    )
+    render_dir = PurePosixPath(LIMITS_DATABASE_PATH).parent
+    written_paths = (LIMITS_DATABASE_PATH, (render_dir / "simulation" / LIMITS_FILE).as_posix())
+    candidates: list[tuple[Path, str]] = []
+    for written in written_paths:
+        for rendered in rendered_sources():
+            if written.startswith(f"{rendered.render_rel}/"):
+                rest = written[len(rendered.render_rel) + 1 :]
+                candidates.append(
+                    (repo_root.joinpath(*rendered.source_rel.split("/"), *rest.split("/")), written)
+                )
+    mirror = repo_root / convention_source(PROJECT_MIRROR_DIR)
+    candidates.extend((mirror.joinpath(*written.split("/")), written) for written in written_paths)
+    limits = source_tree.path("limits")
     if machine_root is None:
-        source = f"{shown(data_root)}/facility/limits.yaml"
+        source = f"{shown(repo_root / root_entry('facility').path)}/{limits}"
     else:
-        source = f"{shown(machine_root)}/limits.yaml"
+        source = f"{shown(machine_root)}/{limits}"
     for path, written in candidates:
         if not path.is_file():
             continue
@@ -1552,12 +1567,13 @@ def handwritten_limits_violation(
 def _validate_markdown_dir(convention: ConventionDir, root: Path) -> list[str]:
     errors: list[str] = []
     for path in _iter_files(root):
-        rel = f"{convention.source}/{path.relative_to(root).as_posix()}"
+        rel = display_path(convention.key, path.relative_to(root).as_posix())
         if path.suffix != ".md":
             errors.append(
-                f"{rel} is not a markdown file: {convention.source}/ holds one "
+                f"{rel} is not a markdown file: {display_path(convention.key)}/ holds one "
                 f".md file per {convention.entry_noun}.\n"
-                f"  Put files that are copied verbatim under {PROJECT_MIRROR_DIR}/ instead."
+                f"  Put files that are copied verbatim under {display_path(PROJECT_MIRROR_DIR)}/ "
+                "instead."
             )
     return errors
 
@@ -1580,12 +1596,12 @@ def _validate_reserved_destinations(convention: ConventionDir, root: Path) -> li
     errors: list[str] = []
     for path in _iter_files(root):
         rel = path.relative_to(root).as_posix()
-        source_rel = f"{convention.source}/{rel}"
-        channel = RESERVED_PATH_CHANNELS.get(destination_for(source_rel))
+        destination = destination_for(f"{convention.key}/{rel}")
+        channel = RESERVED_PATH_CHANNELS.get(destination)
         if channel is not None:
             errors.append(
-                f"{source_rel} is generated, not authored: it lands at "
-                f"{destination_for(source_rel)}, which is written by {channel}.\n"
+                f"{display_path(convention.key, rel)} is generated, not authored: it lands at "
+                f"{destination}, which is written by {channel}.\n"
                 f"  Remove it from the profile and change the keys named above — a "
                 f"copy here would be registered as yours and never regenerate."
             )
@@ -1606,9 +1622,10 @@ def _validate_directory_dir(convention: ConventionDir, root: Path) -> list[str]:
                 _per_user_file_error(convention, entry)
                 if convention.per_user
                 else (
-                    f"{convention.source}/{entry.name} is a file: {convention.source}/ "
+                    f"{display_path(convention.key, entry.name)} is a file: "
+                    f"{display_path(convention.key)}/ "
                     f"holds one directory per {convention.entry_noun}.\n"
-                    f"  Move it into {convention.source}/{entry.stem}/ "
+                    f"  Move it into {display_path(convention.key, entry.stem)}/ "
                     f"(the whole directory is copied as a unit)."
                 )
             )
@@ -1631,8 +1648,9 @@ def _per_user_file_error(convention: ConventionDir, entry: Path) -> str:
     which one the file wants: a loose file here is as likely to be baseline text
     under the wrong name as it is to be one user's.
     """
+    shown = display_path(convention.key)
     header = (
-        f"{convention.source}/{entry.name} is a file: {convention.source}/ holds one "
+        f"{shown}/{entry.name} is a file: {shown}/ holds one "
         f"directory per {convention.entry_noun} (plus the shared "
         f"{CONTEXT_BASELINE_FILENAME} baseline), and each one is named for a user on "
         f"the resolved roster. A directory named anything else is skipped as a user "
@@ -1641,10 +1659,10 @@ def _per_user_file_error(convention: ConventionDir, entry: Path) -> str:
     return (
         f"{header}\n"
         f"  Move it into the directory of the user it belongs to "
-        f"({convention.source}/<user>/{entry.name}), naming a user the build resolves.\n"
+        f"({shown}/<user>/{entry.name}), naming a user the build resolves.\n"
         f"  Or, if it is the text every user starts from, rename it to "
-        f"{convention.source}/{CONTEXT_BASELINE_FILENAME} — the shared baseline slot, "
-        f"the one loose file {convention.source}/ accepts."
+        f"{shown}/{CONTEXT_BASELINE_FILENAME} — the shared baseline slot, "
+        f"the one loose file {shown}/ accepts."
     )
 
 
@@ -1669,7 +1687,7 @@ def validate_convention_sources(profile_dir: Path) -> None:
             continue
         if not root.is_dir():
             errors.append(
-                f"{convention.source} is a file, but it names a profile "
+                f"{display_path(convention.key)} is a file, but it names a profile "
                 f"convention directory ({convention.description}).\n"
                 f"  Make it a directory, or rename the file."
             )
@@ -1764,10 +1782,10 @@ def plan_convention_copies(
                     # like every other convention artifact.
                     copies.append(
                         ConventionCopy(
-                            category=convention.source,
+                            category=convention.key,
                             source=baseline,
                             destination=destination_for(
-                                f"{convention.source}/{CONTEXT_BASELINE_FILENAME}"
+                                f"{convention.key}/{CONTEXT_BASELINE_FILENAME}"
                             ),
                             is_directory=False,
                         )
@@ -1779,9 +1797,9 @@ def plan_convention_copies(
                     continue
                 copies.append(
                     ConventionCopy(
-                        category=convention.source,
+                        category=convention.key,
                         source=entry,
-                        destination=destination_for(f"{convention.source}/{entry.name}"),
+                        destination=destination_for(f"{convention.key}/{entry.name}"),
                         is_directory=True,
                     )
                 )
@@ -1791,9 +1809,9 @@ def plan_convention_copies(
             rel = path.relative_to(root).as_posix()
             copies.append(
                 ConventionCopy(
-                    category=convention.source,
+                    category=convention.key,
                     source=path,
-                    destination=destination_for(f"{convention.source}/{rel}"),
+                    destination=destination_for(f"{convention.key}/{rel}"),
                     is_directory=False,
                 )
             )
@@ -1836,11 +1854,11 @@ def split_convention_selection(
         ``(library, own)``: the entries the artifact library renders, and the
         directory-prefixed selections, each in list order.
     """
-    source = SELECTED_CONVENTION_SOURCES.get(field_name)
+    key = SELECTED_CONVENTION_SOURCES.get(field_name)
     library: list[Any] = []
     own: list[str] = []
     for name in names:
-        if source is not None and isinstance(name, str) and name.startswith(f"{source}/"):
+        if key is not None and isinstance(name, str) and name.startswith(f"{key}/"):
             own.append(name)
         else:
             library.append(name)
@@ -1988,11 +2006,11 @@ def library_entry_shadow(field_name: str, entry: Any) -> str | None:
         hook name the library does not carry. Whether the file exists is the
         caller's question.
     """
-    source = SELECTED_CONVENTION_SOURCES.get(field_name)
-    if source is None or not isinstance(entry, str) or entry.startswith(f"{source}/"):
+    key = SELECTED_CONVENTION_SOURCES.get(field_name)
+    if key is None or not isinstance(entry, str) or entry.startswith(f"{key}/"):
         return None
     stem = _library_file_stem(field_name, entry)
-    return f"{source}/{stem}" if stem else None
+    return f"{key}/{stem}" if stem else None
 
 
 def library_name_for(name: str) -> str | None:
@@ -2006,8 +2024,8 @@ def library_name_for(name: str) -> str | None:
         ``writes-check`` for ``hooks/osprey_writes_check.py``), or ``None`` when
         the library carries no artifact of that name.
     """
-    source = name.partition("/")[0]
-    field_name = next((f for f, d in SELECTED_CONVENTION_SOURCES.items() if d == source), None)
+    key = name.partition("/")[0]
+    field_name = next((f for f, k in SELECTED_CONVENTION_SOURCES.items() if k == key), None)
     if field_name is None:
         return None
     from .templates.artifact_library import list_artifacts
@@ -2068,8 +2086,7 @@ def shadowed_library_entries(field_name: str, names: Iterable[Any]) -> dict[str,
         Each such bare entry to the path entry that lands on the same file
         (``{"facility": "rules/facility"}``).
     """
-    source = SELECTED_CONVENTION_SOURCES.get(field_name)
-    if source is None:
+    if field_name not in SELECTED_CONVENTION_SOURCES:
         return {}
     library, own = split_convention_selection(field_name, names)
     paths = set(own)
@@ -2095,26 +2112,26 @@ def convention_selection_errors(profile_dir: Path, lists: Mapping[str, Iterable[
         ``rules/facility``), or is a hook that replaces no OSPREY hook — a
         facility hook is wired, and so copied, by its declaration alone.
     """
-    by_source = {source: field for field, source in SELECTED_CONVENTION_SOURCES.items()}
+    field_for = {key: field for field, key in SELECTED_CONVENTION_SOURCES.items()}
     errors: list[str] = []
-    for field_name, source in SELECTED_CONVENTION_SOURCES.items():
+    for field_name, key in SELECTED_CONVENTION_SOURCES.items():
         entries = list(lists.get(field_name) or ())
         for entry in entries:
             if not isinstance(entry, str) or "/" not in entry:
                 continue
             head, _, tail = entry.partition("/")
-            if head != source:
-                if head in by_source:
+            if head != key:
+                if head in field_for:
                     errors.append(
                         f"{field_name}: {entry!r} names a {head}/ artifact. "
-                        f"List it under {by_source[head]}: instead."
+                        f"List it under {field_for[head]}: instead."
                     )
                 continue
             if not tail or tail.endswith("/") or ".." in PurePosixPath(tail).parts:
                 errors.append(f"{field_name}: {entry!r} names no artifact.")
                 continue
-            shape = _BY_SOURCE[source].shape
-            path = profile_dir / source / tail
+            shape = _BY_KEY[key].shape
+            path = profile_dir / _BY_KEY[key].source / tail
             if shape is EntryShape.MARKDOWN:
                 path = path.with_name(f"{path.name}.md")
             found = path.is_dir() if shape is EntryShape.DIRECTORY else path.is_file()
@@ -2132,7 +2149,7 @@ def convention_selection_errors(profile_dir: Path, lists: Mapping[str, Iterable[
         for bare, own in shadowed_library_entries(field_name, entries).items():
             # Two artifacts for one file: the build would render one and
             # silently overwrite it with the other.
-            shape = _BY_SOURCE[source].shape
+            shape = _BY_KEY[key].shape
             destination = destination_for(f"{own}.md" if shape is EntryShape.MARKDOWN else own)
             errors.append(
                 f"{field_name}: {bare!r} and {own!r} both render {destination}. Keep one: "
@@ -2152,40 +2169,25 @@ def unselected_convention_artifacts(profile_dir: Path, selected: Collection[str]
     Returns:
         Their names (``skills/beam-check``), sorted. Each reaches no render.
     """
-    sources = set(SELECTED_CONVENTION_SOURCES.values())
+    keys = set(SELECTED_CONVENTION_SOURCES.values())
     names = {
         ownership_name(copy.destination, is_directory=copy.is_directory)
         for copy in plan_convention_copies(profile_dir)
-        if copy.category in sources
+        if copy.category in keys
     }
     return sorted(names - set(selected))
-
-
-def _root_warning_exempt_prefixes() -> tuple[str, ...]:
-    """:data:`_ROOT_WARNING_EXEMPT_PREFIXES` plus what the CANOPY stage step writes.
-
-    The step (:mod:`osprey.integrations.canopy.stage`) puts the two wheels the
-    image installs and the payload directory in the repo root; their names are
-    read from that module so the two cannot drift.
-    """
-    from osprey.integrations.canopy import PAYLOAD_DIRNAME
-    from osprey.integrations.canopy.stage import WHEEL_PREFIXES
-
-    return (*_ROOT_WARNING_EXEMPT_PREFIXES, *WHEEL_PREFIXES, PAYLOAD_DIRNAME)
 
 
 def unknown_root_entries(profile_dir: Path, extra_known: Iterable[str] = ()) -> list[str]:
     """Return profile-root entries that are neither known nor exempt.
 
     Exempt: dot-prefixed entries, ``README*``, ``LICENSE*``, and ``docs/`` — a
-    profile is a directory someone keeps in version control and documents —
-    and the staged CANOPY payload (``canopy-*``, ``pydmconverter-*``,
-    ``canopy_payload``).
+    profile is a directory someone keeps in version control and documents.
 
     Args:
         profile_dir: The profile root directory.
         extra_known: Additional names the caller knows about (a profile whose
-            ``data:`` key or profile filename differs from the default).
+            profile filename differs from the default).
 
     Returns:
         Sorted names, each a candidate typo of a convention directory.
@@ -2197,14 +2199,14 @@ def unknown_root_entries(profile_dir: Path, extra_known: Iterable[str] = ()) -> 
         if entry.name not in known
         and not entry.name.startswith(".")
         and entry.name not in _ROOT_WARNING_EXEMPT_NAMES
-        and not entry.name.startswith(_root_warning_exempt_prefixes())
+        and not entry.name.startswith(_ROOT_WARNING_EXEMPT_PREFIXES)
     )
 
 
 def warn_unknown_root_entries(profile_dir: Path, extra_known: Iterable[str] = ()) -> list[str]:
     """Warn about unrecognized repo-root entries and return their names.
 
-    A misspelled convention directory (``rule/`` for ``rules/``) is otherwise
+    A misspelled root directory (``tier/`` for ``tiers/``) is otherwise
     silent: nothing reads it, so nothing complains, and the artifacts simply
     never reach the build.
 
@@ -2235,10 +2237,10 @@ def warn_unknown_root_entries(profile_dir: Path, extra_known: Iterable[str] = ()
             "     container image carries it as part of the repo's source.",
             len(unknown),
             ", ".join(unknown),
-            ", ".join(f"{name}/" for name in CONVENTION_SOURCES),
+            ", ".join(f"{display_path(key)}/" for key in CONVENTION_SOURCES),
             profile_dir,
             BUILD_OUTPUT_DIR,
             STATE_DIR,
-            PROJECT_MIRROR_DIR,
+            display_path(PROJECT_MIRROR_DIR),
         )
     return unknown

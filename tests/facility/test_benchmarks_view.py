@@ -1,7 +1,7 @@
 """The benchmarks view: the channel-finder benchmark query file a render carries.
 
 The facility tree ships its query sources under
-``data/facility/benchmarks/cross_paradigm/queries/``: ``in_context_queries.json``
+``facility/benchmarks/channel_finder/``: ``in_context_queries.json``
 for the in_context pipeline and ``tree_queries.json`` for every other mode. A
 render whose ``config.yml`` states ``channel_finder.benchmark.dataset_path``
 carries the source its ``channel_finder.pipeline_mode`` selects, byte-equal, at
@@ -30,9 +30,7 @@ from osprey_facility.records import FacilityRecords
 from tests._facility_file import FACILITY_V4
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-QUERIES_DIR = (
-    REPO_ROOT / "src/osprey/templates/facilities/example/benchmarks/cross_paradigm/queries"
-)
+QUERIES_DIR = REPO_ROOT / "src/osprey/templates/facilities/example/benchmarks/channel_finder"
 DATASET = "data/benchmarks/queries.json"
 
 EXPECTED_SOURCE = {
@@ -112,7 +110,7 @@ def test_a_facility_without_query_sources_is_not_wanted(tmp_path: Path) -> None:
     wanted, reason = benchmarks_wanted(_inputs(facility_dir, _config("graph")))
 
     assert not wanted
-    assert reason == f"data/facility/{QUERY_SOURCES}"
+    assert reason == f"facility/{QUERY_SOURCES}"
 
 
 def test_a_missing_mode_file_stops_before_anything_is_written(tmp_path: Path) -> None:

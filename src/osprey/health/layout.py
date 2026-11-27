@@ -39,6 +39,7 @@ from typing import Any
 
 from osprey.health.models import NOT_USED
 from osprey.health.runner import ON_DEMAND_PREFIX
+from osprey.repo_layout import entry
 
 Row = dict[str, Any]
 
@@ -450,7 +451,13 @@ RULES: tuple[Rule, ...] = (
     Rule("containers", "*_available", "container-runtime", "runtime", "exec --version"),
     Rule("containers", "container_*", "container-runtime", "{tail}", "container inspect"),
     Rule("containers", "*", "container-runtime", "{tail}", "container inspect"),
-    Rule("systemd_unit", "*", "container-runtime", "systemd unit", "file stat osprey.service"),
+    Rule(
+        "systemd_unit",
+        "*",
+        "container-runtime",
+        "systemd unit",
+        f"file stat {entry('osprey.service').path}",
+    ),
     # agent
     Rule(
         "claude_cli",

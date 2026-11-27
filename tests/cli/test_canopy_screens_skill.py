@@ -24,7 +24,7 @@ from tests._builds import BuiltProject
 from tests._facility_file import FACILITY_V4, write_facility_document, write_facility_v4
 
 ROOT = Path(__file__).resolve().parents[2]
-LIBRARY = ROOT / "src/osprey/templates/apps/demo/data/canopy/library"
+LIBRARY = ROOT / "src/osprey/templates/apps/demo/web/canopy/library"
 SKILL = Path(".claude/skills/canopy-screens/SKILL.md")
 _RUN = re.compile(r"^(?P<stem>.*?)(?P<first>\d+)–(?P<last>\d+)$")
 

@@ -11,7 +11,9 @@ its own (:mod:`osprey_connectors.workspace`), and only the names it needs to
 say where those are stay public there: :data:`~osprey_connectors.workspace.BUILD_DIR_NAME`,
 :data:`~osprey_connectors.workspace.RENDERED_CONFIG_RELPATH` and
 :data:`~osprey_connectors.workspace.DEFAULT_AGENT_DATA_BASE_DIR`. Everything
-else about the layout is the framework's, and is spelled here. Two names here
+else about the layout is the framework's. A deployment-root entry is spelled in
+:mod:`osprey.repo_layout`, and its name here is an alias of that row; the names
+inside the zones are spelled here. Two names here
 are also spelled privately inside the connector package, because its resolvers
 need them: :data:`PROFILE_FILENAME` and :data:`STATE_DIR_NAME`. A test holds
 each pair equal.
@@ -27,6 +29,7 @@ from pathlib import Path
 from types import MappingProxyType
 from typing import Final
 
+from osprey.repo_layout import child_display_path, entry, layer_rows
 from osprey_connectors.dotenv import ENV_CHAIN_FILENAMES
 from osprey_connectors.workspace import (
     BUILD_DIR_NAME,
@@ -43,13 +46,14 @@ __all__ = [
     "IMAGE_DIR_NAME",
     "LAYER_DIRNAMES",
     "LAYER_DIR_KINDS",
+    "PRESET_TRACKING_DIRNAME",
     "PRE_UPGRADE_AUDIT_RELPATH",
     "PROFILE_FILENAME",
     "NO_PROTECTED_PATHS_CONSEQUENCE",
     "PROTECTED_PATHS_CONFIG_KEY",
     "RECORD_DIR_RELPATH",
     "RETIRED_LAYER_DIRS",
-    "RUNTIME_DATA_DIR_NAME",
+    "RUNTIME_DIR_RELPATH",
     "RUNTIME_WRITE_PATH_KEYS",
     "SIMULATOR_STANDIN_LOG_SUBDIR",
     "SPOOL_DIR_RELPATH",
@@ -73,36 +77,39 @@ __all__ = [
 
 #: The durable state zone inside a deployment repo: ``var/`` survives every
 #: ``osprey build``, which re-creates ``build/`` wholesale.
-STATE_DIR_NAME = "var"
+STATE_DIR_NAME = entry("var").path
 
 #: The file that makes a directory a deployment repo root — the marker the
 #: CLI's repo walk and the hook library's anchor both look for.
-PROFILE_FILENAME = "profile.yml"
+PROFILE_FILENAME = entry("profile.yml").path
 
 #: Directory beside ``profile.yml`` (or in the bundled presets) holding the
 #: logins: one file per login of the deployment's agent.
-TIERS_DIRNAME: Final = "tiers"
+TIERS_DIRNAME: Final = entry("tiers").path
 
 #: Directory beside ``profile.yml`` holding the applications, one
 #: ``apps/<name>/`` directory each. Not a layer directory: no file in it is a
 #: login.
-APPS_DIRNAME: Final = "apps"
+APPS_DIRNAME: Final = entry("apps").path
 
 #: Directory beside ``profile.yml`` holding what OSPREY records about the repo
 #: for itself: the saved copy of what the presets produced, under
 #: ``preset-base/`` (:mod:`osprey.cli.build_profile_updates`). Tracked in git.
-PRESET_TRACKING_DIRNAME: Final = ".osprey"
+PRESET_TRACKING_DIRNAME: Final = entry(".osprey").path
 
 #: Each live layer directory -> the kind word its files are read as. The
-#: listing order is the order every layer listing follows. Spelled here, below
-#: ``cli``, because the hook library and the runtime read the layout too.
-LAYER_DIR_KINDS: Mapping[str, str] = MappingProxyType({TIERS_DIRNAME: "tier"})
+#: listing order is the order every layer listing follows. Read from the
+#: layer rows, below ``cli``, because the hook library and the runtime read the
+#: layout too.
+LAYER_DIR_KINDS: Mapping[str, str] = MappingProxyType(
+    {row.path: row.layer_kind for row in layer_rows() if row.layer_kind is not None}
+)
 
 #: Each retired layer directory -> the live directory its files are read as,
 #: with one warning naming the move. Closing the deprecation window is deleting
-#: the entry.
+#: the retired path from its row.
 RETIRED_LAYER_DIRS: Mapping[str, str] = MappingProxyType(
-    {"personas": TIERS_DIRNAME}  # retired-spelling
+    {retired: row.path for row in layer_rows() for retired in row.retired_paths}
 )
 
 #: Every directory beside ``profile.yml`` whose files are layers: the live ones
@@ -128,17 +135,15 @@ def layer_dir_kind(dirname: str) -> str | None:
 #: disagree about where it is.
 IMAGE_DIR_NAME = ".image"
 
-#: Reserved runtime-output directory directly under a repo's ``data/`` tree:
-#: ``data/.runtime/``. The one place ``osprey up`` may write inside the
-#: otherwise build-owned data tree — today the per-lane Bluesky CURVE
-#: certificate sets, ``data/.runtime/<lane>_curve/``. The build treats it as
-#: not existing: the profile-material fold never hashes it (a successful start
-#: must not mark its own build OUT OF DATE and strand the scaffolded boot
-#: unit at the drift gate, #716) and the data copy never stages it (secrets
-#: must not land in ``build/`` or in images). Spelled here beside the zone
-#: names because the writer lives in ``deployment/`` and the fold in ``cli/``,
-#: and the two must agree on these exact bytes.
-RUNTIME_DATA_DIR_NAME = ".runtime"
+#: Material ``osprey up`` mints when it starts a deployment, relative to the
+#: repo root: the per-lane Bluesky CURVE certificate sets,
+#: ``<lane>_curve/``. It lies in the state zone, so the build never hashes it,
+#: never stages it and never copies it into an image, and a start never marks
+#: its own build out of date. The ``var`` row's ``runtime`` child
+#: (:mod:`osprey.repo_layout`), named here beside the other state-zone paths
+#: because the executor's protected-write roots and the reset listing have to
+#: name the same directory.
+RUNTIME_DIR_RELPATH = child_display_path("var", "runtime")
 
 #: The audit tree a deployment wrote before the agent record existed, relative
 #: to the repo root. Nothing writes or reads it: it stays on disk
@@ -415,8 +420,8 @@ def protected_roots_from_entries(
     """
     permitted = tuple(permitted_roots)
     roots: list[Path] = []
-    for entry in entries:
-        anchored = anchor_protected_entry(entry, project_root, permitted, environ=environ)
+    for stated in entries:
+        anchored = anchor_protected_entry(stated, project_root, permitted, environ=environ)
         if anchored.path is not None and anchored.inside_permitted is None:
             roots.append(anchored.path)
             continue
@@ -424,11 +429,11 @@ def protected_roots_from_entries(
             reason = f"it holds an unset placeholder ({', '.join(anchored.unresolved)})"
         else:
             reason = f"it lies inside the writable root {anchored.inside_permitted}"
-        marker = (entry, reason)
+        marker = (stated, reason)
         if marker not in _reported_unprotecting:
             _reported_unprotecting.add(marker)
             _logger.warning(
-                "%s entry %r protects nothing: %s.", PROTECTED_PATHS_CONFIG_KEY, entry, reason
+                "%s entry %r protects nothing: %s.", PROTECTED_PATHS_CONFIG_KEY, stated, reason
             )
     return tuple(roots)
 

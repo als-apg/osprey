@@ -523,7 +523,7 @@ tested:
     pages: [how-to/deploy-project/compose-templates.rst, how-to/describe-your-facility.rst, how-to/deploy-project/project-image.rst, reference/configuration/profile.rst]
     languages: [text]
     kind: pins
-    matches: '^(services/|data/facility/|my-facility/)'
+    matches: '^(services/|facility/|my-facility/)'
     what: each file the tree names is one the templates ship or the build reads
   - test: tests/docs/test_deploy_page_shapes.py
     pages: [how-to/deploy-project/project-image.rst]

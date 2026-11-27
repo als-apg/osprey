@@ -1,0 +1,104 @@
+{
+  "hello-world": {
+    "inputs": [
+      {
+        "key": "profile.yml",
+        "label": null,
+        "digest": null
+      },
+      {
+        "key": "facility/",
+        "label": "facility",
+        "digest": "a0fd9902f8f20179eb76e1fbca13d95d713504cb722ef9facee5ddbbac7826eb"
+      },
+      {
+        "key": "agent/mcp_servers/",
+        "label": "convention:mcp_servers",
+        "digest": "b114bd3f0234a577c3fee6dedef252d098e4dc7b0b75f945e65a41670dd2ce8d"
+      }
+    ],
+    "profile_hash": "sha256:1cf6db7797e6eba5380628ff765c7019fe5a67a169a849653bac5961ea3c2abd",
+    "preset_hash": "sha256:93890612a70173a6dde7f0a912b929738732a61b157186262377da32d869f9cf"
+  },
+  "demo": {
+    "inputs": [
+      {
+        "key": "profile.yml",
+        "label": null,
+        "digest": null
+      },
+      {
+        "key": "facility/",
+        "label": "facility",
+        "digest": "c650e23fcabefb2e0d5acc0820efc0a6bb112330b11b60abecae780daee3dfc5"
+      },
+      {
+        "key": "web/canopy/library/",
+        "label": "web:canopy-library",
+        "digest": "92d2d438028f6105493324056b252a982955d541a4ec77dc13f2b3793495fc97"
+      },
+      {
+        "key": "web/canopy/collections/",
+        "label": "web:canopy-collections",
+        "digest": "175913a8636894d480e24eab009b2fc2e953b1301536ee81c041027167213f3d"
+      },
+      {
+        "key": "web/canopy/theme/",
+        "label": "web:canopy-theme",
+        "digest": "679870fb6e49b1498ad6ff8aff355a503368a33055d2ccfdab6141f898373df8"
+      },
+      {
+        "key": "web/landing/",
+        "label": "web:landing",
+        "digest": "49f95eaba39f15f5561e42e8078b352988ce2724f59da946530b7fd2febd988e"
+      },
+      {
+        "key": "agent/rules/",
+        "label": "convention:rules",
+        "digest": "56ca52aab2689d0978de40f0cbe5c3c822c2fcf16293e1c8fc86bfd7ff44e59b"
+      },
+      {
+        "key": "agent/context/",
+        "label": "convention:web-terminal-context",
+        "digest": "96d3dc668492f5d17e248c1cac65b61880d8dae2a349f491ef647dc2883d9f44"
+      },
+      {
+        "key": "triggers.yml",
+        "label": "triggers",
+        "digest": "0270610de58a1b1a7b26e4da12b9686ecd8fbe0f81a71ed07a755a082174c8d4"
+      },
+      {
+        "key": "tiers/admin.yml",
+        "label": "tier",
+        "digest": "add354509b6ddbf54a742f654f8cda3dc26d08ca2f872a826db53a7776061222"
+      },
+      {
+        "key": "tiers/channel-finder.yml",
+        "label": "tier",
+        "digest": "02c8ee58ad56dc1452df8d6669bbbab12632fd7f5d3e4c8e04c7cfa0c6c511fd"
+      },
+      {
+        "key": "tiers/knowledge.yml",
+        "label": "tier",
+        "digest": "fb19f0ec6ce05693cbf23cfa5410f6e0299db87d7ecc85442d91987887cc7fe1"
+      },
+      {
+        "key": "tiers/logbook.yml",
+        "label": "tier",
+        "digest": "e49e7d706d3cf90fb8b2d44fa0bc3072294d4b8e887f2201c38094a1815e445e"
+      },
+      {
+        "key": "tiers/readonly.yml",
+        "label": "tier",
+        "digest": "4a3fc33447686419e1028453b4122bc1cf119b513e85816c5bde501e94157401"
+      },
+      {
+        "key": "tiers/readwrite.yml",
+        "label": "tier",
+        "digest": "63dbd2d7f4c556bdd25f7a8e30b0d5189e9eb99b6d87ebc50ca2983882c82219"
+      }
+    ],
+    "profile_hash": "sha256:58b03b21bd0d8c049c031ce323b9cec0362dea6b756525592831327e1adc1bc7",
+    "preset_hash": "sha256:df1db339234e046d52d74cd7f9b2b37eaa9fd2ac65724142c8db8acff53c878c"
+  }
+}

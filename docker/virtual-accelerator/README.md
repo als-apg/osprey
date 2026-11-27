@@ -44,7 +44,7 @@ Ctrl-C (or `docker stop`) shuts the IOC down cleanly.
   (`VA_DATA_DIR` names a different root): `served_models.json`,
   `addresses.json`, `variables.json`, `seeds.json`, `scenarios.json` and the
   decks of the lattice-backed models, re-rendered from the project's
-  `data/facility/` on every build. Read-only; the IOC never writes it, and a
+  `facility/` on every build. Read-only; the IOC never writes it, and a
   missing view file refuses the boot by its path.
 - **Set `VA_INSTANCE`** to `virtual_accelerator` or `live_standin`.
   **Required** — a missing or unknown value refuses the boot. The value is

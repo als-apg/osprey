@@ -35,7 +35,7 @@ from ruamel.yaml import YAML, CommentedMap, CommentedSeq
 from ruamel.yaml.error import CommentMark
 from ruamel.yaml.tokens import CommentToken
 
-from osprey import __version__
+from osprey import __version__, repo_layout
 from osprey.agent_runner.build_artifacts.catalog import DEFAULT_CLAUDE_MD_TEMPLATE
 from osprey.build.modes import VALID_CHANNEL_FINDER_MODES
 from osprey.port_layout import CA_DEFAULT_PORT, PVA_DEFAULT_PORT, is_layout_port_field
@@ -100,7 +100,6 @@ _EXPLICIT_KEYS: frozenset[str] = frozenset(
 # entry in _COMMENTED_TEMPLATES (guard-tested).
 _COMMENTED_TEMPLATE_KEYS: frozenset[str] = frozenset(
     {
-        "data",  # profile-carried data tree; active once `osprey init` writes one
         "provider",  # every bundled preset sets this one, so it emits active
         "model",  # the bundled presets carry it as a commented example
         "channel_finder_mode",
@@ -388,10 +387,10 @@ _MCP_SERVERS_APPENDIX: tuple[str, str] = (
 # "http"; "sse" is the legacy event-stream wire and needs an explicit url.
 # Tool names under permissions are bare — `allow` runs them unprompted, `ask`
 # prompts the operator on every call.
-# A Python server's package lives at mcp_servers/<package>/ beside this file;
+# A Python server's package lives at __SERVERS__/<package>/ beside this file;
 # the build copies it to __BUILD__/_mcp_servers/<package>/ for `-m <package>`.""".replace(
         "__BUILD__", BUILD_OUTPUT_DIR
-    ),
+    ).replace("__SERVERS__", repo_layout.entry("mcp_servers").path),
     """\
 # mcp_servers:
 #   my_server:
@@ -459,17 +458,6 @@ _CHANNEL_FINDER_MODE_LIST = ", ".join(VALID_CHANNEL_FINDER_MODES)
 # them at once), so a number written into a comment is wrong for every
 # deployment that moved its base — the comments name the slot instead.
 _COMMENTED_TEMPLATES: dict[str, tuple[str, str]] = {
-    "data": (
-        """\
-# --- Facility data tree ------------------------------------------------------
-# Path (relative to this profile) of the data tree the build copies. `osprey
-# init` materializes it from the preset's packaged tree and sets this key; a
-# layer under tiers/ inherits it and resolves it against this
-# profile's directory. Full replacement, not a fallback.""",
-        """\
-# data: data
-""",
-    ),
     "provider": (
         """\
 # --- LLM provider ------------------------------------------------------------
@@ -623,15 +611,17 @@ _COMMENTED_TEMPLATES: dict[str, tuple[str, str]] = {
 # --- Watchdogs ---------------------------------------------------------------
 # Independent judges of each prompt in a session. A watchdog reads the session
 # and answers a verdict; it never acts on the machine. Declare any number, under
-# any names, in any mix of engines. Each one's instructions live beside this
-# file in watchdogs/<name>/instructions.md, with optional watchdogs/<name>/references/.
+# any names, in any mix of engines. Each one's instructions live in
+# __WATCHDOGS__/<name>/instructions.md, with optional __WATCHDOGS__/<name>/references/.
 #
 # A decision watchdog chooses among your options and flags when the flag options'
 # summed probability reaches `threshold`; it needs at least one flag option and
 # one non-flag option. An agent watchdog runs a read-only agent, and its `tools`
 # may not reach a write tool. An enabled watchdog needs `turn-state` under `hooks:`.
 #
-# The block is the deployment's, so a tier file may not spell it.""",
+# The block is the deployment's, so a tier file may not spell it.""".replace(
+            "__WATCHDOGS__", repo_layout.entry("watchdogs").path
+        ),
         """\
 # watchdogs:
 #   <decision-name>:
@@ -831,7 +821,6 @@ def _commented_template(field: str) -> str:
 # are byte-identical and diffs between presets stay readable. Deployment-shaping
 # keys first, facility extension points next, optional services last.
 _COMMENTED_TEMPLATE_ORDER: tuple[str, ...] = (
-    "data",
     "provider",
     "model",
     "channel_finder_mode",
@@ -1571,12 +1560,13 @@ _ZONE_MAP = """\
 #   +--------------+  osprey   +--------------+  osprey  +----------------+
 #   |    SOURCE    |  build    |    build/    |    up    |   DEPLOYMENT   |
 #   | profile.yml  +---------->| config.yml   +--------->| agent CLI/web  |
-#   | data/  ...   |           | .mcp.json  … |          | + containers   |
+#   | facility/ …  |           | .mcp.json  … |          | + containers   |
 #   +--------------+           +--------------+          +----------------+
 #          ^                                                     |
 #          +---- edit -> osprey build -> osprey up --------------+
 #
-#   SOURCE   yours to edit, kept in git: this file, data/, tiers/, apps/
+#   SOURCE   yours to edit, kept in git: this file, facility/, agent/, web/,
+#            ops/, tiers/, apps/
 #   RECORD   .osprey/, what the presets produced. Kept in git. Not edited
 #   SECRETS  .env, your API keys. Not in git. Rebuilds never touch it
 #   OUTPUT   build/, generated. Never edit it; deleting it is safe

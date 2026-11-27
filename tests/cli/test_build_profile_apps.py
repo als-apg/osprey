@@ -39,12 +39,9 @@ def _write_yaml(path: Path, body: dict[str, Any]) -> Path:
 
 
 def _repo(tmp_path: Path, root: dict[str, Any]) -> Path:
-    """A deployment repo with one application, ``knob``, and the given root profile.
-
-    The caller takes ``facility_data_tree`` for the ``data:`` directory.
-    """
+    """A deployment repo with one application, ``knob``, and the given root profile."""
     _write_yaml(tmp_path / "apps" / "knob" / "app.yml", _MANIFEST)
-    _write_yaml(tmp_path / "profile.yml", {"name": "site", "data": "data", **root})
+    _write_yaml(tmp_path / "profile.yml", {"name": "site", **root})
     return tmp_path
 
 
@@ -159,7 +156,6 @@ def test_lists_takes_own_or_add() -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.usefixtures("facility_data_tree")
 def test_a_listed_application_loads(tmp_path: Path) -> None:
     repo = _repo(tmp_path, {"apps": {"knob": {"services": {"knob": {"network": "host"}}}}})
 
@@ -168,7 +164,6 @@ def test_a_listed_application_loads(tmp_path: Path) -> None:
     assert loaded.profile.apps["knob"].services["knob"].network == "host"
 
 
-@pytest.mark.usefixtures("facility_data_tree")
 def test_an_unknown_application_is_refused(tmp_path: Path) -> None:
     repo = _repo(tmp_path, {"apps": {"knobs": {}}})
 
@@ -181,7 +176,6 @@ def test_an_unknown_application_is_refused(tmp_path: Path) -> None:
     assert "knob" in message.split("apps.knobs", 1)[1]
 
 
-@pytest.mark.usefixtures("facility_data_tree")
 def test_a_service_the_manifest_does_not_declare_is_refused(tmp_path: Path) -> None:
     repo = _repo(tmp_path, {"apps": {"knob": {"services": {"worker": {"network": "host"}}}}})
 
@@ -189,7 +183,6 @@ def test_a_service_the_manifest_does_not_declare_is_refused(tmp_path: Path) -> N
         load_profile_document(repo / "profile.yml")
 
 
-@pytest.mark.usefixtures("facility_data_tree")
 @pytest.mark.parametrize(
     ("axes", "words"),
     [
@@ -273,7 +266,6 @@ def test_a_login_shown_is_a_boolean() -> None:
     )
 
 
-@pytest.mark.usefixtures("facility_data_tree")
 def test_validate_refuses_a_login_file_as_the_loader_does(tmp_path: Path, runner) -> None:
     from osprey.cli.validate_cmd import validate
 
@@ -289,7 +281,6 @@ def test_validate_refuses_a_login_file_as_the_loader_does(tmp_path: Path, runner
     assert "apps.knob.config" in str(excinfo.value)
 
 
-@pytest.mark.usefixtures("facility_data_tree")
 def test_a_manifest_refusal_reaches_validate_as_its_violations(tmp_path: Path, runner) -> None:
     from osprey.apps.errors import AppsRefusedError
     from osprey.cli.validate_cmd import validate
@@ -308,7 +299,6 @@ def test_a_manifest_refusal_reaches_validate_as_its_violations(tmp_path: Path, r
     assert "1 violation(s)." in result.output
 
 
-@pytest.mark.usefixtures("facility_data_tree")
 def test_a_manifest_refusal_is_a_profile_error_to_every_other_reader(tmp_path: Path) -> None:
     # A command that only asks whether the profile resolves (a profile card, the
     # scaffold, a tolerant loop over logins) catches BuildProfileError or
@@ -326,7 +316,6 @@ def test_a_manifest_refusal_is_a_profile_error_to_every_other_reader(tmp_path: P
     assert "[extra_forbidden]" in str(excinfo.value)
 
 
-@pytest.mark.usefixtures("facility_data_tree")
 def test_a_manifest_refusal_is_reported_beside_the_other_profile_errors(tmp_path: Path) -> None:
     from osprey.apps.errors import AppsRefusedError
 
@@ -346,7 +335,6 @@ def test_a_manifest_refusal_is_reported_beside_the_other_profile_errors(tmp_path
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.usefixtures("facility_data_tree")
 def test_a_merged_login_render_on_a_roster_deployment_loads(tmp_path: Path) -> None:
     repo = _repo(
         tmp_path,
@@ -389,7 +377,6 @@ def test_an_unlisted_application_is_never_shown() -> None:
     assert _parse_profile({"name": "s"}).app_shown("knob") is False
 
 
-@pytest.mark.usefixtures("facility_data_tree")
 def test_a_login_selects_only_applications_the_profile_lists(tmp_path: Path) -> None:
     repo = _repo(tmp_path, {"apps": {"knob": {}}})
     _write_yaml(repo / "apps" / "other" / "app.yml", {**_MANIFEST, "name": "other"})
@@ -406,7 +393,6 @@ def test_a_login_selects_only_applications_the_profile_lists(tmp_path: Path) -> 
     assert "profile.yml" in message
 
 
-@pytest.mark.usefixtures("facility_data_tree")
 def test_the_profile_may_not_spell_lists(tmp_path: Path) -> None:
     repo = _repo(tmp_path, {"lists": "own", "apps": {"knob": {}}})
 
@@ -418,7 +404,6 @@ def test_the_profile_may_not_spell_lists(tmp_path: Path) -> None:
     assert "tiers/" in message
 
 
-@pytest.mark.usefixtures("facility_data_tree")
 def test_a_login_render_refuses_a_root_lists(tmp_path: Path) -> None:
     repo = _repo(tmp_path, {"lists": "own", "apps": {"knob": {}}})
     layer = _write_yaml(repo / "tiers" / "ro.yml", {"name": "ro"})
@@ -457,7 +442,6 @@ def _panel_login(tmp_path: Path, apps: dict[str, Any], **keys: Any) -> Path:
     )
 
 
-@pytest.mark.usefixtures("facility_data_tree")
 def test_a_login_may_open_on_the_panel_of_an_application_it_shows(tmp_path: Path) -> None:
     """The manifest's panel id, not the application's name: the build adds it to the tabs."""
     layer = _panel_login(tmp_path, {"knob": {"shown": True}})
@@ -467,7 +451,6 @@ def test_a_login_may_open_on_the_panel_of_an_application_it_shows(tmp_path: Path
     assert profile.default_panel == "knob-board"
 
 
-@pytest.mark.usefixtures("facility_data_tree")
 def test_a_login_may_keep_a_shown_applications_panel_off_the_sidebar(tmp_path: Path) -> None:
     layer = _panel_login(tmp_path, {"knob": {"shown": True, "panel_hidden": True}})
 
@@ -478,7 +461,6 @@ def test_a_login_may_keep_a_shown_applications_panel_off_the_sidebar(tmp_path: P
     assert profile.app_panel_hidden("unlisted") is False
 
 
-@pytest.mark.usefixtures("facility_data_tree")
 def test_a_login_may_not_open_on_the_panel_of_an_application_it_hides(tmp_path: Path) -> None:
     layer = _panel_login(tmp_path, {"knob": {"shown": False}})
 
@@ -489,7 +471,6 @@ def test_a_login_may_not_open_on_the_panel_of_an_application_it_hides(tmp_path: 
 _PANEL_PRESET = {"panel_presets": {"Knob": {"tabs": ["knob-board"]}}}
 
 
-@pytest.mark.usefixtures("facility_data_tree")
 def test_a_preset_may_lay_out_the_panel_of_an_application_the_login_shows(tmp_path: Path) -> None:
     layer = _panel_login(tmp_path, {"knob": {"shown": True}}, **_PANEL_PRESET)
 
@@ -498,7 +479,6 @@ def test_a_preset_may_lay_out_the_panel_of_an_application_the_login_shows(tmp_pa
     assert profile.panel_presets == _PANEL_PRESET["panel_presets"]
 
 
-@pytest.mark.usefixtures("facility_data_tree")
 def test_a_preset_may_not_lay_out_the_panel_of_an_application_the_login_hides(
     tmp_path: Path,
 ) -> None:

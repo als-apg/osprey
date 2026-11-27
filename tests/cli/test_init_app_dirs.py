@@ -109,7 +109,7 @@ def test_extends_carries_no_application(repo: Path, tmp_path: Path) -> None:
     assert set(yaml.safe_load((repo / "profile.yml").read_text())["apps"]) == {APP}
 
     extending = tmp_path / "extending" / "profile.yml"
-    _write_yaml(extending, {"name": "Extending", "extends": PRESET, "data": "data"})
+    _write_yaml(extending, {"name": "Extending", "extends": PRESET})
     (extending.parent / "data").mkdir()
     assert resolve_build_profile(extending, None)[0].apps == {}
     assert resolve_build_profile(None, PRESET)[0].apps == {}

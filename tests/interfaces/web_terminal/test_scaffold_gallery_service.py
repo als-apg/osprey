@@ -551,7 +551,7 @@ class TestSaveOverrideProtectedSet:
         test is about the save that follows — it must not be able to pass
         because the claim happened to be refused first.
         """
-        target = _profile_root(project_dir) / rel
+        target = _profile_root(project_dir) / "agent" / rel
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(body, encoding="utf-8")
         return target
@@ -576,7 +576,7 @@ class TestSaveOverrideProtectedSet:
             svc.save_override("rules/planted", "# Rewritten by the agent\n")
 
         message = str(exc.value)
-        assert "`rules/` convention directory" in message, message
+        assert "`agent/rules/` convention directory" in message, message
         assert "NOTHING WAS WRITTEN" in message
         assert planted.read_text(encoding="utf-8") == "# Planted\n"
 
@@ -611,7 +611,7 @@ class TestSaveOverrideProtectedSet:
             detached_service.save_override(self.RESERVED_OWNED, "# Rewritten by the agent\n")
 
         message = str(exc.value)
-        assert "`rules/` convention directory" in message, message
+        assert "`agent/rules/` convention directory" in message, message
         assert "NOTHING WAS WRITTEN" in message
         assert on_disk.read_text(encoding="utf-8") == before, "the tree copy must be untouched"
 
@@ -884,7 +884,7 @@ class TestRegisterUntracked:
             service.register_untracked("rules/hand-written")
 
         message = str(exc.value)
-        assert "`rules/` convention directory" in message, message
+        assert "`agent/rules/` convention directory" in message, message
         assert "NOTHING WAS REGISTERED" in message
         assert "rules/hand-written" not in _get_user_owned(project_dir)
 
@@ -1035,7 +1035,7 @@ class TestDeleteUntrackedProtectedSet:
             service.delete_untracked("rules/hand-written")
 
         message = str(exc.value)
-        assert "`rules/` convention directory" in message, message
+        assert "`agent/rules/` convention directory" in message, message
         assert "NOTHING WAS DELETED" in message
         assert target.exists()
 
@@ -1043,7 +1043,7 @@ class TestDeleteUntrackedProtectedSet:
         assert len(records) == 1
         assert records[0]["surface"] == "scaffold_gallery"
         assert records[0]["subject"] == ".claude/rules/hand-written.md"
-        assert "`rules/` convention directory" in records[0]["detail"]
+        assert "`agent/rules/` convention directory" in records[0]["detail"]
 
     def test_delete_untracked_refuses_a_reserved_skill(
         self, service, project_dir, recorded_entries
@@ -1056,7 +1056,7 @@ class TestDeleteUntrackedProtectedSet:
         with pytest.raises(ProtectedArtifactError) as exc:
             service.delete_untracked("skills/seeded-skill/SKILL.md")
 
-        assert "`skills/` convention directory" in str(exc.value)
+        assert "`agent/skills/` convention directory" in str(exc.value)
         assert "NOTHING WAS DELETED" in str(exc.value)
         assert target.exists()
         assert len(_protected_records(recorded_entries)) == 1
@@ -1152,7 +1152,7 @@ class TestCreateArtifact:
         svc = ScaffoldGalleryService(project_dir)
         svc.save_override("agents/editable", "# Second\n")
 
-        slot = self._profile_root(project_dir) / "agents" / "editable.md"
+        slot = self._profile_root(project_dir) / "agent" / "agents" / "editable.md"
         assert slot.read_text(encoding="utf-8") == "# Second\n"
 
     def test_create_refuses_when_the_project_already_carries_the_file(self, service, project_dir):
@@ -1198,7 +1198,7 @@ class TestCreateArtifact:
         result = service.create_artifact("hooks", "my-hook")
         assert result["output_path"] == ".claude/hooks/my-hook.py"
 
-        slot = self._profile_root(project_dir) / "hooks" / "my-hook.py"
+        slot = self._profile_root(project_dir) / "agent" / "hooks" / "my-hook.py"
         assert slot.is_file()
         assert not slot.with_suffix(".md").exists()
 
@@ -1222,7 +1222,7 @@ class TestCreateArtifact:
         import stat
 
         service.create_artifact("hooks", "exec-hook")
-        slot = self._profile_root(project_dir) / "hooks" / "exec-hook.py"
+        slot = self._profile_root(project_dir) / "agent" / "hooks" / "exec-hook.py"
         assert slot.stat().st_mode & stat.S_IXUSR
 
     def test_create_artifact_starter_content(self, service, project_dir):
@@ -1230,7 +1230,9 @@ class TestCreateArtifact:
         profile_root = self._profile_root(project_dir)
 
         service.create_artifact("agents", "starter-test")
-        content = (profile_root / "agents" / "starter-test.md").read_text(encoding="utf-8")
+        content = (profile_root / "agent" / "agents" / "starter-test.md").read_text(
+            encoding="utf-8"
+        )
         assert content.startswith("# Starter Test")
 
         # The other shape ``_starter_content`` knows. The skill branch is no
@@ -1238,7 +1240,9 @@ class TestCreateArtifact:
         # the refusal is pinned in :class:`TestCreateArtifactProtectedSet`.
         svc = ScaffoldGalleryService(project_dir)
         svc.create_artifact("hooks", "starter-hook")
-        hook_content = (profile_root / "hooks" / "starter-hook.py").read_text(encoding="utf-8")
+        hook_content = (profile_root / "agent" / "hooks" / "starter-hook.py").read_text(
+            encoding="utf-8"
+        )
         assert hook_content.startswith('"""Hook: Starter Hook."""')
 
     @pytest.mark.parametrize("bad", ["../escape", "../../etc/passwd"])
@@ -1265,7 +1269,7 @@ class TestCreateArtifact:
         result = service.create_artifact("commands", "osprey/handover")
 
         assert result["canonical_name"] == "commands/osprey/handover"
-        slot = self._profile_root(project_dir) / "commands" / "osprey" / "handover.md"
+        slot = self._profile_root(project_dir) / "agent" / "commands" / "osprey" / "handover.md"
         assert slot.is_file()
 
 
@@ -1381,7 +1385,7 @@ class TestProfileMode:
         assert result["status"] == "claimed"
         assert result["moved_to_profile"] is True
         assert _protected_records(recorded_entries) == [], "an allowed claim records nothing"
-        profile_copy = self._profile_root(project_dir) / "agents" / "channel-finder.md"
+        profile_copy = self._profile_root(project_dir) / "agent" / "agents" / "channel-finder.md"
         assert profile_copy.is_file()
         assert not (project_dir / result["output_path"]).exists()
 
@@ -1421,7 +1425,7 @@ class TestProfileMode:
         edited = "# Facility safety rules\nTwo-person rule for magnet writes.\n"
         svc.save_override(WRITABLE_ARTIFACT, edited)
 
-        profile_copy = self._profile_root(project_dir) / "agents" / "channel-finder.md"
+        profile_copy = self._profile_root(project_dir) / "agent" / "agents" / "channel-finder.md"
         assert profile_copy.read_text(encoding="utf-8") == edited
         assert (
             ScaffoldGalleryService(project_dir).get_content(WRITABLE_ARTIFACT)["content"] == edited
@@ -1436,7 +1440,7 @@ class TestProfileMode:
         result = service.register_untracked("agents/hand-written")
 
         assert result["status"] == "registered"
-        assert (self._profile_root(project_dir) / "agents" / "hand-written.md").is_file()
+        assert (self._profile_root(project_dir) / "agent" / "agents" / "hand-written.md").is_file()
         assert not orphan.exists()
 
     def test_refusal_reaches_the_caller_with_its_message(self, service, monkeypatch):
@@ -2022,7 +2026,7 @@ class TestGeneratedPathsAreNeverOwnable:
     def test_ordinary_artifacts_are_unaffected(self, container_project, volume_dir):
         """The guard names generated files, not whole channels.
 
-        ``hooks/`` holds authored hooks as well as the generated config, and
+        ``agent/hooks/`` holds authored hooks as well as the generated config, and
         refusing the channel to protect one file in it would be the wrong
         trade — the operator would lose every hook to save one.
         """
@@ -2153,7 +2157,7 @@ class TestDirectoryArtifactsHaveNoBody:
         """
         manifest = json.loads((project_dir / ".osprey-manifest.json").read_text(encoding="utf-8"))
         profile_root = Path(manifest["build_args"]["profile_path_abs"]).parent
-        skill = profile_root / "skills" / "orbit-check"
+        skill = profile_root / "agent" / "skills" / "orbit-check"
         skill.mkdir(parents=True, exist_ok=True)
         (skill / "SKILL.md").write_text(
             "---\nname: orbit-check\ndescription: Check the orbit\n---\n", encoding="utf-8"
@@ -2198,7 +2202,7 @@ class TestUnclaimIsHonestAboutTheProfile:
     def test_unclaim_changes_nothing(self, project_dir):
         """Not the profile copy, not the tree, not config.yml."""
         name = self._claimed(project_dir)
-        slot = self._profile_root(project_dir) / "agents" / "channel-finder.md"
+        slot = self._profile_root(project_dir) / "agent" / "agents" / "channel-finder.md"
         before = slot.read_text(encoding="utf-8")
         config_before = _get_user_owned(project_dir)
 
@@ -2223,7 +2227,7 @@ class TestUnclaimIsHonestAboutTheProfile:
         from osprey.cli.scaffold_cmd import still_supplied_by_profile_message
 
         name = self._claimed(project_dir)
-        slot = self._profile_root(project_dir) / "agents" / "channel-finder.md"
+        slot = self._profile_root(project_dir) / "agent" / "agents" / "channel-finder.md"
 
         outcome = ScaffoldGalleryService(project_dir).unoverride(name)
 
@@ -2349,10 +2353,10 @@ class TestCreateClaimUnoverrideProtectedSet:
             service.create_artifact(category, name, "# Written by the agent\n")
 
         message = str(exc.value)
-        assert "`rules/` convention directory" in message, message
+        assert "`agent/rules/` convention directory" in message, message
         assert "NOTHING WAS CREATED" in message
         assert not (project_dir / ".claude" / "rules" / f"{name}.md").exists()
-        assert not (_profile_root(project_dir) / "rules" / f"{name}.md").exists()
+        assert not (_profile_root(project_dir) / "agent" / "rules" / f"{name}.md").exists()
 
         records = _protected_records(recorded_entries)
         assert len(records) == 1
@@ -2373,10 +2377,10 @@ class TestCreateClaimUnoverrideProtectedSet:
             service.create_artifact("skills", "orbit-check")
 
         message = str(exc.value)
-        assert "`skills/` convention directory" in message, message
+        assert "`agent/skills/` convention directory" in message, message
         assert "NOTHING WAS CREATED" in message
 
-        slot = _profile_root(project_dir) / "skills" / "orbit-check"
+        slot = _profile_root(project_dir) / "agent" / "skills" / "orbit-check"
         assert not slot.exists()
         assert not slot.with_suffix(".md").exists()
         assert not (project_dir / ".claude" / "skills" / "orbit-check").exists()
@@ -2390,7 +2394,7 @@ class TestCreateClaimUnoverrideProtectedSet:
     ):
         """The guard reads the resolved path, not the category.
 
-        ``hooks/`` is a claimable channel that happens to contain the
+        ``agent/hooks/`` is a claimable channel that happens to contain the
         write-safety layer, so the refusal has to land on the ``osprey_``
         prefix alone — refusing the channel would cost the operator every hook
         they are entitled to write.
@@ -2404,11 +2408,13 @@ class TestCreateClaimUnoverrideProtectedSet:
 
         assert "write-safety layer" in str(exc.value)
         assert "NOTHING WAS CREATED" in str(exc.value)
-        assert not (_profile_root(project_dir) / "hooks" / "osprey_shift_check.py").exists()
+        assert not (
+            _profile_root(project_dir) / "agent" / "hooks" / "osprey_shift_check.py"
+        ).exists()
         assert len(_protected_records(recorded_entries)) == 1
 
         ScaffoldGalleryService(project_dir).create_artifact("hooks", "shift-check")
-        assert (_profile_root(project_dir) / "hooks" / "shift-check.py").is_file()
+        assert (_profile_root(project_dir) / "agent" / "hooks" / "shift-check.py").is_file()
         assert len(_protected_records(recorded_entries)) == 1, "an allowed create records nothing"
 
     def test_create_artifact_of_an_agent_still_goes_through(
@@ -2420,7 +2426,7 @@ class TestCreateClaimUnoverrideProtectedSet:
         assert result["status"] == "created"
         assert result["created_in_profile"] is True
         assert result["output_path"] == ".claude/agents/shift-handover.md"
-        assert (_profile_root(project_dir) / "agents" / "shift-handover.md").is_file()
+        assert (_profile_root(project_dir) / "agent" / "agents" / "shift-handover.md").is_file()
         assert not (project_dir / ".claude" / "agents" / "shift-handover.md").exists(), (
             "the project copy is the build's to make, from the profile"
         )
@@ -2459,10 +2465,10 @@ class TestCreateClaimUnoverrideProtectedSet:
             service.scaffold_override(SAFE_ARTIFACT)
 
         message = str(exc.value)
-        assert "`rules/` convention directory" in message, message
+        assert "`agent/rules/` convention directory" in message, message
         assert "NOTHING WAS CLAIMED" in message
         assert on_disk.read_text(encoding="utf-8") == before, "the claim moves the file — or would"
-        assert not (_profile_root(project_dir) / "rules" / "safety.md").exists()
+        assert not (_profile_root(project_dir) / "agent" / "rules" / "safety.md").exists()
         assert SAFE_ARTIFACT not in ScaffoldGalleryService(project_dir)._user_owned
 
         records = _protected_records(recorded_entries)
@@ -2481,9 +2487,9 @@ class TestCreateClaimUnoverrideProtectedSet:
         with pytest.raises(ProtectedArtifactError) as exc:
             service.scaffold_override("skills/diagnose")
 
-        assert "`skills/` convention directory" in str(exc.value)
+        assert "`agent/skills/` convention directory" in str(exc.value)
         assert "NOTHING WAS CLAIMED" in str(exc.value)
-        assert not (_profile_root(project_dir) / "skills" / "diagnose").exists()
+        assert not (_profile_root(project_dir) / "agent" / "skills" / "diagnose").exists()
         assert len(_protected_records(recorded_entries)) == 1
 
     def test_claim_of_a_reserved_rule_is_refused_on_the_volume(
@@ -2546,7 +2552,7 @@ class TestCreateClaimUnoverrideProtectedSet:
             svc.unoverride("rules/planted", delete_file=True)
 
         message = str(exc.value)
-        assert "`rules/` convention directory" in message, message
+        assert "`agent/rules/` convention directory" in message, message
         assert "NOTHING WAS DELETED" in message
         assert planted.read_text(encoding="utf-8") == "# Planted\n"
         assert "rules/planted" in _get_user_owned(detached_project_dir), (
@@ -2686,7 +2692,7 @@ class TestLinkedWritesAreJudgedOnTheResolvedFile:
             service.create_artifact("agents", "linked", "# Written by the agent\n")
 
         message = str(exc.value)
-        assert "`rules/` convention directory" in message, message
+        assert "`agent/rules/` convention directory" in message, message
         assert "NOTHING WAS CREATED" in message
         assert reserved.read_text(encoding="utf-8") == before
 
@@ -2709,7 +2715,7 @@ class TestLinkedWritesAreJudgedOnTheResolvedFile:
         with pytest.raises(ProtectedArtifactError) as exc:
             svc.save_override("agents/planted-link", "# Rewritten by the agent\n")
 
-        assert "`rules/` convention directory" in str(exc.value)
+        assert "`agent/rules/` convention directory" in str(exc.value)
         assert "NOTHING WAS WRITTEN" in str(exc.value)
         assert reserved.read_text(encoding="utf-8") == before
         assert len(_protected_records(recorded_entries)) == 1
@@ -2751,7 +2757,7 @@ class TestLinkedWritesAreJudgedOnTheResolvedFile:
         with pytest.raises(ProtectedArtifactError) as exc:
             svc.unoverride("agents/linked-del", delete_file=True)
 
-        assert "`rules/` convention directory" in str(exc.value)
+        assert "`agent/rules/` convention directory" in str(exc.value)
         assert "NOTHING WAS DELETED" in str(exc.value)
         assert link.is_symlink()
         assert reserved.is_file()
@@ -2972,7 +2978,7 @@ class TestRestoreRefusesReservedRecords:
         assert records[0]["surface"] == "scaffold_restore"
         assert f"target={output_path}" in records[0]["detail"]
         assert records[0]["subject"] == output_path
-        assert "`rules/` convention directory" in records[0]["detail"]
+        assert "`agent/rules/` convention directory" in records[0]["detail"]
 
     def test_restore_reserved_skips_only_the_poisoned_record(
         self, container_project, volume_dir, recorded_entries, tmp_path
@@ -3034,7 +3040,7 @@ class TestRestoreRefusesReservedRecords:
         records = _protected_records(recorded_entries)
         assert len(records) == 1
         assert "target=.claude/agents/linked.md" in records[0]["detail"]
-        assert "`rules/` convention directory" in records[0]["detail"]
+        assert "`agent/rules/` convention directory" in records[0]["detail"]
 
 
 class TestReservedSubtreeRootsAreClosed:

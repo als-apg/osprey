@@ -358,7 +358,7 @@ def test_every_closed_symbol_is_a_polygon_so_its_outline_can_be_dashed(kind) -> 
 
 # --------------------------------------------------------------------------- contrast
 
-THEME_FILE = REPO_ROOT / "src/osprey/templates/apps/demo/data/canopy/theme/osprey.json"
+THEME_FILE = REPO_ROOT / "src/osprey/templates/apps/demo/web/canopy/theme/osprey.json"
 
 
 def _resolved(colour: dict, theme: str) -> str:

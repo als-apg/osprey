@@ -43,18 +43,20 @@ PERSONAL_SUBPATH = ("canopy", "drafts")
 #: one bundle per request, for an admin to review on the host.
 PUSH_SUBPATH = ("canopy", "push")
 
-#: The deployment's screen library, below the project root: the read-only
-#: second root handed to the front process when the directory exists.
-LIBRARY_SUBPATH = Path("data/canopy/library")
+#: The deployment's screen library, below the deployment repo root (the source
+#: copy the image carries too): the read-only second root handed to the front
+#: process when the directory exists.
+LIBRARY_SUBPATH = Path("web/canopy/library")
 
 #: The user's personal collection store, below the user's agent-data root:
 #: handed to the front process on every render. Its owner is the only one who
 #: sees it.
 COLLECTIONS_SUBPATH = ("canopy", "collections")
 
-#: The deployment's facility collection store, below the project root, beside
-#: the screen library: handed to the front process when the directory exists.
-FACILITY_COLLECTIONS_SUBPATH = Path("data/canopy/collections")
+#: The deployment's facility collection store, below the deployment repo root,
+#: beside the screen library: handed to the front process when the directory
+#: exists.
+FACILITY_COLLECTIONS_SUBPATH = Path("web/canopy/collections")
 
 #: Names the record the data process's environment was rendered from, as
 #: ``<target>@<generation>``, or :data:`NO_RECORD`. The sidecar sets it; the
@@ -85,7 +87,8 @@ SESSIONS_FILENAME = "sessions.json"
 WRITE_BUDGET_ENV = "OSPREY_CANOPY_WRITE_BUDGET"
 
 #: Where the build stages the CANOPY payload (everything but the two wheels),
-#: below the project root.
+#: inside the render: ``build/canopy_payload`` on a host, the context root in an
+#: image.
 PAYLOAD_DIRNAME = "canopy_payload"
 
 #: Every name of the archiver block starts with this; the block is rendered for

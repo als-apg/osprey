@@ -27,7 +27,7 @@ COMMAND = (
     "uv run python packages/osprey-facility/tests/osprey_facility_tests/rebuild_panel_fixture.py"
 )
 
-#: The fixture's ``data/facility`` tree.
+#: The fixture's ``facility`` tree.
 FIXTURE_TREE = Path(__file__).resolve().with_name("panel_fixture")
 #: The repository checkout the package lives in.
 REPO_ROOT = Path(__file__).resolve().parents[4]

@@ -2,7 +2,7 @@
 
 A test that drives a connector hands it the addresses it reads and writes as a
 facility tree, the way a deployment does. :func:`served_tree` writes those
-addresses as channel records under ``<root>/data/facility``, builds the
+addresses as channel records under ``<root>/facility``, builds the
 facility file and renders it into ``<root>/build``, and returns that render's
 simulator view, the directory a connector serves from. :func:`in_process_config`
 names that view in the in-process simulator's ``connect()`` settings.
@@ -66,7 +66,7 @@ def served_tree(
     """Build and render a tree serving the given addresses.
 
     Args:
-        root: An empty directory; the tree is written to ``root/data/facility``
+        root: An empty directory; the tree is written to ``root/facility``
             and rendered into ``root/build``.
         setpoints: The addresses a test writes, each a writable setpoint. A
             mapping pairs each setpoint with its readback address, which joins

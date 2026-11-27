@@ -122,6 +122,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
 
+from osprey import repo_layout
 from osprey.deployment.compose_generator import (
     AGENT_RECORD_CLICKHOUSE_VOLUME,
     COMPOSE_ENV_FILENAME,
@@ -174,6 +175,7 @@ from osprey.utils.workspace import (
     ARCHIVE_DIR_RELPATH,
     PRE_UPGRADE_AUDIT_RELPATH,
     RECORD_DIR_RELPATH,
+    RUNTIME_DIR_RELPATH,
     SPOOL_DIR_RELPATH,
     STATE_DIR_NAME,
     STATE_DIR_RELPATH,
@@ -753,10 +755,11 @@ class ResetPlan:
             f"    {COMPOSE_ENV_FILENAME}  everything that was not minted by a deploy, "
             f"including your provider keys ({env_note})."
         )
-        kept.append(
-            "    profile.yml, data/, tiers/, triggers.yml, scripts/ — the tracked source "
-            "zone, and .git/ with it."
+        tracked = ", ".join(
+            repo_layout.listing_name(repo_layout.entry(key))
+            for key in ("profile.yml", "facility", "web", "tiers", "triggers.yml", "scripts")
         )
+        kept.append(f"    {tracked} — the tracked source zone, and .git/ with it.")
         for filename, holds, refresh in WEB_CREDENTIAL_FILES:
             if (self.repo_root / filename).is_file():
                 kept.append(
@@ -818,22 +821,16 @@ class ResetPlan:
             f"    {STATE_DIR_NAME}/  everything outside the entries listed above, including "
             "any --archive tarballs."
         )
-        # Both spellings: data/.runtime/ is where `osprey up` mints today, and
-        # data/bluesky_curve/ is where a deployment that has not started since
-        # the #716 relocation still holds its keys.
-        for curve_dir, shown in (
-            (self.repo_root / "data" / ".runtime", "data/.runtime/"),
-            (self.repo_root / "data" / "bluesky_curve", "data/bluesky_curve/"),
-        ):
-            if curve_dir.is_dir():
-                kept.append(
-                    f"    {shown}  the document-plane CURVE certificates, which live "
-                    "in the source zone. They are"
-                )
-                kept.append(
-                    "      regenerated only when absent, so a reset leaves this deployment's "
-                    "existing key material in place."
-                )
+        # The certificates live in the state zone, which a reset keeps.
+        if (self.repo_root / RUNTIME_DIR_RELPATH).is_dir():
+            kept.append(
+                f"    {RUNTIME_DIR_RELPATH}/  the document-plane CURVE certificates, which live "
+                "in the state zone. They are"
+            )
+            kept.append(
+                "      regenerated only when absent, so a reset leaves this deployment's "
+                "existing key material in place."
+            )
         return kept
 
     def _path_note(self, path: Path) -> str:

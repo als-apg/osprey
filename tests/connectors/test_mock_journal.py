@@ -62,7 +62,7 @@ def _rebuild(view: Path) -> Path:
     from osprey_facility.build import build_facility
 
     root = view.parent.parent.parent
-    facility_dir = root / "data" / "facility"
+    facility_dir = root / "facility"
     render_dir = root / "build"
     document = build_facility(facility_dir, project_name="served", extra_checks=FRAMEWORK_CHECKS)
     render_facility_outputs(render_dir, document, IN_PROCESS_RENDER_CONFIG, facility_dir)
@@ -187,8 +187,8 @@ async def test_a_reset_in_one_is_seen_by_the_other(view):
 
 async def test_a_scenario_change_empties_the_journal(view):
     root = view.parent.parent.parent
-    (root / "data" / "facility" / "scenarios").mkdir()
-    (root / "data" / "facility" / "scenarios" / "quiet.yaml").write_text(
+    (root / "facility" / "simulation" / "scenarios").mkdir(parents=True)
+    (root / "facility" / "simulation" / "scenarios" / "quiet.yaml").write_text(
         "description: A quiet machine.\n"
     )
     view = _rebuild(view)
@@ -205,8 +205,8 @@ async def test_a_scenario_change_empties_the_journal(view):
 
 async def test_a_second_connector_keeps_what_the_first_wrote_after_a_scenario_change(view):
     root = view.parent.parent.parent
-    (root / "data" / "facility" / "scenarios").mkdir()
-    (root / "data" / "facility" / "scenarios" / "quiet.yaml").write_text(
+    (root / "facility" / "simulation" / "scenarios").mkdir(parents=True)
+    (root / "facility" / "simulation" / "scenarios" / "quiet.yaml").write_text(
         "description: A quiet machine.\n"
     )
     view = _rebuild(view)
@@ -347,7 +347,7 @@ async def test_a_composite_written_directly_changes_nothing_another_process_read
 def _limited(view: Path) -> Path:
     """The tree again with a locked setpoint and a band on another."""
     root = view.parent.parent.parent
-    (root / "data" / "facility" / "limits.yaml").write_text(
+    (root / "facility" / "limits.yaml").write_text(
         yaml.safe_dump(
             {
                 "records": [

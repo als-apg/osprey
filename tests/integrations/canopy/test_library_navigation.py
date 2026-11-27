@@ -15,6 +15,7 @@ from typing import Any
 
 import pytest
 
+from osprey import repo_layout
 from osprey.integrations.canopy import library, stage
 from osprey.integrations.canopy.library import NAVIGATION_NAME
 
@@ -155,16 +156,22 @@ def test_the_file_does_not_make_the_report_stale(root: Path) -> None:
 def test_the_build_step_passes_a_library_with_a_valid_file(tmp_path: Path, root: Path) -> None:
     _navigation(root, VALID)
     deployment = tmp_path / "deployment"
-    (deployment / "data" / "canopy").mkdir(parents=True)
-    root.rename(deployment / "data" / "canopy" / "library")
+    library_dir = repo_layout.child_path(
+        deployment / repo_layout.entry("web").path, "web", "canopy-library"
+    )
+    library_dir.parent.mkdir(parents=True)
+    root.rename(library_dir)
     stage.check_library(deployment)
 
 
 def test_the_build_step_refuses_a_library_with_an_invalid_file(tmp_path: Path, root: Path) -> None:
     _navigation(root, {"screen": "library/overview"})
     deployment = tmp_path / "deployment"
-    (deployment / "data" / "canopy").mkdir(parents=True)
-    root.rename(deployment / "data" / "canopy" / "library")
+    library_dir = repo_layout.child_path(
+        deployment / repo_layout.entry("web").path, "web", "canopy-library"
+    )
+    library_dir.parent.mkdir(parents=True)
+    root.rename(library_dir)
     with pytest.raises(stage.StaleLibrary) as refused:
         stage.check_library(deployment)
     assert "navigation: navigation.json: navigation: expected a list of entries" in str(

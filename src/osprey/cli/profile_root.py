@@ -2,7 +2,7 @@
 
 A positional profile file is one of two kinds, and its location alone says
 which: a deployment's own **root** profile, or a **login** in ``tiers/`` beside
-that profile's ``profile.yml``. A login is a layer: its ``data:``, convention
+that profile's ``profile.yml``. A login is a layer: its declared sources, convention
 dirs, ``.env`` and hash material all belong to the profile root one level up,
 never to the layer's own directory, so the distinction is made once, here,
 rather than re-derived by each consumer. The package ships login presets the
@@ -189,7 +189,7 @@ def resolve_profile_root(profile_path: Path) -> tuple[Path, ProfileKind]:
 
     Returns:
         ``(root_dir, kind)``. ``root_dir`` is the absolute directory that
-        ``data:``, convention dirs, ``.env`` and hash material resolve against:
+        declared sources, convention dirs, ``.env`` and hash material resolve against:
         the profile root for a login, the bundled presets directory for a
         login preset, the file's own parent otherwise. ``kind`` is
         :attr:`ProfileKind.TIER` for a layer that still has to be merged over a

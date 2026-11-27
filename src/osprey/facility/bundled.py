@@ -23,6 +23,7 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
+from osprey_facility import source_tree
 from osprey_facility.layers import LAYER_ROOT
 
 __all__ = [
@@ -124,7 +125,7 @@ def _proves_nothing(relative: Path) -> bool:
 
     if is_vcs_metadata(relative) or relative.as_posix() == MAPPING_FILE:
         return True
-    return relative.parts[0] == "knowledge" and relative.name == "index.md"
+    return relative.is_relative_to(source_tree.path("knowledge")) and relative.name == "index.md"
 
 
 def classify(facility_dir: Path, template_root: Path) -> Classification:
@@ -133,7 +134,7 @@ def classify(facility_dir: Path, template_root: Path) -> Classification:
     Version-control metadata (``.git`` at any depth) is no file of the tree.
 
     Args:
-        facility_dir: The ``data/facility`` directory; a missing one is empty.
+        facility_dir: The ``facility/`` directory; a missing one is empty.
         template_root: The package's template root, which holds the bundled facilities.
 
     Returns:

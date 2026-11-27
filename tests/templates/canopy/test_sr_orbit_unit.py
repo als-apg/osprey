@@ -28,7 +28,7 @@ LIBRARY = (
     / "templates"
     / "apps"
     / "demo"
-    / "data"
+    / "web"
     / "canopy"
     / "library"
     / "screens"

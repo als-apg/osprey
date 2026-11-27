@@ -1,6 +1,6 @@
 """Knowledge pages that link what the facility file does not hold.
 
-A page under ``data/facility/knowledge`` links the facility two ways. The
+A page under ``facility/knowledge`` links the facility two ways. The
 ``device_id`` key of its frontmatter names a device, and a
 ``[label](facility:ADDRESS)`` link in its body names a channel id or a device
 id, or a place as ``facility:place/<id>``. Every link resolves through
@@ -17,6 +17,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
 
+from osprey_facility import source_tree
 from osprey_facility.errors import FacilityBuildError, FacilityBuildWarning
 from osprey_facility.frontmatter import FrontmatterError, split_frontmatter
 from osprey_facility.records import PLACE_LINK_PREFIX, FacilityRecords
@@ -25,8 +26,8 @@ from osprey_facility.validate import Validated, need
 
 __all__ = ["KNOWLEDGE_DIR", "LINK_KEY", "DanglingLink", "check_knowledge_links", "dangling_links"]
 
-#: Where the knowledge pages live, relative to ``data/facility/``.
-KNOWLEDGE_DIR = "knowledge"
+#: Where the knowledge pages live, relative to ``facility/``.
+KNOWLEDGE_DIR = source_tree.path("knowledge")
 
 #: The frontmatter key that links a page to a device.
 LINK_KEY = "device_id"
@@ -37,7 +38,7 @@ class DanglingLink:
     """One link of a page that the facility file does not resolve.
 
     Attributes:
-        page: The page, relative to ``data/facility/``.
+        page: The page, relative to ``facility/``.
         target: The id the link names.
         where: ``frontmatter`` for the ``device_id`` key, ``body`` for a
             facility link in the page's text.
@@ -69,7 +70,7 @@ def dangling_links(facility_dir: Path, doc: Mapping[str, Any]) -> list[DanglingL
     """Name every knowledge-page link the facility file does not resolve.
 
     Args:
-        facility_dir: The content root, ``data/facility``, where the
+        facility_dir: The content root, ``facility``, where the
             deployment's ``knowledge`` directory sits; it may be missing.
         doc: The facility file.
 
@@ -77,7 +78,7 @@ def dangling_links(facility_dir: Path, doc: Mapping[str, Any]) -> list[DanglingL
         One entry per dangling link, sorted by page path; within a page the
         frontmatter link comes first, then the body links in page order.
     """
-    knowledge = facility_dir / KNOWLEDGE_DIR
+    knowledge = facility_dir / source_tree.path("knowledge")
     if not knowledge.is_dir():
         return []
     records = FacilityRecords(doc)

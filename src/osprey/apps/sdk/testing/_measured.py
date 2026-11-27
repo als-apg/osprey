@@ -1,6 +1,6 @@
 """A small facility with two measured models: what an application's tests build a kind on.
 
-``measured_tree`` is a ``data/facility`` tree, in the shape
+``measured_tree`` is a ``facility/`` tree, in the shape
 :func:`~osprey.apps.sdk.testing.write_tree` writes, holding:
 
 * model ``SR`` on a periodic deck: the split quadrupole ``SR/QF`` (slices QFA,
@@ -20,7 +20,8 @@ from __future__ import annotations
 import math
 from typing import Any
 
-from osprey.apps.sdk.testing._facility import Deck
+from osprey.apps.sdk.testing._facility import _LINE_DECK, _MODELS, _SR_DECK, Deck
+from osprey_facility import source_tree
 
 __all__ = [
     "LINE_GROUPS",
@@ -35,6 +36,9 @@ __all__ = [
 #: The group ids each model's measurement file names.
 SR_GROUPS = {"bpm": "SR/BPM", "quad": "SR/Q"}
 LINE_GROUPS = {"bpm": "LINE/BPM", "hcor": "LINE/HCM", "vcor": "LINE/VCM", "quad": "LINE/Q"}
+
+_SR_MEASUREMENT = source_tree.keyed_file("measurement", "SR")
+_LINE_MEASUREMENT = source_tree.keyed_file("measurement", "LINE")
 
 
 def measured_sr_deck() -> Deck:
@@ -132,11 +136,11 @@ def measured_tree() -> dict[str, Any]:
             {"id": "LINE/VCM", "members": ["LINE/COR1"]},
             {"id": "LINE/Q", "members": ["LINE/Q1"]},
         ],
-        "models.yaml": [
+        _MODELS: [
             {
                 "name": "SR",
                 "engine": "pyat",
-                "deck": "decks/sr.json",
+                "deck": _SR_DECK,
                 "wiring": [
                     {
                         **calibrated_setting("QF:SP", "PolynomB", 1),
@@ -153,7 +157,7 @@ def measured_tree() -> dict[str, Any]:
             {
                 "name": "LINE",
                 "engine": "pyat",
-                "deck": "decks/line.json",
+                "deck": _LINE_DECK,
                 "settings": {
                     "pyat": {
                         "solve": "single_pass",
@@ -169,20 +173,20 @@ def measured_tree() -> dict[str, Any]:
                 ],
             },
         ],
-        "measurement/SR.yaml": {
+        _SR_MEASUREMENT: {
             "kinds": ["trm"],
             "groups": dict(SR_GROUPS),
             "instruments": {"tune": "SR:TUNE:X"},
             "quad_delta": 0.001,
             "n_step": 3,
         },
-        "measurement/LINE.yaml": {
+        _LINE_MEASUREMENT: {
             "kinds": ["orm"],
             "groups": dict(LINE_GROUPS),
             "corrector_delta": 1.0e-5,
         },
-        "decks/sr.json": measured_sr_deck(),
-        "decks/line.json": _line_deck(),
+        _SR_DECK: measured_sr_deck(),
+        _LINE_DECK: _line_deck(),
     }
 
 
@@ -200,7 +204,7 @@ def with_rf(tree: dict[str, Any]) -> dict[str, Any]:
             "calibration": {"curve": {"linear": {"gain": 1.0e6, "offset": 0.0}}},
         }
     )
-    tree["measurement/SR.yaml"]["instruments"]["rf"] = "RF:SP"
+    tree[_SR_MEASUREMENT]["instruments"]["rf"] = "RF:SP"
     return tree
 
 
@@ -219,11 +223,11 @@ def with_correctors(tree: dict[str, Any]) -> dict[str, Any]:
         calibrated_setting("SCOR:H:SP", "KickAngle", 0, element="SCOR"),
         calibrated_setting("SCOR:V:SP", "KickAngle", 1, element="SCOR"),
     ]
-    tree["measurement/SR.yaml"]["groups"] |= {"hcor": "SR/HCM", "vcor": "SR/VCM"}
+    tree[_SR_MEASUREMENT]["groups"] |= {"hcor": "SR/HCM", "vcor": "SR/VCM"}
     return tree
 
 
 def _sr(tree: dict[str, Any]) -> dict[str, Any]:
-    (record,) = [model for model in tree["models.yaml"] if model["name"] == "SR"]
+    (record,) = [model for model in tree[_MODELS] if model["name"] == "SR"]
     sr: dict[str, Any] = record
     return sr

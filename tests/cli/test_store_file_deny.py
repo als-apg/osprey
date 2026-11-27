@@ -25,7 +25,7 @@ from osprey.cli.templates.claude_code import (
 from osprey.cli.templates.manager import TemplateManager
 from osprey_connectors.posture_store import STATE_DIR_NAME
 from osprey_connectors.workspace import DEFAULT_AGENT_DATA_BASE_DIR, agent_data_base_dir
-from tests._preset_data import bundle_data_root
+from tests._preset_data import bundle_source_root
 
 #: The project root a container render names: the root the terminal runs at,
 #: which exists only inside the container.
@@ -57,7 +57,7 @@ def _project(tmp_path: Path, name: str, fields: dict | None = None) -> Path:
         output_dir=tmp_path,
         data_bundle="demo",
         context={"channel_finder_mode": "hierarchical"},
-        data_root=bundle_data_root("demo"),
+        repo_root=bundle_source_root("demo"),
     )
     _apply_preset_config(manager, project, "demo")
     if fields:

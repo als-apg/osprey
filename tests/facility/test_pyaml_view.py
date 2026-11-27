@@ -69,7 +69,7 @@ def test_a_periodic_model_references_its_lattice_beside_the_configuration(
         "name": "design",
         "lattice": f"${{path:{LATTICE_FILE}}}",
     }
-    deck = tmp_path / "data" / "facility" / "decks" / "sr.json"
+    deck = tmp_path / "facility" / "simulation" / "decks" / "sr.json"
     lattice = (directory / "SR" / LATTICE_FILE).read_text(encoding="utf-8")
     assert lattice == polynomial_kicks(deck, [])
 
@@ -120,7 +120,7 @@ def test_every_name_in_the_configuration_resolves_back_through_the_mapping(
     from pyaml_cs_osprey.names import UnmappedName
 
     tree = measured_tree()
-    tree["measurement/LINE.yaml"]["groups"]["vcor"] = vcor
+    tree["simulation/measurement/LINE.yaml"]["groups"]["vcor"] = vcor
     inputs = view_inputs(tmp_path, tree)
     directory, _ = write_view(tmp_path / "view", tree)
     for model in ("SR", "LINE"):
@@ -156,24 +156,24 @@ def test_a_served_model_without_a_measurement_file_is_named_in_a_note(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     tree = measured_tree()
-    del tree["measurement/LINE.yaml"]
+    del tree["simulation/measurement/LINE.yaml"]
     directory, written = write_view(tmp_path, tree)
     assert not (directory / "LINE").exists()
     assert {path.parent.name for path in written} == {"SR"}
     captured = capsys.readouterr()
-    assert "pyAML view omitted for LINE: no measurement/LINE.yaml" in captured.err
+    assert "pyAML view omitted for LINE: no simulation/measurement/LINE.yaml" in captured.err
     assert captured.out == ""
 
 
 def test_a_render_with_no_measured_model_does_not_carry_the_view(tmp_path: Path) -> None:
     tree = measured_tree()
-    del tree["measurement/LINE.yaml"]
-    del tree["measurement/SR.yaml"]
+    del tree["simulation/measurement/LINE.yaml"]
+    del tree["simulation/measurement/SR.yaml"]
     wanted, reason = pyaml_view_wanted(view_inputs(tmp_path, tree))
     assert wanted is False
     assert reason == (
-        "pyAML view omitted for LINE: no measurement/LINE.yaml; "
-        "pyAML view omitted for SR: no measurement/SR.yaml"
+        "pyAML view omitted for LINE: no simulation/measurement/LINE.yaml; "
+        "pyAML view omitted for SR: no simulation/measurement/SR.yaml"
     )
 
 

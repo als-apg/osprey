@@ -30,7 +30,7 @@ class Stating(NamedTuple):
 
     Attributes:
         layer: The layer.
-        file: The file, relative to ``data/facility/``.
+        file: The file, relative to ``facility/``.
         fields: The fields it states.
         basis: ``inferred`` when the record said a named rule derived them, else ``None``.
         rule: That rule.

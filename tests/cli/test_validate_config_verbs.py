@@ -48,7 +48,6 @@ PROFILE_WITH_COMMENTS = """\
 # The facility this deployment serves.
 name: Demo Facility
 model: claude-haiku-4-5  # tier, or any model ID the provider serves
-data: data
 """
 
 
@@ -71,9 +70,8 @@ def _write_profile(root: Path, body: dict[str, Any]) -> Path:
     ``data`` keeps it.
     """
     root.mkdir(parents=True, exist_ok=True)
-    (root / "data").mkdir(exist_ok=True)
     path = root / "profile.yml"
-    path.write_text(yaml.safe_dump({"data": "data", **body}, sort_keys=False), encoding="utf-8")
+    path.write_text(yaml.safe_dump({**body}, sort_keys=False), encoding="utf-8")
     return path
 
 
@@ -215,8 +213,7 @@ def test_validate_exits_2_on_an_invalid_profile(
     pipeline has always keyed on, unchanged by the move."""
     root = tmp_path / "broken"
     root.mkdir()
-    (root / "data").mkdir()
-    (root / "profile.yml").write_text("name: Bad\ndata: data\nconfig: []\n", encoding="utf-8")
+    (root / "profile.yml").write_text("name: Bad\nconfig: []\n", encoding="utf-8")
     monkeypatch.chdir(root)
 
     result = runner.invoke(validate, [])

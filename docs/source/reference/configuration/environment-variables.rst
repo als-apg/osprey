@@ -170,7 +170,7 @@ CANOPY payload (:doc:`/how-to/web-terminal/canopy`). Two variables steer the
      - The payload directory the canopy repository's
        ``scripts/build-payload.sh`` wrote. Read from the shell first, then
        from the deployment's ``.env.shared`` and ``.env``. ``osprey build``
-       copies it into the deployment as ``canopy_payload/``; a directory that
+       copies it into the render as ``build/canopy_payload/``; a directory that
        is missing or not a finished payload stops the build. The payload must
        be built at the CANOPY and PyDMConverter commits this OSPREY is proven
        against; a payload built at any other commit stops the build.

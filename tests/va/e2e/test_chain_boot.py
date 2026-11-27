@@ -227,8 +227,8 @@ def _measuring(served: Any) -> gm.Deployment:
         },
         "approval": {"enabled": True, "default_policy": "always"},
         "python_executor": {"execution_timeout_seconds": gm.EXECUTION_TIMEOUT_S},
-        # The chain's profile names no path beyond the data tree, which the
-        # guard holds by name.
+        # The chain's profile names no path beyond the facility tree, which
+        # the guard holds by name.
         PROTECTED_PATHS_CONFIG_KEY: [],
     }
     (render / "config.yml").write_text(yaml.safe_dump(config), encoding="utf-8")

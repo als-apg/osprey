@@ -77,7 +77,7 @@ def _tree(*, also: bool = True) -> dict[str, Any]:
             for address in (SETPOINT, SETPOINT_ALSO)
         ]
     }
-    tree["seeds.yaml"] = {READING: {"noise": {"absolute": NOISE}}}
+    tree["simulation/seeds.yaml"] = {READING: {"noise": {"absolute": NOISE}}}
     if also:
         for record in model(tree, "SR")["wiring"]:
             if record["address"] == READING:
@@ -169,7 +169,10 @@ def test_a_further_address_stands_in_its_records_readout_group(view: Path) -> No
 
 def test_a_channel_fault_on_the_record_shows_under_both_addresses(tmp_path: Path) -> None:
     tree = _tree()
-    tree["scenarios/stuck.yaml"] = {"name": "stuck", "channel_faults": {READING_ALSO: "frozen"}}
+    tree["simulation/scenarios/stuck.yaml"] = {
+        "name": "stuck",
+        "channel_faults": {READING_ALSO: "frozen"},
+    }
     clock = _Clock()
     composite = _composite(_view(tmp_path, tree), clock, state_dir=tmp_path / "state")
     live = composite.get(READING)
@@ -247,7 +250,7 @@ def _turn_by_turn_view(root: Path) -> Path:
         {"id": TURN_X_ALSO, "value_type": "waveform", "shape": shape},
     ]
     channels.write_text(yaml.safe_dump(listed), encoding="utf-8")
-    models = facility_dir / "models.yaml"
+    models = facility_dir / "simulation" / "models.yaml"
     document = yaml.safe_load(models.read_text(encoding="utf-8"))
     ring = next(entry for entry in document if entry["name"] == RING)
     for record in ring["wiring"]:

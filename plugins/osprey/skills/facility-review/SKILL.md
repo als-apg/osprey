@@ -4,7 +4,7 @@ description: >
   Resolves what the OSPREY facility build flags, with the person who maintains the
   facility repository: runs `osprey facility validate`, investigates every stop and
   warning it prints, groups the ones that share a cause, asks one evidence-backed
-  question per group, writes each confirmed answer into `fixes.yaml` or `policy.yaml`
+  question per group, writes each confirmed answer into `provenance/fixes.yaml` or `provenance/policy.yaml`
   (or proposes a diff to an authored facility file), rebuilds, and shows the finding
   gone. Use whenever a facility build stops or warns, whenever someone pastes a
   `facility: <kind>: ...` line, after `osprey facility import` brings in a cable
@@ -116,11 +116,11 @@ finding, collect what a maintainer would want on the table:
   build is stopped, `show` prints the same stop instead; read the source files then.
 - **The sources named in the line.** Layer files under `imported/<layer>/`, including
   the byte copies of the imported tables kept there (read them, never edit them), the
-  authored files under `records/`, and `documents.yaml` for what each cited document is.
+  authored files under `records/`, and `provenance/documents.yaml` for what each cited document is.
 - **Neighbours.** The same device family one sector over, the other ports of the same
   supply, the other rows of the same table. A disagreement that repeats with a constant
   offset has one cause; one that appears once is probably a real exception.
-- **Decisions already made.** `fixes.yaml` and `policy.yaml`. A finding may be the
+- **Decisions already made.** `provenance/fixes.yaml` and `provenance/policy.yaml`. A finding may be the
   consequence of an old ruling meeting a new import.
 
 Per-kind guidance for the kinds OSPREY reports today is in `references/kinds.md`: what
@@ -184,7 +184,7 @@ Always the same rack, always one unit apart.
  Examples: QF1-PS (U12 / U11), QF2-PS (U14 / U13), QD1-PS (U20 / U19).
 
  1. Rack layout wins (recommended): rank `drawing` above `spec` for located_in
-    in policy.yaml. The 9 schedule claims become superseded.
+    in provenance/policy.yaml. The 9 schedule claims become superseded.
  2. Cable schedule wins: the reverse ranking.
  3. Rule on some of them one by one.
  4. Leave contested.
@@ -203,12 +203,12 @@ Write only after the answer, and only what was answered. Where a ruling goes:
 
 | The person ruled | Write |
 | --- | --- |
-| One kind of document outranks another, for a relation type or for all | `policy.yaml`: `relations.precedence` |
-| Inferred claims rank equal to stated ones (stated wins by default once a policy exists) | `policy.yaml`: `relations.stated_over_inferred: false` |
-| An imported record or claim has a wrong value | `fixes.yaml`: a `set` fix |
-| An imported record or claim should not exist | `fixes.yaml`: a `drop` fix |
-| A record or claim is missing and no source will supply it | `fixes.yaml`: an `add` fix |
-| A hand-written record is wrong (anything under `records/`, `documents.yaml`, `classes.yaml`, ...) | A diff to that file, approved first |
+| One kind of document outranks another, for a relation type or for all | `provenance/policy.yaml`: `relations.precedence` |
+| Inferred claims rank equal to stated ones (stated wins by default once a policy exists) | `provenance/policy.yaml`: `relations.stated_over_inferred: false` |
+| An imported record or claim has a wrong value | `provenance/fixes.yaml`: a `set` fix |
+| An imported record or claim should not exist | `provenance/fixes.yaml`: a `drop` fix |
+| A record or claim is missing and no source will supply it | `provenance/fixes.yaml`: an `add` fix |
+| A hand-written record is wrong (anything under `records/`, `provenance/documents.yaml`, `vocabulary/classes.yaml`, ...) | A diff to that file, approved first |
 | The source table itself is wrong and the person wants it corrected there | Nothing in the tree. They correct the table; re-import with `osprey facility import` |
 | Leave it | Nothing |
 
@@ -217,7 +217,7 @@ Formats, required fields and the stops a malformed decision raises are in
 most:
 
 - Every fix carries `why`. Write the person's reason, not a paraphrase of the finding.
-  Someone reading `fixes.yaml` in a year needs to know who was believed and on what
+  Someone reading `provenance/fixes.yaml` in a year needs to know who was believed and on what
   ground.
 - A `set` fix carries `was`: the value each layer states today. That is what makes the
   build stop with `fix-stale` when a later import changes the source, which is the
@@ -225,7 +225,7 @@ most:
   it.
 - A fix cannot target a record only authored files state; the build stops with
   `fix-authored`. Edit the authored file by diff instead.
-- Policy ranks document *kinds*, and only kinds that a document in `documents.yaml`
+- Policy ranks document *kinds*, and only kinds that a document in `provenance/documents.yaml`
   declares. If the deciding document is not declared or has no kind, that is an
   authored-file diff to propose first.
 - Prefer policy when the person's answer is a rule ("the drawing always wins for
@@ -262,7 +262,7 @@ When the report is clean, or the person stops:
 
 - `references/kinds.md`: per-kind investigation notes for the kinds reported today.
   Read the sections for the kinds in front of you.
-- `references/decision-files.md`: `fixes.yaml`, `policy.yaml`, `documents.yaml`, how
+- `references/decision-files.md`: `provenance/fixes.yaml`, `provenance/policy.yaml`, `provenance/documents.yaml`, how
   claim standing is computed, and the stops a decision file can raise. Read before the
   first write.
 - `references/questions.md`: question templates with pictures. Read before the first

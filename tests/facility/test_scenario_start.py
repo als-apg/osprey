@@ -23,6 +23,7 @@ import yaml
 from osprey.facility.settings import fill_facility_settings
 from osprey.facility.views.simulator import _scenarios_document
 from osprey.simulation import DEFAULT_SCENARIOS_KEY
+from osprey_facility import source_tree
 from osprey_facility.errors import FacilityBuildError
 from osprey_facility.records import FacilityRecords
 from osprey_facility.schema._generated.core import Scenario
@@ -269,8 +270,8 @@ def _validated(tmp_path: Path, scenario: dict[str, Any]):
 
     root = tmp_path / "facility"
     for rel, data in {
-        "records/channels.yaml": [{"id": "A:RB"}],
-        "scenarios/errors.yaml": scenario,
+        source_tree.path("channels"): [{"id": "A:RB"}],
+        source_tree.keyed_file("scenarios", "errors"): scenario,
     }.items():
         path = root / rel
         path.parent.mkdir(parents=True, exist_ok=True)

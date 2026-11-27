@@ -35,8 +35,8 @@ from tests.facility._pyaml_trees import built_document, measured_tree, with_corr
 
 def _tree() -> dict[str, Any]:
     tree = with_correctors(with_rf(measured_tree()))
-    tree["measurement/SR.yaml"]["kinds"] = ["orm", "dispersion", "trm"]
-    tree["measurement/SR.yaml"] |= {
+    tree["simulation/measurement/SR.yaml"]["kinds"] = ["orm", "dispersion", "trm"]
+    tree["simulation/measurement/SR.yaml"] |= {
         "corrector_delta": 1.0e-5,
         "frequency_delta": 100.0,
         "sleep_between_step": 0.25,

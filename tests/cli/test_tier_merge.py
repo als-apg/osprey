@@ -30,7 +30,6 @@ from tests._retired_layout import RETIRED_LAYER_DIRNAME
 
 _ROOT = {
     "name": "Facility",
-    "data": "data",
     "deploy_services": True,
     "skills": ["diagnose", "session-report"],
     "web_panels": ["ariel"],
@@ -54,7 +53,6 @@ def _write_yaml(path: Path, document: dict) -> Path:
 def _repo(tmp_path: Path, layer: str, document: dict, root: dict | None = None) -> Path:
     """A deployment repo with one layer file; returns the layer's path."""
     repo = tmp_path / "repo"
-    (repo / "data").mkdir(parents=True, exist_ok=True)
     _write_yaml(repo / "profile.yml", root if root is not None else _ROOT)
     return _write_yaml(repo / layer, document)
 
@@ -314,12 +312,10 @@ def test_golden_variant_overlay_subtracts_a_service(tmp_path: Path) -> None:
     an overlay on ``profile.yml`` still subtracts a service with ``exclude:``.
     """
     repo = tmp_path / "repo"
-    (repo / "data").mkdir(parents=True)
     _write_yaml(
         repo / "base.yml",
         {
             "name": "Base",
-            "data": "data",
             "config": {"deployed_services": ["alpha", "beta", "gamma"]},
         },
     )

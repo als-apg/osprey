@@ -194,7 +194,13 @@ def _read_fixtures(root: Path) -> list[_Fixture]:
 def _load_definitions(
     profiles: Sequence[Path], project_dir: Path | None, selected: str | None
 ) -> tuple[WatchdogDefinition, ...]:
-    """The watchdogs to replay, each switched on: a replay comes before enabling."""
+    """The watchdogs to replay, each switched on: a replay comes before enabling.
+
+    Raises:
+        RetiredRootRefused: A profile's directory holds anything at a retired
+            path; its watchdogs are not read.
+    """
+    from osprey.repo_retired import refuse_retired_layout
     from osprey.services.watchdog.definitions import load_profile_watchdogs
     from osprey_connectors.errors import BuildProfileError
 
@@ -204,6 +210,7 @@ def _load_definitions(
         raise _Refusal("No profile to replay", str(exc), "Name one with --profile DIR.") from exc
     loaded: dict[str, WatchdogDefinition] = {}
     for root in roots:
+        refuse_retired_layout(root)
         try:
             definitions = load_profile_watchdogs(root)
         except BuildProfileError as exc:

@@ -53,10 +53,10 @@ def _write_config(project_path: Path, config: dict) -> Path:
 
 
 def test_markdown_categories_copy_file_by_file(profile_dir: Path, project_path: Path):
-    _write(profile_dir / "rules" / "facility-ops.md")
-    _write(profile_dir / "agents" / "orbit-writer.md")
-    _write(profile_dir / "commands" / "ops" / "restart.md")
-    _write(profile_dir / "output-styles" / "terse.md")
+    _write(profile_dir / "agent" / "rules" / "facility-ops.md")
+    _write(profile_dir / "agent" / "agents" / "orbit-writer.md")
+    _write(profile_dir / "agent" / "commands" / "ops" / "restart.md")
+    _write(profile_dir / "agent" / "output-styles" / "terse.md")
 
     applied = _apply_conventions(profile_dir, project_path)
 
@@ -69,7 +69,7 @@ def test_markdown_categories_copy_file_by_file(profile_dir: Path, project_path: 
 
 def test_hooks_copy_file_by_file_and_keep_their_mode(profile_dir: Path, project_path: Path):
     """A hook is a script the agent runs, so its executable bit has to survive."""
-    hook = _write(profile_dir / "hooks" / "facility_guard.py", "#!/usr/bin/env python3\n")
+    hook = _write(profile_dir / "agent" / "hooks" / "facility_guard.py", "#!/usr/bin/env python3\n")
     hook.chmod(0o755)
 
     applied = _apply_conventions(profile_dir, project_path)
@@ -82,8 +82,10 @@ def test_hooks_copy_file_by_file_and_keep_their_mode(profile_dir: Path, project_
 
 
 def test_skills_copy_as_whole_directories(profile_dir: Path, project_path: Path):
-    _write(profile_dir / "skills" / "orbit-check" / "SKILL.md")
-    _write(profile_dir / "skills" / "orbit-check" / "scripts" / "check.py", "print('hi')\n")
+    _write(profile_dir / "agent" / "skills" / "orbit-check" / "SKILL.md")
+    _write(
+        profile_dir / "agent" / "skills" / "orbit-check" / "scripts" / "check.py", "print('hi')\n"
+    )
 
     applied = _apply_conventions(profile_dir, project_path)
 
@@ -94,8 +96,8 @@ def test_skills_copy_as_whole_directories(profile_dir: Path, project_path: Path)
 
 
 def test_services_and_mcp_servers_copy_as_whole_directories(profile_dir: Path, project_path: Path):
-    _write(profile_dir / "services" / "archiver" / "docker-compose.yml", "services: {}\n")
-    _write(profile_dir / "mcp_servers" / "matlab" / "server.py", "x = 1\n")
+    _write(profile_dir / "ops" / "services" / "archiver" / "docker-compose.yml", "services: {}\n")
+    _write(profile_dir / "agent" / "mcp_servers" / "matlab" / "server.py", "x = 1\n")
 
     _apply_conventions(profile_dir, project_path)
 
@@ -104,9 +106,9 @@ def test_services_and_mcp_servers_copy_as_whole_directories(profile_dir: Path, p
 
 
 def test_project_mirror_lands_verbatim_on_the_root(profile_dir: Path, project_path: Path):
-    _write(profile_dir / "project" / "docs" / "runbook.md")
-    _write(profile_dir / "project" / "Makefile", "all:\n\techo hi\n")
-    _write(profile_dir / "project" / ".gitignore", "_agent_data/\n")
+    _write(profile_dir / "ops" / "project" / "docs" / "runbook.md")
+    _write(profile_dir / "ops" / "project" / "Makefile", "all:\n\techo hi\n")
+    _write(profile_dir / "ops" / "project" / ".gitignore", "_agent_data/\n")
 
     applied = _apply_conventions(profile_dir, project_path)
 
@@ -117,7 +119,7 @@ def test_project_mirror_lands_verbatim_on_the_root(profile_dir: Path, project_pa
 
 
 def test_directory_copy_replaces_a_stale_destination(profile_dir: Path, project_path: Path):
-    _write(profile_dir / "skills" / "orbit-check" / "SKILL.md", "# new\n")
+    _write(profile_dir / "agent" / "skills" / "orbit-check" / "SKILL.md", "# new\n")
     _write(project_path / ".claude/skills/orbit-check/SKILL.md", "# stale\n")
     _write(project_path / ".claude/skills/orbit-check/gone.md", "# removed upstream\n")
 
@@ -138,7 +140,7 @@ def test_nothing_to_apply_is_not_an_error(profile_dir: Path, project_path: Path)
 
 
 def test_reserved_mirror_path_fails_naming_its_channel(profile_dir: Path, project_path: Path):
-    _write(profile_dir / "project" / "config.yml", "facility: {}\n")
+    _write(profile_dir / "ops" / "project" / "config.yml", "facility: {}\n")
 
     with pytest.raises(BuildProfileError) as excinfo:
         _apply_conventions(profile_dir, project_path)
@@ -152,8 +154,8 @@ def test_reserved_mirror_path_rejects_before_copying_anything(
     profile_dir: Path, project_path: Path
 ):
     """Validation is up front: a bad mirror leaves the project untouched."""
-    _write(profile_dir / "rules" / "facility-ops.md")
-    _write(profile_dir / "project" / ".mcp.json", "{}\n")
+    _write(profile_dir / "agent" / "rules" / "facility-ops.md")
+    _write(profile_dir / "ops" / "project" / ".mcp.json", "{}\n")
 
     with pytest.raises(BuildProfileError):
         _apply_conventions(profile_dir, project_path)
@@ -162,8 +164,8 @@ def test_reserved_mirror_path_rejects_before_copying_anything(
 
 
 def test_misshapen_convention_source_fails_before_copying(profile_dir: Path, project_path: Path):
-    _write(profile_dir / "rules" / "facility-ops.md")
-    _write(profile_dir / "skills" / "loose.md")
+    _write(profile_dir / "agent" / "rules" / "facility-ops.md")
+    _write(profile_dir / "agent" / "skills" / "loose.md")
 
     with pytest.raises(BuildProfileError, match="one directory per skill"):
         _apply_conventions(profile_dir, project_path)
@@ -175,7 +177,7 @@ def test_symlinked_destination_escaping_the_project_fails_the_build(
     profile_dir: Path, project_path: Path, tmp_path: Path
 ):
     """A pre-existing symlink at a destination path must not redirect the copy."""
-    _write(profile_dir / "rules" / "facility-ops.md")
+    _write(profile_dir / "agent" / "rules" / "facility-ops.md")
     outside = tmp_path / "outside-rules"
     outside.mkdir()
     (project_path / ".claude").mkdir()
@@ -196,64 +198,128 @@ def test_profile_dir_inside_the_osprey_package_is_refused(project_path: Path):
     with pytest.raises(BuildProfileError, match="inside the installed osprey package"):
         _apply_conventions(presets_dir, project_path, ["alice"])
 
-    assert not (presets_dir / "web-terminal-context").exists()
+    assert not (presets_dir / "agent" / "context").exists()
 
 
-def test_known_root_entries_derive_from_the_profile():
-    """Every profile-relative path the profile declares exempts its root entry."""
-    from osprey.cli.build_persistence import _profile_known_root_entries
-    from osprey.cli.build_profile_model import BuildProfile
-    from osprey.cli.build_profile_schema import DispatchConfig, ServiceDef
+def _named_root_entries(repo: Path, **profile: object) -> tuple[str, ...]:
+    """The root entries the paths a profile at *repo* names lie under, as a render reads them."""
+    from osprey.cli.build_profile_resolve import resolve_build_document
+    from osprey.cli.build_protected_paths import emit_protected_paths, root_entry_names
 
-    profile = BuildProfile(
-        name="p",
-        data="facility-data/channels",
-        dispatch=DispatchConfig(triggers="dispatch/triggers.yml"),
-        services={"beam-logger": ServiceDef(template="service-templates/beam-logger")},
+    repo.mkdir(parents=True, exist_ok=True)
+    (repo / "profile.yml").write_text(
+        yaml.safe_dump({"name": "p", **profile}, sort_keys=False), encoding="utf-8"
+    )
+    loaded = resolve_build_document(repo / "profile.yml", None, ())
+    emitted = emit_protected_paths(
+        [loaded], deployment_root=repo, agent_data_root=Path("var/agent_data")
+    )
+    return root_entry_names(emitted.entries)
+
+
+def _package(directory: Path) -> None:
+    directory.mkdir(parents=True)
+    (directory / "pyproject.toml").write_text(
+        f'[project]\nname = "{directory.name}"\nversion = "0"\n', encoding="utf-8"
     )
 
-    known = _profile_known_root_entries(profile, Path("/somewhere/my-profile.yml"))
 
-    assert known == [
-        "my-profile.yml",
-        "facility-data",
-        "dispatch",
-        "service-templates",
-    ]
+def test_known_root_entries_derive_from_the_profile(tmp_path: Path):
+    """Every profile-relative path the profile declares exempts its root entry."""
+    _write(tmp_path / "dispatch" / "triggers.yml", "triggers: []\n")
+    _write(
+        tmp_path / "service-templates" / "beam-logger" / "docker-compose.yml.j2", "services: {}\n"
+    )
+
+    known = _named_root_entries(
+        tmp_path,
+        dispatch={"triggers": "dispatch/triggers.yml"},
+        services={"beam-logger": {"template": "service-templates/beam-logger", "config": {}}},
+    )
+
+    assert {"profile.yml", "dispatch", "service-templates"} <= set(known)
 
 
 def test_a_local_path_dependency_exempts_its_root_directory_and_nothing_else(tmp_path: Path):
     """A package source the profile's ``dependencies`` points into is no typo; a stray is."""
-    from osprey.cli.build_persistence import _profile_known_root_entries
-    from osprey.cli.build_profile_model import BuildProfile
     from osprey.cli.profile_conventions import unknown_root_entries
 
-    (tmp_path / "kinds" / "fixture_kind").mkdir(parents=True)
-    (tmp_path / "vendored").mkdir()
+    _package(tmp_path / "kinds" / "fixture_kind")
+    _package(tmp_path / "vendored")
     (tmp_path / "strayed").mkdir()
-    profile = BuildProfile(
-        name="p",
+
+    known = _named_root_entries(
+        tmp_path,
         dependencies=[
             "./kinds/fixture_kind",
             f"vendored-pkg @ file://{tmp_path / 'vendored'}",
             "numpy>=2",
-            "../outside",
         ],
     )
 
-    known = _profile_known_root_entries(profile, tmp_path / "profile.yml")
-
-    assert known == ["profile.yml", "kinds", "vendored"]
+    assert {"kinds", "vendored"} <= set(known)
     assert unknown_root_entries(tmp_path, known) == ["strayed"]
 
 
-def test_known_root_entries_skip_paths_above_the_profile():
-    from osprey.cli.build_persistence import _profile_known_root_entries
-    from osprey.cli.build_profile_model import BuildProfile
+def test_root_directories_named_by_service_keys_are_known_and_a_stray_is_not(tmp_path: Path):
+    """``optimizer.environments_dir``, ``bluesky.plan_dir`` and every
+    ``bluesky.external.parameter_schemas`` host path name root directories the
+    build mounts; they are not typos. A stray beside them still is, and a path
+    above the root exempts nothing."""
+    from osprey.cli.profile_conventions import unknown_root_entries
 
-    profile = BuildProfile(name="p", data="../data")
+    for directory in ("optimizer/environments", "facility-plans", "plan-schemas", "strayed"):
+        (tmp_path / "repo" / directory).mkdir(parents=True)
+    _write(tmp_path / "repo" / "plan-schemas" / "trajectory.json", "{}\n")
+    _write(tmp_path / "outside" / "detector.json", "{}\n")
 
-    assert _profile_known_root_entries(profile, None) == []
+    known = _named_root_entries(
+        tmp_path / "repo",
+        optimizer={"environments_dir": "optimizer/environments"},
+        bluesky={
+            "plan_dir": "./facility-plans",
+            "external": {
+                "zmq_control_addr": "tcp://qserver:60615",
+                "insecure_plaintext": True,
+                "parameter_schemas": {
+                    "scan.trajectory": "plan-schemas/trajectory.json",
+                    "scan.detector": "../outside/detector.json",
+                },
+            },
+        },
+    )
+
+    assert unknown_root_entries(tmp_path / "repo", known) == ["strayed"]
+    assert ".." not in known
+
+
+def test_a_root_directory_named_by_a_configuration_key_is_known(tmp_path: Path):
+    """A path a ``config:`` key names is read by the build or a service; it is no typo."""
+    from osprey.cli.profile_conventions import unknown_root_entries
+
+    (tmp_path / "night-plans").mkdir()
+    (tmp_path / "strayed").mkdir()
+
+    known = _named_root_entries(tmp_path, config={"bluesky.plan_dirs": ["night-plans"]})
+
+    assert unknown_root_entries(tmp_path, known) == ["strayed"]
+
+
+def test_only_a_path_anchored_at_the_root_names_a_root_entry():
+    from osprey.cli.build_protected_paths import root_entry_names
+
+    entries = [
+        "../dispatch/triggers.yml",
+        "plans/../../elsewhere",
+        "/srv/plans",
+        "~/plans",
+        "${PLAN_ROOT}/plans",
+        "./plans/",
+        "plans/night",
+        "profile.yml",
+    ]
+
+    assert root_entry_names(entries) == ("plans", "profile.yml")
 
 
 def test_unknown_root_entry_warns_as_a_candidate_typo(
@@ -288,7 +354,7 @@ def test_known_extra_root_entries_do_not_warn(
 
 
 def test_roster_users_get_their_context_copied(profile_dir: Path, project_path: Path):
-    _write(profile_dir / "web-terminal-context" / "alice" / "extra.md")
+    _write(profile_dir / "agent" / "context" / "alice" / "extra.md")
 
     applied = _apply_conventions(profile_dir, project_path, ["alice"])
 
@@ -298,7 +364,7 @@ def test_roster_users_get_their_context_copied(profile_dir: Path, project_path: 
 
 def test_empty_roster_skips_per_user_context(profile_dir: Path, project_path: Path):
     """A render build disables web terminals, so it resolves no roster at all."""
-    _write(profile_dir / "web-terminal-context" / "alice" / "extra.md")
+    _write(profile_dir / "agent" / "context" / "alice" / "extra.md")
 
     applied = _apply_conventions(profile_dir, project_path, [])
 
@@ -309,7 +375,7 @@ def test_empty_roster_skips_per_user_context(profile_dir: Path, project_path: Pa
 def test_missing_user_directory_is_seeded_in_the_profile(
     profile_dir: Path, project_path: Path, caplog: pytest.LogCaptureFixture
 ):
-    _write(profile_dir / "web-terminal-context" / "alice" / "extra.md")
+    _write(profile_dir / "agent" / "context" / "alice" / "extra.md")
 
     # Renderer migration (disposition row 36): the default view now carries only
     # the count, as a render sub-step; the list of seeded directories stayed on
@@ -318,18 +384,18 @@ def test_missing_user_directory_is_seeded_in_the_profile(
         applied = _apply_conventions(profile_dir, project_path, ["alice", "bob"])
 
     assert applied.seeded_users == ["bob"]
-    seeded = profile_dir / "web-terminal-context" / "bob"
+    seeded = profile_dir / "agent" / "context" / "bob"
     assert seeded.is_dir()
     # A .gitkeep so the seeded directory survives a commit of the profile.
     assert (seeded / ".gitkeep").is_file()
-    assert "web-terminal-context/bob" in caplog.text
+    assert "agent/context/bob" in caplog.text
 
 
 def test_departed_user_warns_and_is_skipped(
     profile_dir: Path, project_path: Path, caplog: pytest.LogCaptureFixture
 ):
-    _write(profile_dir / "web-terminal-context" / "alice" / "extra.md")
-    _write(profile_dir / "web-terminal-context" / "departed" / "extra.md")
+    _write(profile_dir / "agent" / "context" / "alice" / "extra.md")
+    _write(profile_dir / "agent" / "context" / "departed" / "extra.md")
 
     with caplog.at_level(logging.WARNING):
         applied = _apply_conventions(profile_dir, project_path, ["alice"])
@@ -338,7 +404,7 @@ def test_departed_user_warns_and_is_skipped(
     assert not (project_path / "docker/web-terminal-context/departed").exists()
     assert "departed" in caplog.text
     # Warn and skip — the profile's own directory is never removed.
-    assert (profile_dir / "web-terminal-context" / "departed" / "extra.md").is_file()
+    assert (profile_dir / "agent" / "context" / "departed" / "extra.md").is_file()
 
 
 # ── Roster resolution from the built project's config ────────────────
@@ -385,10 +451,12 @@ def test_missing_config_resolves_empty(project_path: Path):
 
 def test_applied_artifacts_register_as_user_owned(profile_dir: Path, project_path: Path):
     _write_config(project_path, {"scaffold": {"user_owned": []}})
-    _write(profile_dir / "rules" / "facility-ops.md")
-    _write(profile_dir / "skills" / "orbit-check" / "SKILL.md")
-    _write(profile_dir / "services" / "beam-logger" / "docker-compose.yml", "services: {}\n")
-    _write(profile_dir / "project" / "docs" / "runbook.md")
+    _write(profile_dir / "agent" / "rules" / "facility-ops.md")
+    _write(profile_dir / "agent" / "skills" / "orbit-check" / "SKILL.md")
+    _write(
+        profile_dir / "ops" / "services" / "beam-logger" / "docker-compose.yml", "services: {}\n"
+    )
+    _write(profile_dir / "ops" / "project" / "docs" / "runbook.md")
 
     applied = _apply_conventions(profile_dir, project_path)
     registered = _register_convention_artifacts(project_path, applied)
@@ -406,7 +474,7 @@ def test_applied_artifacts_register_as_user_owned(profile_dir: Path, project_pat
 
 
 def test_registration_without_config_is_a_no_op(profile_dir: Path, project_path: Path):
-    _write(profile_dir / "rules" / "facility-ops.md")
+    _write(profile_dir / "agent" / "rules" / "facility-ops.md")
     applied = _apply_conventions(profile_dir, project_path)
     assert _register_convention_artifacts(project_path, applied) == 0
 
@@ -436,7 +504,7 @@ def test_registration_never_claims_framework_artifacts(profile_dir: Path, tmp_pa
         return set(config["scaffold"]["user_owned"])
 
     owned_before = user_owned()
-    _write(profile_dir / "rules" / "facility-ops.md")
+    _write(profile_dir / "agent" / "rules" / "facility-ops.md")
     applied = _apply_conventions(profile_dir, project_path)
     _register_convention_artifacts(project_path, applied)
 

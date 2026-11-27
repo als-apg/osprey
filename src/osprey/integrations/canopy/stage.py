@@ -1,19 +1,26 @@
 # ruff: noqa: T201 -- the pre_build stage command reports on stdout
-"""Stage the CANOPY payload into a deployment repo: the ``pre_build`` step.
+"""Stage the CANOPY payload into the render being built: the ``pre_build`` step.
 
 Run as ``"{python}" -m osprey.integrations.canopy.stage`` with the repo root as
-the working directory. It builds nothing. The payload — the ``canopy`` and
+the working directory, by the lifecycle runner, which names the stage directory
+of the render ``osprey build`` is making in :data:`STAGE_DIR_ENV`. It builds
+nothing. The payload — the ``canopy`` and
 ``pydmconverter`` wheels, the viewer (whose ``ir-map.json`` is the widget
 catalog), Trace, the staged spec when there is one, and the ``STAGED.json``
 that names what they were built from — is made in the canopy repo by
 ``scripts/build-payload.sh``; this step checks that directory and copies it
-in:
+into the stage directory, so that the swap puts it in ``build/``:
 
-* the two wheels go into the repo root, where the image's wheel-drop layer
-  installs every ``*.whl`` it finds;
-* everything else goes under ``canopy_payload/``, ``spec/`` included: CANOPY
-  finds the IR and prop schemas there, beside the viewer, and answers
-  ``spec_unavailable`` without them.
+* the two wheels go into the stage directory's root (``build/*.whl``); the
+  build copies them to the root of every image context, where the image's
+  wheel-drop layer installs every ``*.whl`` it finds;
+* everything else goes under ``canopy_payload/`` (``build/canopy_payload/``),
+  ``spec/`` included: CANOPY finds the IR and prop schemas there, beside the
+  viewer, and answers ``spec_unavailable`` without them. The build copies it
+  to ``canopy_payload/`` in every image context too.
+
+Nothing is ever written to the repo root. Run outside a build, with
+:data:`STAGE_DIR_ENV` unset, a step that would stage is refused.
 
 ``STAGED.json`` records the spec as ``"spec"`` (the commit it came from) and
 ``"spec-digest"`` (a digest of the tree), both ``null`` when the payload has
@@ -35,14 +42,11 @@ missing, or that has no ``STAGED.json`` — the builder writes it last, so its
 absence means a half-built payload — is refused with one line on stderr and a
 non-zero exit, and nothing in the repo is touched.
 
-Staging is idempotent. Every ``canopy-*.whl`` and ``pydmconverter-*.whl`` in
-the repo root (matched case-insensitively) is removed before the new pair is
-copied, so a version bump leaves no stale wheel for the image to install, and
+Every run stages afresh. Every ``canopy-*.whl`` and ``pydmconverter-*.whl``
+in the stage directory (matched case-insensitively) is removed before the new
+pair is copied, so no stale wheel is left for the image to install, and
 ``canopy_payload/`` is replaced whole: copied beside the old one, then renamed
-into place. When the staged ``STAGED.json`` already equals the payload's and
-both wheels are in place, nothing is rewritten; so a payload rebuilt with
-another spec (a changed ``spec`` or ``spec-digest``) is staged anew, and so is
-one whose staged copy has lost the ``spec/`` its ``STAGED.json`` names.
+into place.
 
 With ``OSPREY_CANOPY_PAYLOAD`` unset nothing is staged and the step passes:
 the build leaves the CANOPY panel out of the deployment
@@ -54,7 +58,7 @@ without the pin check. It is a development switch for building an image with no
 CANOPY payload; a deployment that serves the CANOPY panel leaves it unset.
 
 Before any of that, and whatever that switch says, the step checks the
-deployment's screen library (``data/canopy/library``) against its write-binding
+deployment's screen library (``web/canopy/library``) against its write-binding
 report with :func:`~osprey.integrations.canopy.library.library_is_fresh`. A
 library whose files changed since the report was written stops the build
 here, with one line per difference and the command that regenerates the
@@ -86,6 +90,9 @@ WHEEL_MODE = 0o644
 PAYLOAD_ENV = "OSPREY_CANOPY_PAYLOAD"
 #: ``0`` skips the step entirely.
 CHECK_ENV = "OSPREY_CANOPY_PAYLOAD_CHECK"
+#: The stage directory of the render being built, exported by the lifecycle
+#: runner to every step it runs; the swap turns it into ``build/``.
+STAGE_DIR_ENV = "OSPREY_BUILD_STAGE_DIR"
 
 #: The file that makes a directory a payload, and names what it was built from.
 STAGED_FILENAME = "STAGED.json"
@@ -155,20 +162,38 @@ def _setting(name: str, repo_root: Path) -> str:
     return merge_chain(repo_root).get(name, "").strip()
 
 
-def panel_off(repo_root: Path) -> bool:
-    """Whether the build leaves the CANOPY panel out: no payload named, staging not skipped."""
-    return _setting(CHECK_ENV, repo_root) != "0" and not _setting(PAYLOAD_ENV, repo_root)
+def staging_skipped(repo_root: Path) -> bool:
+    """Whether ``OSPREY_CANOPY_PAYLOAD_CHECK=0`` turns staging off for this repo."""
+    return _setting(CHECK_ENV, repo_root) == "0"
 
 
-#: The one line a build prints when :func:`panel_off` holds.
+def panel_off(repo_root: Path, *, staging_runs: bool = True) -> bool:
+    """Whether the build leaves the CANOPY panel out.
+
+    It does when staging is on (``OSPREY_CANOPY_PAYLOAD_CHECK`` is not ``0``)
+    and nothing will be staged: no payload is named, or the build runs no
+    lifecycle step (``staging_runs`` false, ``--skip-lifecycle``).
+    """
+    if staging_skipped(repo_root):
+        return False
+    return not staging_runs or not _setting(PAYLOAD_ENV, repo_root)
+
+
+#: The one line a build prints when :func:`panel_off` holds and no payload is named.
 PANEL_OFF_NOTICE = (
     f"CANOPY panel off: {PAYLOAD_ENV} names no payload. Build one with the canopy repo's "
     f"scripts/build-payload.sh and name its directory in {PAYLOAD_ENV} (the deployment's .env)."
 )
 
+#: The one line a build prints when :func:`panel_off` holds because no step runs.
+PANEL_OFF_SKIPPED_NOTICE = (
+    "CANOPY panel off: --skip-lifecycle runs no pre_build step, so no payload is staged."
+)
 
-def _root_wheels(repo_root: Path) -> list[Path]:
-    return sorted(p for p in repo_root.iterdir() if wheel_prefix(p.name) and not p.is_dir())
+
+def staged_wheels(directory: Path) -> list[Path]:
+    """The ``canopy-*`` and ``pydmconverter-*`` wheels directly in ``directory``."""
+    return sorted(p for p in directory.iterdir() if wheel_prefix(p.name) and not p.is_dir())
 
 
 def read_payload(source: Path) -> Payload:
@@ -254,22 +279,6 @@ def _check_proven(staged_path: Path, parsed: dict) -> None:
         )
 
 
-def is_current(repo_root: Path, payload: Payload) -> bool:
-    """Whether the repo already holds exactly this payload.
-
-    ``STAGED.json`` is the last thing a staging puts in place, so an equal one
-    means the directory beside it is whole. The wheels live outside that
-    directory and are checked by name and size.
-    """
-    staged_path = repo_root / PAYLOAD_DIRNAME / STAGED_FILENAME
-    if not staged_path.is_file() or staged_path.read_bytes() != payload.staged:
-        return False
-    if payload.has_spec != (repo_root / PAYLOAD_DIRNAME / SPEC_DIRNAME).is_dir():
-        return False
-    present = {p.name: p.stat().st_size for p in _root_wheels(repo_root)}
-    return present == {p.name: p.stat().st_size for p in payload.wheels}
-
-
 def _remove(path: Path) -> None:
     if path.is_dir() and not path.is_symlink():
         shutil.rmtree(path)
@@ -277,11 +286,11 @@ def _remove(path: Path) -> None:
         path.unlink()
 
 
-def stage(repo_root: Path, payload: Payload) -> None:
-    """Replace whatever was staged in ``repo_root`` with ``payload``."""
-    scratch = repo_root / SCRATCH_DIRNAME
-    previous = repo_root / PREVIOUS_DIRNAME
-    target = repo_root / PAYLOAD_DIRNAME
+def stage(stage_dir: Path, payload: Payload) -> None:
+    """Replace whatever was staged in ``stage_dir`` with ``payload``."""
+    scratch = stage_dir / SCRATCH_DIRNAME
+    previous = stage_dir / PREVIOUS_DIRNAME
+    target = stage_dir / PAYLOAD_DIRNAME
     _remove(scratch)
     _remove(previous)
 
@@ -294,13 +303,13 @@ def stage(repo_root: Path, payload: Payload) -> None:
     # earlier has been removed.
     shutil.copytree(payload.root, scratch, ignore=_skip)
 
-    for stale in _root_wheels(repo_root):
+    for stale in staged_wheels(stage_dir):
         stale.unlink()
     for wheel in payload.wheels:
-        atomic_replace(repo_root / wheel.name, wheel.read_bytes(), mode=WHEEL_MODE)
+        atomic_replace(stage_dir / wheel.name, wheel.read_bytes(), mode=WHEEL_MODE)
 
     # The directory goes last, and with it the STAGED.json that marks the
-    # staging complete: an interrupted run is redone, not mistaken for current.
+    # staging complete.
     if target.is_dir() and not target.is_symlink():
         os.rename(target, previous)
     else:
@@ -319,43 +328,54 @@ def check_library(repo_root: Path) -> None:
         raise StaleLibrary(verdict.lines)
 
 
-def run(repo_root: Path) -> str:
+def run(repo_root: Path, stage_dir: Path | None) -> str:
     """Check the screen library, then stage the payload; return a one-line account.
 
     The library check comes first and no switch turns it off: a build that
     skips staging still bakes the library into the image.
 
+    :param repo_root: The deployment repo: its library, its env chain, and the
+        directory a relative payload path is read from.
+    :param stage_dir: The stage directory of the render being built, or
+        ``None`` outside a build.
     :raises StaleLibrary: the library's report does not cover its files.
-    :raises StageError: the named payload is refused.
+    :raises StageError: the named payload is refused, or there is no stage
+        directory to stage it into.
     """
     check_library(repo_root)
-    if _setting(CHECK_ENV, repo_root) == "0":
+    if staging_skipped(repo_root):
         return f"skipped ({CHECK_ENV}=0)"
 
     named = _setting(PAYLOAD_ENV, repo_root)
     if not named:
         return f"nothing staged ({PAYLOAD_ENV} is not set)"
+    if stage_dir is None:
+        raise StageError(
+            f"{STAGE_DIR_ENV} is not set: this step stages into the render osprey build "
+            "is making, so it runs only as that build's pre_build step"
+        )
+    if not stage_dir.is_dir():
+        raise StageError(f"{STAGE_DIR_ENV} names {stage_dir}, which is not a directory")
     source = (repo_root / Path(named).expanduser()).resolve()
-    if source == (repo_root / PAYLOAD_DIRNAME).resolve():
+    if source == (stage_dir / PAYLOAD_DIRNAME).resolve():
         raise StageError(
             f"{PAYLOAD_ENV} names the staging directory itself ({source}); "
             "point it at the directory scripts/build-payload.sh wrote"
         )
 
     payload = read_payload(source)
-    if is_current(repo_root, payload):
-        return f"{PAYLOAD_DIRNAME}/ is already current with {source}"
-    stage(repo_root, payload)
+    stage(stage_dir, payload)
     return f"staged {source} into {PAYLOAD_DIRNAME}/ and {len(payload.wheels)} wheels"
 
 
 def main(argv: list[str]) -> int:
-    """Entry point: stage into the working directory; 0 on success, 1 on refusal."""
+    """Entry point: stage into :data:`STAGE_DIR_ENV`; 0 on success, 1 on refusal."""
     if argv:
         _fail(f"takes no arguments (got {' '.join(argv)})")
         return 2
+    named_stage = os.environ.get(STAGE_DIR_ENV, "").strip()
     try:
-        message = run(Path.cwd())
+        message = run(Path.cwd(), Path(named_stage) if named_stage else None)
     except StaleLibrary as exc:
         sys.stderr.write(
             f"canopy library: {LIBRARY_SUBPATH} does not match its write-binding report\n"

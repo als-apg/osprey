@@ -276,7 +276,7 @@ holding the documents:
        qmd:
          corpora:
            - name: procedures
-             source: ./data/procedures
+             source: ./procedures
 
 ``corpus(name)`` then gives the backend both halves:
 
@@ -648,7 +648,7 @@ makes a deployment, ``rendered_tree`` makes one and builds it, and
 ``corpus_stand_in`` stands in for a document corpus (below). The first two take:
 
 - ``apps`` — each app's name and its source directory;
-- ``facility`` — the ``data/facility`` tree. The default, ``plain_tree()``, is
+- ``facility`` — the ``facility`` tree. The default, ``plain_tree()``, is
   one quadrupole and one BPM; ``measured_tree()`` is two models wired for the
   built-in measurement kinds, for a test to extend with its own kind's records;
 - ``logins`` — each login and its ``control_system.writes`` ceiling, one

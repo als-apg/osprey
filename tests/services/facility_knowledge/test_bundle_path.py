@@ -1,6 +1,6 @@
 """The demo preset's knowledge bundle lives in the facility tree.
 
-The preset's ``facility_knowledge.bundle_path`` names ``data/facility/knowledge``,
+The preset's ``facility_knowledge.bundle_path`` names ``facility/knowledge``,
 the packaged template ships its pages there, and every reader of the key lands
 on that directory: the bundle resolver, the mount entitlement and the
 in-container mount target.
@@ -12,16 +12,17 @@ from pathlib import Path
 
 import yaml
 
+from osprey import repo_layout
 from osprey.deployment.web_terminals.render import _container_bundle_dir
 from osprey.deployment.web_terminals.roster import config_needs_facility_bundle
 from osprey.services.facility_knowledge.bundle_path import resolve_bundle_path
-from tests._preset_data import bundle_data_root
+from tests._preset_data import bundle_source_root
 
 _SRC = Path(__file__).resolve().parents[3] / "src" / "osprey"
 _PRESET = _SRC / "profiles" / "presets" / "demo.yml"
 _PACKAGED_DATA = _SRC / "templates" / "apps" / "demo" / "data"
 
-BUNDLE_PATH = "data/facility/knowledge"
+BUNDLE_PATH = repo_layout.display_path("facility", "knowledge")
 
 
 def _preset_bundle_path() -> str:
@@ -34,7 +35,7 @@ def test_the_preset_names_the_bundle_in_the_facility_tree() -> None:
 
 
 def test_the_packaged_pages_sit_where_the_preset_points() -> None:
-    bundle = bundle_data_root().parent / _preset_bundle_path()
+    bundle = bundle_source_root() / _preset_bundle_path()
     assert (bundle / "index.md").is_file()
     assert sorted(path.name for path in bundle.iterdir() if path.is_dir()) == [
         "devices",

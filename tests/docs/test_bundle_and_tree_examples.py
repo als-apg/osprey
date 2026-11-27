@@ -17,7 +17,7 @@ line number), then handed to the code that owns it:
   facility output that build's main render writes is on the tree.
 * ``how-to/deploy-project/compose-templates.rst``: the ``services/`` tree names
   the compose templates the build copies into ``build/services/``.
-* ``how-to/describe-your-facility.rst``: the ``data/facility/`` tree is the one
+* ``how-to/describe-your-facility.rst``: the ``facility/`` tree is the one
   ``osprey init --preset demo`` writes, in the names the facility
   build reads.
 * ``how-to/deploy-project/project-image.rst`` and
@@ -48,9 +48,11 @@ from typing import Any, Literal, NamedTuple
 import pytest
 import yaml
 
+from osprey import repo_layout
 from osprey.cli.profile_conventions import (
     PROJECT_MIRROR_DIR,
     convention_for,
+    convention_source,
     plan_convention_copies,
     validate_convention_sources,
 )
@@ -80,7 +82,9 @@ _SCANNER = _REPO_ROOT / "scripts" / "docs" / "snippet_coverage.py"
 _TEMPLATES = _REPO_ROOT / "src" / "osprey" / "templates"
 _EXAMPLE_FACILITY = _TEMPLATES / "facilities" / "example"
 _EXAMPLE_BUNDLE = _EXAMPLE_FACILITY / KNOWLEDGE_DIR
-_HELLO_WORLD_SERVER = _TEMPLATES / "apps" / "hello_world" / "mcp_servers" / "example_server"
+_HELLO_WORLD_SERVER = (
+    _TEMPLATES / "apps" / "hello_world" / "agent" / "mcp_servers" / "example_server"
+)
 
 OKF_PAGE = "how-to/facility-knowledge/okf-bundle.rst"
 BUILD_PROFILES_PAGE = "how-to/build-profiles.rst"
@@ -359,7 +363,7 @@ def test_regenerate_snippet_writes_the_indexes(
 ) -> None:
     """The snippet, run from a project holding the example bundle, leaves it as the CLI would."""
     snippet = _block(OKF_PAGE, "python", "regenerate_indexes(")
-    bundle = tmp_path / "data" / "facility" / KNOWLEDGE_DIR
+    bundle = tmp_path / repo_layout.entry("facility").path / KNOWLEDGE_DIR
     shutil.copytree(_EXAMPLE_BUNDLE, bundle)
     for index in bundle.rglob(okf_index._INDEX_FILE):
         index.unlink()
@@ -387,7 +391,7 @@ def test_regenerate_snippet_writes_the_indexes(
 
 def test_starting_shape_tree_names_the_index_file_and_the_example_directories() -> None:
     root, paths = tree_paths(_block(OKF_PAGE, "text", "← bundle root index"))
-    assert root == f"data/facility/{KNOWLEDGE_DIR}/"
+    assert root == f"{repo_layout.entry('facility').path}/{KNOWLEDGE_DIR}/"
     assert {Path(rel).name for rel in paths if rel.endswith("index.md")} == {okf_index._INDEX_FILE}
     assert "index.md" in paths, "the bundle root holds an index"
     top_dirs = {rel.rstrip("/") for rel in paths if rel.endswith("/") and rel.count("/") == 1}
@@ -489,7 +493,7 @@ def test_compose_tree_names_the_templates_the_build_copies(
 
 def _facility_tree() -> list[str]:
     root, paths = tree_paths(_block(FACILITY_PAGE, "text", "identity.yaml"))
-    assert root == "data/facility/"
+    assert root == f"{repo_layout.entry('facility').path}/"
     return paths
 
 
@@ -499,13 +503,13 @@ def test_facility_tree_is_what_init_writes(built_demo: BuiltProject) -> None:
     paths = _facility_tree()
     not_shipped = [rel for rel in paths if not _on_disk(facility, rel)]
     assert not_shipped == [
-        "signals.yaml",
-        "fixes.yaml",
+        "vocabulary/signals.yaml",
+        "provenance/fixes.yaml",
         "imported/<layer>/",
     ]
     sentence = " ".join(_page_text(FACILITY_PAGE).split())
     assert (
-        "ships all of them except ``signals.yaml``, ``fixes.yaml`` and ``imported/``"
+        "ships all of them except ``vocabulary/signals.yaml``, ``provenance/fixes.yaml`` and ``imported/``"
     ) in sentence
 
     drawn_top = {rel.split("/")[0] for rel in paths}
@@ -544,7 +548,8 @@ def _profile_tree(page: str, needle: str) -> list[str]:
 
 def test_project_mirror_dockerfile_is_copied_onto_the_render_root(tmp_path: Path) -> None:
     paths = _profile_tree(PROJECT_IMAGE_PAGE, "copied verbatim onto the render")
-    assert paths == [f"{PROJECT_MIRROR_DIR}/", f"{PROJECT_MIRROR_DIR}/Dockerfile"]
+    mirror = convention_source(PROJECT_MIRROR_DIR)
+    assert paths == ["ops/", f"{mirror}/", f"{mirror}/Dockerfile"]
     _materialize(tmp_path, paths)
     validate_convention_sources(tmp_path)
     copies = [(c.category, c.destination, c.is_directory) for c in plan_convention_copies(tmp_path)]
@@ -555,7 +560,7 @@ def test_mcp_server_tree_is_the_scaffold_layout_and_lands_in_build(tmp_path: Pat
     paths = _profile_tree(PROFILE_PAGE, "my_server/")
     convention = convention_for("mcp_servers")
     assert convention is not None
-    assert paths[:2] == [f"{convention.source}/", f"{convention.source}/my_server/"]
+    assert paths[:3] == ["agent/", f"{convention.source}/", f"{convention.source}/my_server/"]
     package = f"{convention.source}/my_server/"
     files = {Path(rel).name for rel in paths if rel.startswith(package) and rel != package}
     shipped = {path.name for path in _HELLO_WORLD_SERVER.iterdir() if path.suffix == ".py"}
@@ -563,5 +568,5 @@ def test_mcp_server_tree_is_the_scaffold_layout_and_lands_in_build(tmp_path: Pat
     assert "build/_mcp_servers/" in " ".join(_page_text(PROFILE_PAGE).split())
     _materialize(tmp_path, paths)
     copies = [(c.category, c.destination, c.is_directory) for c in plan_convention_copies(tmp_path)]
-    assert copies == [(convention.source, f"{convention.destination}/my_server", True)]
+    assert copies == [("mcp_servers", f"{convention.destination}/my_server", True)]
     assert convention.destination == "_mcp_servers"

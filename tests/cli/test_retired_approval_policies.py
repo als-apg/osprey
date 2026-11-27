@@ -66,7 +66,7 @@ def _rendered_approval(overlay: str, scratch: Path) -> dict:
     path = scratch / "profile.yml"
     (scratch / "data").mkdir(exist_ok=True)
     path.write_text(
-        "name: Child\nextends: demo\ndata: data\n" + textwrap.dedent(overlay),
+        "name: Child\nextends: demo\n" + textwrap.dedent(overlay),
         encoding="utf-8",
     )
     loaded = resolve_build_document(path, None, (), ())

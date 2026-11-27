@@ -985,13 +985,13 @@ class TestDemoWiring:
 
     @pytest.fixture(scope="class")
     def records(self) -> dict[str, dict[str, Any]]:
-        models = yaml.safe_load((DEMO / "models.yaml").read_text(encoding="utf-8"))
+        models = yaml.safe_load((DEMO / "simulation" / "models.yaml").read_text(encoding="utf-8"))
         sr = next(model for model in models if model["name"] == "SR")
         return {record["address"]: record for record in sr["wiring"]}
 
     @pytest.fixture
     def demo(self) -> PyATSimulator:
-        return PyATSimulator(at.load_lattice(str(DEMO / "decks" / "SR.json")))
+        return PyATSimulator(at.load_lattice(str(DEMO / "simulation" / "decks" / "SR.json")))
 
     def test_a_bpm_reads_the_closed_orbit_on_its_axis(self, records, demo) -> None:
         record = records["SR:DIAG:BPM:01:POSITION:X"]

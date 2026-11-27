@@ -1,6 +1,6 @@
 """Markdown with a YAML frontmatter block, split into its two parts.
 
-The pages under ``data/facility/knowledge`` open with a frontmatter block
+The pages under ``facility/knowledge`` open with a frontmatter block
 delimited by ``---`` lines, exactly like Jekyll / Hugo front matter. The
 facility build reads them for their links; Knowledge reads them as OKF
 documents on top of this split.

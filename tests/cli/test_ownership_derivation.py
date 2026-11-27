@@ -88,16 +88,18 @@ def test_empty_user_owned_owns_nothing():
 
 def test_every_ownable_class_registers(profile_dir: Path, project_path: Path):
     _write(project_path / "config.yml", yaml.safe_dump({"scaffold": {"user_owned": []}}))
-    _write(profile_dir / "rules" / "facility-ops.md")
-    _write(profile_dir / "agents" / "orbit-writer.md")
-    _write(profile_dir / "commands" / "scan.md")
-    _write(profile_dir / "output-styles" / "terse.md")
-    _write(profile_dir / "skills" / "orbit-check" / "SKILL.md")
-    _write(profile_dir / "skills" / "orbit-check" / "scripts" / "run.py", "print()\n")
-    _write(profile_dir / "services" / "beam-logger" / "docker-compose.yml", "services: {}\n")
-    _write(profile_dir / "mcp_servers" / "finder" / "server.py", "# srv\n")
+    _write(profile_dir / "agent" / "rules" / "facility-ops.md")
+    _write(profile_dir / "agent" / "agents" / "orbit-writer.md")
+    _write(profile_dir / "agent" / "commands" / "scan.md")
+    _write(profile_dir / "agent" / "output-styles" / "terse.md")
+    _write(profile_dir / "agent" / "skills" / "orbit-check" / "SKILL.md")
+    _write(profile_dir / "agent" / "skills" / "orbit-check" / "scripts" / "run.py", "print()\n")
+    _write(
+        profile_dir / "ops" / "services" / "beam-logger" / "docker-compose.yml", "services: {}\n"
+    )
+    _write(profile_dir / "agent" / "mcp_servers" / "finder" / "server.py", "# srv\n")
     _write(profile_dir / "web-terminal-context" / "alice" / "notes.md")
-    _write(profile_dir / "project" / "docs" / "runbook.md")
+    _write(profile_dir / "ops" / "project" / "docs" / "runbook.md")
 
     applied = _apply_conventions(profile_dir, project_path, ["alice"])
     registered = _register_convention_artifacts(project_path, applied)
@@ -123,7 +125,7 @@ def test_mirror_file_landing_under_claude_is_owned(profile_dir: Path, project_pa
     .claude/probes/, so without ownership the prune branches could unlink it.
     """
     _write(project_path / "config.yml", yaml.safe_dump({"scaffold": {"user_owned": []}}))
-    _write(profile_dir / "project" / ".claude" / "probes" / "custom.py", "print()\n")
+    _write(profile_dir / "ops" / "project" / ".claude" / "probes" / "custom.py", "print()\n")
 
     applied = _apply_conventions(profile_dir, project_path)
     _register_convention_artifacts(project_path, applied)
@@ -143,17 +145,17 @@ def test_mirror_may_not_write_the_hooks_subtree(profile_dir: Path, project_path:
     other standing.
     """
     _write(project_path / "config.yml", yaml.safe_dump({"scaffold": {"user_owned": []}}))
-    _write(profile_dir / "project" / ".claude" / "hooks" / "custom.py", "print()\n")
+    _write(profile_dir / "ops" / "project" / ".claude" / "hooks" / "custom.py", "print()\n")
 
     with pytest.raises(BuildProfileError) as excinfo:
         _apply_conventions(profile_dir, project_path)
 
     message = str(excinfo.value)
-    assert "project/.claude/hooks/custom.py" in message
-    assert "`hooks/`" in message
+    assert "ops/project/.claude/hooks/custom.py" in message
+    assert "`agent/hooks/`" in message
     # The migration a profile that predates the channel has to perform, stated
     # as two paths it can act on rather than as a channel name to interpret.
-    assert "Move it: project/.claude/hooks/custom.py → hooks/custom.py" in message
+    assert "Move it: ops/project/.claude/hooks/custom.py → agent/hooks/custom.py" in message
 
 
 # ── Shadow notices ───────────────────────────────────────────────────
@@ -163,7 +165,7 @@ def test_shadowed_file_gets_a_uniform_notice(
     profile_dir: Path, project_path: Path, caplog: pytest.LogCaptureFixture
 ):
     _write(project_path / ".claude" / "rules" / "safety.md", "# framework\n")
-    _write(profile_dir / "rules" / "safety.md", "# profile\n")
+    _write(profile_dir / "agent" / "rules" / "safety.md", "# profile\n")
 
     # Renderer migration (disposition row 35): the shadow notice stayed on the
     # logger and dropped to DEBUG, so `-v` is what surfaces it.
@@ -178,7 +180,7 @@ def test_shadowed_directory_gets_a_uniform_notice(
     profile_dir: Path, project_path: Path, caplog: pytest.LogCaptureFixture
 ):
     _write(project_path / ".claude" / "skills" / "orbit-check" / "SKILL.md", "# framework\n")
-    _write(profile_dir / "skills" / "orbit-check" / "SKILL.md", "# profile\n")
+    _write(profile_dir / "agent" / "skills" / "orbit-check" / "SKILL.md", "# profile\n")
 
     # Renderer migration (disposition row 35): the shadow notice stayed on the
     # logger and dropped to DEBUG, so `-v` is what surfaces it.
@@ -191,7 +193,7 @@ def test_shadowed_directory_gets_a_uniform_notice(
 def test_unshadowed_copies_get_no_notice(
     profile_dir: Path, project_path: Path, caplog: pytest.LogCaptureFixture
 ):
-    _write(profile_dir / "rules" / "facility-ops.md")
+    _write(profile_dir / "agent" / "rules" / "facility-ops.md")
 
     # DEBUG, not INFO: row 35 moved the notice down a level, and capturing above
     # it would pass here no matter what the build did.
@@ -208,8 +210,8 @@ def test_excluded_shadow_restores_the_framework_render(
     profile_dir: Path, project_path: Path, caplog: pytest.LogCaptureFixture
 ):
     _write(project_path / ".claude" / "rules" / "safety.md", "# framework\n")
-    _write(profile_dir / "rules" / "safety.md", "# profile\n")
-    _write(profile_dir / "rules" / "facility-ops.md")
+    _write(profile_dir / "agent" / "rules" / "safety.md", "# profile\n")
+    _write(profile_dir / "agent" / "rules" / "facility-ops.md")
 
     # DEBUG, not INFO: row 35 moved the notice down a level, and capturing above
     # it would pass here no matter what the build did.
@@ -224,7 +226,7 @@ def test_excluded_shadow_restores_the_framework_render(
 
 
 def test_excluded_directory_artifact_is_skipped(profile_dir: Path, project_path: Path):
-    _write(profile_dir / "skills" / "orbit-check" / "SKILL.md")
+    _write(profile_dir / "agent" / "skills" / "orbit-check" / "SKILL.md")
 
     applied = _apply_conventions(profile_dir, project_path, excluded={"skills/orbit-check"})
 
@@ -234,7 +236,7 @@ def test_excluded_directory_artifact_is_skipped(profile_dir: Path, project_path:
 
 def test_excluded_entries_use_the_directory_spelling(profile_dir: Path, project_path: Path):
     """`exclude:` records name the convention DIRECTORY — "output-styles/terse", hyphenated."""
-    _write(profile_dir / "output-styles" / "terse.md")
+    _write(profile_dir / "agent" / "output-styles" / "terse.md")
 
     applied = _apply_conventions(profile_dir, project_path, excluded={"output-styles/terse"})
 
@@ -250,8 +252,8 @@ def test_excluding_a_namespaced_command_leaves_its_same_stem_sibling(
     A basename-derived name would collapse `commands/osprey/scan` and
     `commands/ops/scan` into one exclude key, silently dropping both.
     """
-    _write(profile_dir / "commands" / "osprey" / "scan.md")
-    _write(profile_dir / "commands" / "ops" / "scan.md")
+    _write(profile_dir / "agent" / "commands" / "osprey" / "scan.md")
+    _write(profile_dir / "agent" / "commands" / "ops" / "scan.md")
 
     applied = _apply_conventions(profile_dir, project_path, excluded={"commands/osprey/scan"})
 
@@ -263,8 +265,8 @@ def test_excluding_a_namespaced_command_leaves_its_same_stem_sibling(
 
 def test_excluded_mirror_entry_keeps_its_nested_path(profile_dir: Path, project_path: Path):
     """A `project/` mirror exclusion names the full nested path, not one segment."""
-    _write(profile_dir / "project" / "docs" / "runbook.md")
-    _write(profile_dir / "project" / "docs" / "oncall.md")
+    _write(profile_dir / "ops" / "project" / "docs" / "runbook.md")
+    _write(profile_dir / "ops" / "project" / "docs" / "oncall.md")
 
     applied = _apply_conventions(profile_dir, project_path, excluded={"project/docs/runbook.md"})
 
@@ -291,13 +293,13 @@ def _shadow_framework_artifacts(project: Path, profile: Path) -> tuple[str, str]
     agents = sorted((project / ".claude" / "agents").glob("*.md"))
     assert agents, "rendered project should carry framework agents"
     agent_name = agents[0].stem
-    _write(profile / "agents" / f"{agent_name}.md", "# profile agent\n")
+    _write(profile / "agent" / "agents" / f"{agent_name}.md", "# profile agent\n")
 
     skills = sorted(p.name for p in (project / ".claude" / "skills").iterdir() if p.is_dir())
     assert skills, "rendered project should carry framework skills"
     skill_name = skills[0]
-    _write(profile / "skills" / skill_name / "SKILL.md", "# profile skill\n")
-    _write(profile / "skills" / skill_name / "helper.py", "print('profile')\n")
+    _write(profile / "agent" / "skills" / skill_name / "SKILL.md", "# profile skill\n")
+    _write(profile / "agent" / "skills" / skill_name / "helper.py", "print('profile')\n")
     return agent_name, skill_name
 
 
@@ -316,7 +318,7 @@ def test_owned_artifacts_survive_regen(tmp_path: Path):
     """One artifact of each class claimed → a full re-render leaves it alone."""
     project = _rendered_project(tmp_path, "own-regen")
     profile = tmp_path / "profile"
-    _write(profile / "rules" / "safety.md", "# profile safety\n")
+    _write(profile / "agent" / "rules" / "safety.md", "# profile safety\n")
     agent_name, skill_name = _shadow_framework_artifacts(project, profile)
 
     applied = _apply_conventions(profile, project)
@@ -335,7 +337,7 @@ def test_prune_never_unlinks_owned_artifacts(tmp_path: Path):
     """An empty manifest prunes framework files but never owned ones."""
     project = _rendered_project(tmp_path, "own-prune")
     profile = tmp_path / "profile"
-    _write(profile / "rules" / "safety.md", "# profile safety\n")
+    _write(profile / "agent" / "rules" / "safety.md", "# profile safety\n")
     agent_name, skill_name = _shadow_framework_artifacts(project, profile)
 
     applied = _apply_conventions(profile, project)

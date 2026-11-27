@@ -76,10 +76,10 @@ hand: `osprey init --revalidate` rewrites it.
 """
 
 #: Top-level keys a repo writes for itself rather than copies from its preset:
-#: display and deployment names, the materialized data tree, a mounted machine
-#: repository, the schema floor and the provenance stamp.
+#: display and deployment names, a mounted machine repository, the schema floor
+#: and the provenance stamp.
 _MATERIALIZATION_KEYS: frozenset[str] = frozenset(
-    {"name", "project_name", "data", "machine", "provenance", "requires_osprey_version"}
+    {"name", "project_name", "machine", "provenance", "requires_osprey_version"}
 )
 
 #: Top-level blocks whose lists are ordered: the lifecycle step lists.

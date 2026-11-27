@@ -71,7 +71,7 @@ def _files(*extra_wiring: dict[str, Any], models: list[dict[str, Any]] | None = 
     sr = {
         "name": "SR",
         "engine": "pyat",
-        "deck": "decks/sr.json",
+        "deck": "simulation/decks/sr.json",
         "wiring": [
             _setpoint(),
             {"address": "Q1:RB", "element": "A", "engine": ENGINE},
@@ -87,7 +87,7 @@ def _files(*extra_wiring: dict[str, Any], models: list[dict[str, Any]] | None = 
     return {
         "records/devices.yaml": [{"id": "SR/Q1", "class": "Quadrupole"}],
         "records/channels.yaml": channels,
-        "models.yaml": [sr, plug, *(models or [])],
+        "simulation/models.yaml": [sr, plug, *(models or [])],
         "limits.yaml": {"records": [{"address": "Q1:SP", "min_value": -3, "max_value": 4.5}]},
     }
 
@@ -98,7 +98,7 @@ def _run(tmp_path: Path, files: dict[str, Any]) -> StageReport:
         path = root / rel
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(yaml.safe_dump(data, sort_keys=False), encoding="utf-8")
-    _save_deck(root / "decks" / "sr.json")
+    _save_deck(root / "simulation" / "decks" / "sr.json")
     return run_stages(
         root, project_name="p", later=[("wiring", fill_wiring_slots)], extra_checks=FRAMEWORK_CHECKS
     )
@@ -154,7 +154,7 @@ class TestDefaultThroughAReadbacksOwnCalibration:
 
     def _filled(self, tmp_path: Path, record: dict[str, Any]) -> StageReport:
         files = _files()
-        sr = files["models.yaml"][0]
+        sr = files["simulation/models.yaml"][0]
         sr["wiring"] = [r for r in sr["wiring"] if r["address"] != "U:RB"] + [record]
         return _run(tmp_path, files)
 
@@ -184,7 +184,7 @@ class TestDefaultThroughAReadbacksOwnCalibration:
     def _paired(self, tmp_path: Path, calibration: dict[str, Any], **channel: Any) -> StageReport:
         """The setpoint's own pair, ``Q1:RB``, wired to the setpoint's slices."""
         files = _files()
-        sr = files["models.yaml"][0]
+        sr = files["simulation/models.yaml"][0]
         row = {"address": "Q1:RB", "slices": SLICES, "engine": ENGINE, "calibration": calibration}
         sr["wiring"] = [r for r in sr["wiring"] if r["address"] != "Q1:RB"] + [row]
         channels = files["records/channels.yaml"]
@@ -240,7 +240,7 @@ class TestDefaultThroughADeckPropertyReadbacksOwnCalibration:
             "calibration": {"curve": {"linear": {"gain": self.KNOB_GAIN, "offset": 0.0}}},
         }
         files = _files(knob)
-        sr = files["models.yaml"][0]
+        sr = files["simulation/models.yaml"][0]
         sr["wiring"] = [r for r in sr["wiring"] if r["address"] != "U:RB"] + [record]
         channels = {row["id"]: row for row in files["records/channels.yaml"]}
         channels["K"].update(channel.pop("setpoint", {}))
@@ -282,7 +282,7 @@ class TestDefaultThroughADeckPropertyReadbacksOwnCalibration:
 
     def test_a_record_of_the_whole_deck_no_setpoint_drives_is_still_an_output(self, tmp_path):
         files = _files()
-        sr = files["models.yaml"][0]
+        sr = files["simulation/models.yaml"][0]
         sr["wiring"] = [r for r in sr["wiring"] if r["address"] != "U:RB"] + [
             {"address": "U:RB", "engine": self.ENERGY}
         ]
@@ -422,7 +422,7 @@ class TestStops:
 
     def test_a_stop_on_a_fix_added_record_names_fixes_yaml(self, tmp_path):
         files = _files()
-        files["fixes.yaml"] = {
+        files["provenance/fixes.yaml"] = {
             "schema": "osprey.facility.fixes/1",
             "fixes": [
                 {
@@ -437,13 +437,13 @@ class TestStops:
         result = _run(tmp_path, files)
         assert result.failed == "wiring"
         assert [(e.kind, e.record_id, e.sources) for e in result.errors] == [
-            ("engine-invalid", "SR/K", ("fixes.yaml",))
+            ("engine-invalid", "SR/K", ("provenance/fixes.yaml",))
         ]
 
     def test_a_stop_on_a_models_yaml_record_names_models_yaml(self, tmp_path):
         result = _run(tmp_path, _files({"address": "K", "engine": ENGINE}))
         assert [(e.kind, e.record_id, e.sources) for e in result.errors] == [
-            ("engine-invalid", "SR/K", ("models.yaml",))
+            ("engine-invalid", "SR/K", ("simulation/models.yaml",))
         ]
 
     def test_an_engine_stop_on_a_record_names_the_file_stating_it(self, tmp_path):
@@ -451,7 +451,7 @@ class TestStops:
         record = {"address": "K", "element": "A", "engine": ENGINE, "calibration": table}
         result = _run(tmp_path, _files(record))
         assert [(e.kind, e.record_id, e.sources) for e in result.errors] == [
-            ("engine-invalid", "SR/K", ("models.yaml",))
+            ("engine-invalid", "SR/K", ("simulation/models.yaml",))
         ]
 
     def test_the_other_records_are_still_filled(self, tmp_path):
@@ -464,11 +464,11 @@ class TestStops:
         other = {
             "name": "LINE",
             "engine": "no_such_engine",
-            "deck": "decks/sr.json",
+            "deck": "simulation/decks/sr.json",
             "wiring": [{"address": "T:X", "element": "A"}],
         }
         files = _files(models=[other])
-        files["models.yaml"][1]["wiring"] = []
+        files["simulation/models.yaml"][1]["wiring"] = []
         result = _run(tmp_path, files)
         assert result.failed == "wiring"
         assert [(e.kind, e.record_kind, e.record_id) for e in result.errors] == [
@@ -478,10 +478,10 @@ class TestStops:
 
     def test_a_record_the_engine_cannot_describe_stops_on_the_record(self, tmp_path):
         files = _files()
-        files["models.yaml"][0]["wiring"][2] = {"address": "U:RB", "element": "B"}
+        files["simulation/models.yaml"][0]["wiring"][2] = {"address": "U:RB", "element": "B"}
         result = _run(tmp_path, files)
         assert [(e.kind, e.record_kind, e.record_id, e.sources) for e in result.errors] == [
-            ("engine-invalid", "wiring", "SR/U:RB", ("models.yaml",))
+            ("engine-invalid", "wiring", "SR/U:RB", ("simulation/models.yaml",))
         ]
         assert _lines(result) == [
             "facility: engine-invalid: wiring SR/U:RB — U:RB is no setpoint, monitor, readback "
@@ -514,7 +514,7 @@ class TestStops:
 
         monkeypatch.delattr(pyat, "describe")
         files = _files()
-        files["models.yaml"] = files["models.yaml"][:1]
+        files["simulation/models.yaml"] = files["simulation/models.yaml"][:1]
         result = _run(tmp_path, files)
         assert [(e.kind, e.record_kind, e.record_id) for e in result.errors] == [
             ("engine-invalid", "model", "SR")
@@ -525,7 +525,7 @@ class TestStops:
         self, tmp_path
     ):
         files = _files()
-        files["models.yaml"][1]["engine"] = "no_such_engine"
+        files["simulation/models.yaml"][1]["engine"] = "no_such_engine"
         result = _run(tmp_path, files)
         assert [(e.kind, e.record_kind, e.record_id) for e in result.errors] == [
             ("engine-missing", "model", "plug")
@@ -560,7 +560,7 @@ def test_an_authored_computed_slot_is_never_overwritten() -> None:
 )
 def test_an_authored_description_slot_is_refused(tmp_path: Path, slot: str, value: str) -> None:
     files = _files()
-    files["models.yaml"][0]["wiring"][2] = {
+    files["simulation/models.yaml"][0]["wiring"][2] = {
         "address": "U:RB",
         "element": "B",
         "engine": ENGINE,

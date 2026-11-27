@@ -15,6 +15,7 @@ from typing import Any
 import pytest
 import yaml
 
+from osprey_facility import source_tree
 from osprey_facility.build import build_facility
 from osprey_facility.errors import FacilityBuildError
 from tests._builds import FRAMEWORK_CHECKS
@@ -31,9 +32,10 @@ def _tree(tmp_path: Path) -> Path:
 
 def _with_faults(tmp_path: Path, faults: dict[str, Any]) -> Path:
     facility_dir = _tree(tmp_path)
-    (facility_dir / "scenarios").mkdir()
+    scenarios = facility_dir / source_tree.path("scenarios")
+    scenarios.mkdir()
     scenario = {"description": "Monitors that read one charge differently.", "faults": faults}
-    (facility_dir / "scenarios" / "uneven-sums.yaml").write_text(yaml.safe_dump(scenario))
+    (scenarios / "uneven-sums.yaml").write_text(yaml.safe_dump(scenario))
     return facility_dir
 
 
@@ -76,11 +78,11 @@ def test_a_sum_gain_off_its_range_stops_the_build(tmp_path: Path) -> None:
 
 def test_a_calibration_on_a_turn_array_stops_the_build(tmp_path: Path) -> None:
     facility_dir = _tree(tmp_path)
-    models = yaml.safe_load((facility_dir / "models.yaml").read_text())
+    models = yaml.safe_load((facility_dir / source_tree.path("models")).read_text())
     (ring,) = [model for model in models if model["name"] == RING]
     (record,) = [entry for entry in ring["wiring"] if entry["address"] == SUM_1]
     record["calibration"] = {"curve": {"linear": {"gain": 2.0, "offset": 0.0}}}
-    (facility_dir / "models.yaml").write_text(yaml.safe_dump(models, sort_keys=False))
+    (facility_dir / source_tree.path("models")).write_text(yaml.safe_dump(models, sort_keys=False))
 
     with pytest.raises(FacilityBuildError) as caught:
         _build(facility_dir)

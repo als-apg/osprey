@@ -68,7 +68,7 @@ def _repo(tmp_path: Path, root: dict[str, Any] | None = None) -> Path:
     _write_yaml(tmp_path / "apps" / "knob" / "app.yml", _MANIFEST)
     _write_yaml(
         tmp_path / "profile.yml",
-        {"name": "site", "data": "data", "apps": {"knob": {}}, **(root or {})},
+        {"name": "site", "apps": {"knob": {}}, **(root or {})},
     )
     (tmp_path / "data").mkdir(exist_ok=True)
     return tmp_path
@@ -130,9 +130,7 @@ def test_a_refusal_is_the_parsers_one_sentence_naming_the_login_entry(tmp_path: 
         tmp_path / "apps" / "knob-example" / "app.yml",
         {**_MANIFEST, "name": "knob-example"},
     )
-    _write_yaml(
-        tmp_path / "profile.yml", {"name": "site", "data": "data", "apps": {"knob-example": {}}}
-    )
+    _write_yaml(tmp_path / "profile.yml", {"name": "site", "apps": {"knob-example": {}}})
     (tmp_path / "data").mkdir()
     layer = _write_yaml(
         tmp_path / "tiers" / "readonly.yml",
@@ -337,7 +335,6 @@ def _panel_repo(tmp_path: Path, admin_access: Any) -> Path:
         tmp_path / "profile.yml",
         {
             "name": "site",
-            "data": "data",
             "apps": {"dial": {}},
             "config": {f"modules.web_terminals.{k}": v for k, v in web_terminals.items()},
         },

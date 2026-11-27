@@ -8,7 +8,8 @@ import at
 
 #: The pyAT JSON deck the example facility's ``SR`` model serves.
 SR_DECK = (
-    Path(__file__).resolve().parents[2] / "src/osprey/templates/facilities/example/decks/SR.json"
+    Path(__file__).resolve().parents[2]
+    / "src/osprey/templates/facilities/example/simulation/decks/SR.json"
 )
 
 

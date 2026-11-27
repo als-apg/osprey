@@ -126,7 +126,7 @@ temp/
 *.tiff
 *.ico
 # The demo template's CANOPY screens ship their images.
-!src/osprey/templates/apps/demo/data/canopy/library/screens/**/images/*.jpg
+!src/osprey/templates/apps/demo/web/canopy/library/screens/**/images/*.jpg
 
 # Landing-page demo video: recorded takes are never committed; the docs build
 # downloads the MP4s from the release manifest.json names. The posters and

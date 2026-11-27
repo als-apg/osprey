@@ -22,8 +22,6 @@ from osprey.cli.build_profile import BuildProfile, ServiceDef, _parse_profile
 from osprey.cli.build_profile_schema import DEFAULT_SPEAKS_HTTP, http_errors
 from tests.cli._profiles import validation_errors
 
-pytestmark = pytest.mark.usefixtures("facility_data_tree")
-
 
 def _http_errors(profile: BuildProfile, profile_dir: Path) -> list[str]:
     """Return only the failures that mention an ``http`` key."""
@@ -32,7 +30,7 @@ def _http_errors(profile: BuildProfile, profile_dir: Path) -> list[str]:
 
 def _profile(**raw: Any) -> BuildProfile:
     """Parse a profile from the YAML surface, filling in the required name."""
-    return _parse_profile({"name": "httpaxis", "data": "data", **raw})
+    return _parse_profile({"name": "httpaxis", **raw})
 
 
 # --- the accessor ---------------------------------------------------------

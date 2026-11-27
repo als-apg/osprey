@@ -290,7 +290,7 @@ keys:
   # Read uncached from the rendered file by osprey.services.code_review.settings.
   code_review.enabled: {rendered: false, evidence: 'code_review\.enabled must be', default: false}
   code_review.level: {rendered: false, evidence: 'code_review\.level must be', default: block}
-  code_review.prompt: {rendered: false, evidence: 'code_review\.prompt must be', default: data/code_review/reviewer.md, path: {exempt: 'already-confined'}}
+  code_review.prompt: {rendered: false, evidence: 'code_review\.prompt must be', default: agent/code_review/reviewer.md, path: {exempt: 'already-confined'}}
   code_review.modes: {rendered: false, evidence: 'code_review\.modes must be', default: [readwrite]}
   code_review.time_limit: {rendered: false, evidence: 'code_review\.time_limit must be', default: 60.0}
   deployment.port_base:
@@ -1459,7 +1459,7 @@ keys:
     default_note: >-
       an unstated leaf is not False — it means the deployment configured no limits checking, and the write paths fail closed
   control_system.limits_checking.database_path:
-    path: {exempt: 'derived-not-statable (its source, data/facility/limits.yaml, is under data/)'}
+    path: {exempt: 'derived-not-statable (its source, facility/limits.yaml, is under facility/)'}
     rendered: false
     evidence: 'config_lookup\(LIMITS_DATABASE_CONFIG_KEY, None\)'
     note: >-
@@ -1475,7 +1475,7 @@ keys:
       `_check_limits_database_path` in `build_profile_load.py`.
     default: derived
     default_note: >-
-      the build writes `data/channel_limits.json`, the file the limits view renders from `data/facility/limits.yaml`, into every render that states a limits block; a profile that states the key, at either scope, stops the build (`profile-invalid`)
+      the build writes `data/channel_limits.json`, the file the limits view renders from `facility/limits.yaml`, into every render that states a limits block; a profile that states the key, at either scope, stops the build (`profile-invalid`)
   control_system.limits_checking.mode:
     evidence: '_limits_mode\(block\.get\(mode_leaf\)\)'
     note: >-
@@ -2351,9 +2351,9 @@ keys:
       framework's channel-finder, data-visualizer, facility-knowledge,
       facility-knowledge-graph, logbook-deep-research, logbook-search and
       pyat-specialist, plus any agent the deployment defines under
-      claude_code.agents or ships in agents/, so the leaves are data. The build
-      refuses a key that names no agent, and a pin on an agent whose own
-      agents/<name>.md names another model.
+      claude_code.agents or ships in agent/agents/, so the leaves are data. The
+      build refuses a key that names no agent, and a pin on an agent whose own
+      agent/agents/<name>.md names another model.
     default: derived
     default_note: every agent runs the deployment's main model
   claude_code.servers:
@@ -2572,7 +2572,7 @@ keys:
       The benchmarks facility view writes the mode's query file to
       dataset_path; a facility that ships no query sources gets none. No preset
       states it: the build states data/benchmarks/queries.json when the
-      facility ships data/facility/benchmarks/cross_paradigm/queries/, a stated
+      facility ships facility/benchmarks/channel_finder/, a stated
       value is the location, and a stated value for a facility with no query
       sources is refused at build.
     default: {}
@@ -2936,7 +2936,7 @@ keys:
     facility-fact: true
     note: >-
       The off switch. No preset states it: the build states true when the
-      facility ships data/facility/ariel/vocabulary.yml, a stated false turns
+      facility ships facility/ariel/vocabulary.yml, a stated false turns
       it off, and a stated true with no such file and no path of its own is
       refused at build. False means nothing is read at all, so a stale `path`
       left behind is inert rather than a startup failure. Listed in `osprey.facility.settings`.
@@ -2950,8 +2950,10 @@ keys:
       The build states data/facility/ariel/vocabulary.yml when the facility
       ships that file; a stated value is the profile's own file, and one that
       is not a file while the vocabulary is on is refused at build.
-      Config-relative, resolved against the project root of config.yml — the
-      same rule as `facility_knowledge.bundle_path` and the qmd mirror. Enabled
+      Config-relative: a path inside the render's facility tree, as the build
+      states it, is the render's copy beside config.yml; any other resolves
+      against the project root of config.yml — the same rule as
+      `facility_knowledge.bundle_path` and the qmd mirror. Enabled
       with no value here is a validate() error rather than a silent no-op, and
       a file that fails to load is stored as a keyed error, never swallowed.
       Listed in `osprey.facility.settings`.
@@ -3368,7 +3370,7 @@ keys:
       Config-relative, resolved against the directory holding config.yml — the
       same rule as `facility_knowledge.bundle_path`. Shipped under var/, the
       gitignored STATE zone: the mirror is machine-written from Postgres and is
-      as large as the logbook, so a path under the tracked data/ zone would
+      as large as the logbook, so a path under the tracked source zone would
       commit a generated corpus. An enabled export with no value here is
       refused at configure() time rather than skipped.
     default: no-fallback
@@ -3836,7 +3838,7 @@ keys:
       project root (the directory holding the rendered build); an absolute
       path is used as written. Unset keeps CANOPY's own theme. The demo
       preset sets it to the OSPREY theme its template ships
-      (data/canopy/theme/osprey.json).
+      (web/canopy/theme/osprey.json).
     default: null
   web.panels.system-health.hidden:
     rendered: false

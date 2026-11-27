@@ -39,12 +39,9 @@ from tests.cli._profiles import validation_errors
 _TRIGGERS = "tutorial_triggers.yml"
 
 
-pytestmark = pytest.mark.usefixtures("facility_data_tree")
-
-
 def _profile(**raw: Any) -> BuildProfile:
     """Parse a minimal profile carrying whatever blocks a test needs."""
-    return _parse_profile({"name": "ports", "data": "data", **raw})
+    return _parse_profile({"name": "ports", **raw})
 
 
 def _dispatch_profile(**dispatch: Any) -> BuildProfile:

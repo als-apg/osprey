@@ -218,10 +218,9 @@ def test_provenance_survives_a_resolution_round_trip(tmp_path) -> None:
     as a ``ProfileProvenance``, unchanged."""
     # ``osprey init`` writes `data:` into the profile it materializes and lays
     # the tree down beside it; the emitter alone produces neither.
-    (tmp_path / "data").mkdir()
     lay_preset_applications(HOST_PRESET, tmp_path)
     profile_file = tmp_path / "profile.yml"
-    profile_file.write_text("data: data\n" + _standalone(HOST_PRESET), encoding="utf-8")
+    profile_file.write_text("" + _standalone(HOST_PRESET), encoding="utf-8")
 
     resolved, _dir = resolve_build_profile(profile_file, None)
 

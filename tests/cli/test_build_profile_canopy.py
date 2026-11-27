@@ -236,6 +236,24 @@ def test_skipped_staging_keeps_the_panel(tmp_path: Path, monkeypatch: pytest.Mon
     assert without_unstaged_panel(profile, tmp_path) is profile
 
 
+def test_a_build_running_no_lifecycle_step_takes_the_panel_out_though_a_payload_is_named(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    monkeypatch.delenv("OSPREY_CANOPY_PAYLOAD_CHECK", raising=False)
+    monkeypatch.setenv("OSPREY_CANOPY_PAYLOAD", str(tmp_path / "payload"))
+    kept = without_unstaged_panel(_canopy_profile(), tmp_path, staging_runs=False)
+    assert kept.web_panels == ["artifacts"]
+
+
+@pytest.mark.usefixtures("no_payload")
+def test_skipped_staging_keeps_the_panel_with_no_lifecycle_step_either(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    monkeypatch.setenv("OSPREY_CANOPY_PAYLOAD_CHECK", "0")
+    profile = _canopy_profile()
+    assert without_unstaged_panel(profile, tmp_path, staging_runs=False) is profile
+
+
 @pytest.mark.usefixtures("no_payload")
 def test_a_profile_without_the_panel_is_returned_as_is(tmp_path: Path):
     profile = _Profile(web_panels=["artifacts"], default_panel="artifacts", skills=["logbook"])
@@ -350,9 +368,23 @@ def test_a_build_naming_no_payload_leaves_the_panel_out_and_says_so_once(
     assert list((repo / "build").glob("**/.claude/skills/canopy-*")) == []
 
 
-def test_a_build_naming_a_payload_keeps_the_panel(repo: Path, monkeypatch: pytest.MonkeyPatch):
+def test_a_skip_lifecycle_build_leaves_the_panel_out_though_a_payload_is_named(
+    repo: Path, monkeypatch: pytest.MonkeyPatch
+):
+    """``--skip-lifecycle`` runs no ``pre_build``, so nothing is staged for the panel."""
     monkeypatch.delenv("OSPREY_CANOPY_PAYLOAD_CHECK", raising=False)
     monkeypatch.setenv("OSPREY_CANOPY_PAYLOAD", str(repo.parent / "payload"))
+    result = _build(repo)
+    assert result.exit_code == 0, result.output
+    assert result.output.count("CANOPY panel off: --skip-lifecycle") == 1
+    assert [c for c in _rendered_configs(repo) if _canopy_enabled(c)] == []
+    assert list((repo / "build").glob("**/.claude/skills/canopy-*")) == []
+
+
+def test_a_skip_lifecycle_build_with_staging_switched_off_keeps_the_panel(
+    repo: Path, monkeypatch: pytest.MonkeyPatch
+):
+    monkeypatch.setenv("OSPREY_CANOPY_PAYLOAD_CHECK", "0")
     result = _build(repo)
     assert result.exit_code == 0, result.output
     assert "CANOPY panel off" not in result.output

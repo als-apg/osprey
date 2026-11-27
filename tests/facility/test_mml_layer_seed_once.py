@@ -1,6 +1,6 @@
 """The mml layer's seed-once files: authored files an import creates when absent.
 
-Each case imports a fixture tree's exports into a fresh ``data/facility/``
+Each case imports a fixture tree's exports into a fresh ``facility/``
 under the tree's layer mapping and reads the authored files the import
 seeded beside the layer's records. The build cases run the in-process build
 over the imported tree. The cases that only read a clean import of a whole
@@ -103,7 +103,7 @@ def _roles(facility: Path) -> dict[str, str]:
 
 
 def _authored(facility: Path) -> dict[str, bytes]:
-    """Every file outside the layer directory, by its path under ``data/facility``."""
+    """Every file outside the layer directory, by its path under ``facility``."""
     return {
         path.relative_to(facility).as_posix(): path.read_bytes()
         for path in sorted(facility.rglob("*"))
@@ -133,7 +133,7 @@ class _Imported:
 
     def copy(self, root: Path) -> Path:
         """The imported facility copied under ``root``, for a case that changes it."""
-        facility = root / "data" / "facility"
+        facility = root / "facility"
         shutil.copytree(self.facility, facility)
         return facility
 
@@ -176,7 +176,7 @@ def spear3(imports: Callable[[str], _Imported]) -> Path:
 
 def test_every_seeded_file_opens_with_the_header(imported: _Imported) -> None:
     authored = _authored(imported.facility)
-    assert {"limits.yaml", "seeds.yaml", "classes.yaml"} <= set(authored)
+    assert {"limits.yaml", "simulation/seeds.yaml", "vocabulary/classes.yaml"} <= set(authored)
     for name, content in authored.items():
         assert content.decode("utf-8").splitlines()[0] == HEADER, name
     assert HEADER.startswith("# ")
@@ -208,17 +208,17 @@ def test_a_file_a_person_wrote_is_never_overwritten(tmp_path: Path) -> None:
     facility = mapped_facility(tmp_path, "synthetic")
     authored = {
         "limits.yaml": "records: []\n",
-        "seeds.yaml": "{}\n",
-        "classes.yaml": "- {class: SkewQuadrupole, parent: Quadrupole}\n",
-        "measurement/SR.yaml": "kinds: []\n",
-        "scenarios/readout.yaml": "faults: {}\n",
+        "simulation/seeds.yaml": "{}\n",
+        "vocabulary/classes.yaml": "- {class: SkewQuadrupole, parent: Quadrupole}\n",
+        "simulation/measurement/SR.yaml": "kinds: []\n",
+        "simulation/scenarios/readout.yaml": "faults: {}\n",
     }
     for name, text in authored.items():
         (facility / name).parent.mkdir(parents=True, exist_ok=True)
         (facility / name).write_text(text, encoding="utf-8")
     import_mml(export_files("synthetic"), facility)
     for name, text in authored.items():
-        if name == "classes.yaml":
+        if name == "vocabulary/classes.yaml":
             assert (facility / name).read_text(encoding="utf-8").startswith(text), name
         else:
             assert (facility / name).read_text(encoding="utf-8") == text, name
@@ -228,20 +228,23 @@ def test_an_existing_classes_file_gains_only_the_classes_it_lacks(
     tmp_path: Path, imports: Callable[[str], _Imported]
 ) -> None:
     # The classes a clean import of the tree derives, from the run's one import of it.
-    derived = [row["class"] for row in _load(imports("spear3").facility / "classes.yaml")]
+    derived = [
+        row["class"] for row in _load(imports("spear3").facility / "vocabulary" / "classes.yaml")
+    ]
     assert len(derived) > 1
     facility = mapped_facility(tmp_path, "spear3")
     held = f"# kept\n- {{class: {derived[-1]}, parent: Instrumentation}}\n"
-    (facility / "classes.yaml").write_text(held, encoding="utf-8")
+    (facility / "vocabulary").mkdir()
+    (facility / "vocabulary" / "classes.yaml").write_text(held, encoding="utf-8")
 
     import_mml(export_files("spear3"), facility)
 
-    text = (facility / "classes.yaml").read_text(encoding="utf-8")
+    text = (facility / "vocabulary" / "classes.yaml").read_text(encoding="utf-8")
     assert text.startswith(held)
-    rows = [row["class"] for row in _load(facility / "classes.yaml")]
+    rows = [row["class"] for row in _load(facility / "vocabulary" / "classes.yaml")]
     assert rows == [derived[-1], *derived[:-1]]
     import_mml(export_files("spear3"), facility)
-    assert (facility / "classes.yaml").read_text(encoding="utf-8") == text
+    assert (facility / "vocabulary" / "classes.yaml").read_text(encoding="utf-8") == text
 
 
 def test_one_import_judges_each_export_once(
@@ -368,7 +371,7 @@ def test_the_planted_nominal_is_the_only_stop_of_the_synthetic_tree(synthetic: P
 def test_an_unseeded_setpoint_whose_band_holds_zero_is_no_stop(synthetic: Path) -> None:
     row = _limits(synthetic)["QK:IDGAP:1:CUR:SP"]
     assert row["min_value"] <= 0.0 <= row["max_value"]
-    assert "QK:IDGAP:1:CUR:SP" not in _load(synthetic / "seeds.yaml")
+    assert "QK:IDGAP:1:CUR:SP" not in _load(synthetic / "simulation" / "seeds.yaml")
 
 
 def test_a_later_import_reports_each_differing_range_and_applies_none(
@@ -492,7 +495,7 @@ def test_an_import_beside_a_limits_file_reports_no_unbanded_setpoint(
 
 
 def test_seeds_hold_golden_values_of_unwired_channels_only(imported: _Imported) -> None:
-    seeds = _load(imported.facility / "seeds.yaml")
+    seeds = _load(imported.facility / "simulation" / "seeds.yaml")
     assert seeds
     assert list(seeds) == sorted(seeds)
     assert not set(seeds) & imported.wired
@@ -505,20 +508,24 @@ def test_seeds_hold_golden_values_of_unwired_channels_only(imported: _Imported) 
 def test_a_seed_is_the_nominal_the_export_states_for_its_device(synthetic: Path) -> None:
     va = json.loads((FIXTURES / "synthetic" / "quokka.sr.va.json").read_text(encoding="utf-8"))
     values = va["families"]["BSOFT"]["nominals"]["Setpoint"]["values"]
-    seeds = _load(synthetic / "seeds.yaml")
+    seeds = _load(synthetic / "simulation" / "seeds.yaml")
     assert [seeds[f"QK:BSOFT:{n}:CUR:SP"]["nominal"] for n in (1, 2)] == values
 
 
 def test_a_nominal_that_is_no_number_is_no_seed(synthetic: Path) -> None:
     va = json.loads((FIXTURES / "synthetic" / "quokka.sr.va.json").read_text(encoding="utf-8"))
     assert va["families"]["IDGAP"]["nominals"]["Setpoint"]["values"] == ["NaN", "NaN"]
-    assert not [address for address in _load(synthetic / "seeds.yaml") if "IDGAP" in address]
+    assert not [
+        address for address in _load(synthetic / "simulation" / "seeds.yaml") if "IDGAP" in address
+    ]
 
 
 def test_a_nominal_in_physics_units_is_no_seed(synthetic: Path) -> None:
     va = json.loads((FIXTURES / "synthetic" / "quokka.sr.va.json").read_text(encoding="utf-8"))
     assert va["families"]["SEPTUM"]["nominals"]["Monitor"]["units"] == "Physics"
-    assert not [address for address in _load(synthetic / "seeds.yaml") if "SEPTUM" in address]
+    assert not [
+        address for address in _load(synthetic / "simulation" / "seeds.yaml") if "SEPTUM" in address
+    ]
 
 
 def test_the_import_counts_the_wired_channels_whose_golden_value_it_skips(
@@ -541,7 +548,7 @@ def test_the_import_counts_the_wired_channels_whose_golden_value_it_skips(
     assert lines == [f"golden skipped: {stated} wired channels"]
 
 
-# --- measurement/<model>.yaml -------------------------------------------------------
+# --- simulation/measurement/<model>.yaml --------------------------------------------
 
 
 def test_every_wired_model_has_a_measurement_file(imported: _Imported) -> None:
@@ -550,11 +557,16 @@ def test_every_wired_model_has_a_measurement_file(imported: _Imported) -> None:
         for model in _load(imported.facility / LAYER_DIR / "models.yaml")
         if model.get("wiring")
     )
-    assert sorted(path.stem for path in (imported.facility / "measurement").glob("*.yaml")) == wired
+    assert (
+        sorted(
+            path.stem for path in (imported.facility / "simulation" / "measurement").glob("*.yaml")
+        )
+        == wired
+    )
 
 
 def test_a_measurement_file_carries_the_step_and_settle_keys(imported: _Imported) -> None:
-    for path in sorted((imported.facility / "measurement").glob("*.yaml")):
+    for path in sorted((imported.facility / "simulation" / "measurement").glob("*.yaml")):
         document = _load(path)
         assert {key: document[key] for key in TUNING} == TUNING, path.name
         assert list(document)[:2] == ["kinds", "groups"], path.name
@@ -572,7 +584,7 @@ def test_a_measurement_file_carries_the_step_and_settle_keys(imported: _Imported
 
 
 def test_a_periodic_model_measures_orbit_response_and_dispersion(synthetic: Path) -> None:
-    document = _load(synthetic / "measurement" / "SR.yaml")
+    document = _load(synthetic / "simulation" / "measurement" / "SR.yaml")
     assert document["kinds"] == ["dispersion", "orm"]
     assert document["groups"] == {"bpm": "BPMx", "hcor": "HC", "vcor": "VC"}
     assert document["instruments"] == {"rf": "QK:RF:1:CUR:SP"}
@@ -581,7 +593,7 @@ def test_a_periodic_model_measures_orbit_response_and_dispersion(synthetic: Path
 def test_every_group_and_instrument_of_a_measurement_file_exists(imported: _Imported) -> None:
     groups = {group["id"] for group in _load(imported.facility / LAYER_DIR / "groups.yaml")}
     channels = set(imported.roles)
-    for path in sorted((imported.facility / "measurement").glob("*.yaml")):
+    for path in sorted((imported.facility / "simulation" / "measurement").glob("*.yaml")):
         document = _load(path)
         named = {group for value in document["groups"].values() for group in group_families(value)}
         assert named <= groups, path.name
@@ -592,14 +604,14 @@ def test_a_single_pass_model_measures_orbit_response_at_most(
     imports: Callable[[str], _Imported],
 ) -> None:
     facility = imports("nsls2").facility
-    document = _load(facility / "measurement" / "LTB.yaml")
+    document = _load(facility / "simulation" / "measurement" / "LTB.yaml")
     assert document["kinds"] == ["orm"]
     assert document["groups"] == {"bpm": "BPM", "hcor": "HCM", "vcor": "VCM"}
     assert "instruments" not in document
 
 
 def test_the_spear3_measurement_reads_the_tune_on_its_wired_readback(spear3: Path) -> None:
-    document = _load(spear3 / "measurement" / "StorageRing.yaml")
+    document = _load(spear3 / "simulation" / "measurement" / "StorageRing.yaml")
     assert document["instruments"]["tune"] == "MeasTune"
     assert document["groups"]["quad"] == ["QD", "QF"]
     assert document["groups"]["sext"] == ["SD", "SF"]
@@ -616,7 +628,7 @@ def test_the_seeded_kinds_are_every_kind_the_file_names_the_members_of(
         != "single_pass"
         for model in _load(imported.facility / LAYER_DIR / "models.yaml")
     }
-    for path in sorted((imported.facility / "measurement").glob("*.yaml")):
+    for path in sorted((imported.facility / "simulation" / "measurement").glob("*.yaml")):
         document = _load(path)
         named = set(document["groups"]) | set(document.get("instruments", {}))
         assert document["kinds"] == [
@@ -641,7 +653,7 @@ def test_the_import_seeds_no_kind_a_deployment_package_registers(
     install(monkeypatch)
     declaration = registered()[REGISTRY_KIND]
     imported = _Imported(import_record("spear3", tmp_path / "spear3"))
-    document = _load(imported.facility / "measurement" / "StorageRing.yaml")
+    document = _load(imported.facility / "simulation" / "measurement" / "StorageRing.yaml")
     named = set(document["groups"]) | set(document.get("instruments", {}))
 
     assert {m for m, r in declaration.members.items() if r != "optional"} <= named
@@ -676,7 +688,7 @@ def test_the_import_names_a_role_the_export_tags_no_corrector_for(
     ]
 
 
-# --- scenarios/readout.yaml ---------------------------------------------------------
+# --- simulation/scenarios/readout.yaml ----------------------------------------------
 
 #: Millimetres per metre: the spear3 monitors publish in mm, the deck solves in m.
 MM_PER_M = 1000.0
@@ -945,14 +957,14 @@ def test_classes_hold_one_row_per_mapping_class_the_vocabulary_lacks(
         for family in mapping.families.values()
         if family.class_ is not None and family.class_ not in vocabulary
     }
-    rows = _load(imported.facility / "classes.yaml")
+    rows = _load(imported.facility / "vocabulary" / "classes.yaml")
     assert {row["class"]: row["parent"] for row in rows} == expected
     assert [row["class"] for row in rows] == sorted(expected)
     assert all(list(row) == ["class", "parent"] for row in rows)
 
 
 def test_the_classes_of_the_storage_tree_land(spear3: Path) -> None:
-    rows = {row["class"]: row["parent"] for row in _load(spear3 / "classes.yaml")}
+    rows = {row["class"]: row["parent"] for row in _load(spear3 / "vocabulary" / "classes.yaml")}
     assert rows == {
         "BeamlineMonitor": "Instrumentation",
         "BendTrim": "Corrector",
@@ -980,7 +992,9 @@ def test_a_declared_branch_is_a_row_ahead_of_the_classes_that_extend_it(tmp_path
 
     import_mml(export_files("synthetic"), facility)
 
-    rows = [(row["class"], row["parent"]) for row in _load(facility / "classes.yaml")]
+    rows = [
+        (row["class"], row["parent"]) for row in _load(facility / "vocabulary" / "classes.yaml")
+    ]
     assert rows[:2] == [("Steering", "Corrector"), ("Trim", "Steering")]
     assert ("BendTrim", "Trim") in rows[2:]
     assert [name for name, _ in rows[2:]] == sorted(name for name, _ in rows[2:])

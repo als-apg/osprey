@@ -23,7 +23,7 @@ from typing import NamedTuple
 import pytest
 from tests._builds import BuiltProject
 from tests._facility_file import write_facility_v4, write_facility_views
-from tests._preset_data import bundle_data_root
+from tests._preset_data import bundle_source_root
 
 from osprey.cli.templates.claude_code import config_derived_context
 from osprey.facility.views.facts import FACTS_FILE, zero_source_facts
@@ -49,10 +49,10 @@ def test_served_decks_are_the_served_physics_models_with_a_deck(tmp_path: Path) 
     (tmp_path / "data" / FACTS_FILE).write_text(json.dumps(facts), encoding="utf-8")
     facility = {
         "models": [
-            {"name": "AR", "engine": "pyat", "deck": "decks/ar_lattice.mat"},
+            {"name": "AR", "engine": "pyat", "deck": "simulation/decks/ar_lattice.mat"},
             {"name": "BTS", "engine": "pyat"},
-            {"name": "LTB", "engine": "pyat", "deck": "decks/LTB.json"},
-            {"name": "SR", "engine": "pyat", "deck": "decks/SR.json"},
+            {"name": "LTB", "engine": "pyat", "deck": "simulation/decks/LTB.json"},
+            {"name": "SR", "engine": "pyat", "deck": "simulation/decks/SR.json"},
         ]
     }
     write_facility_v4(tmp_path, facility)
@@ -74,7 +74,9 @@ def test_the_agent_loads_a_mat_deck_by_the_file_the_view_writes(tmp_path: Path) 
     facts["models"] = [_model("SR", "pyat", True)]
     (tmp_path / "data").mkdir()
     (tmp_path / "data" / FACTS_FILE).write_text(json.dumps(facts), encoding="utf-8")
-    facility = {"models": [{"name": "SR", "engine": "pyat", "deck": "decks/sr_lattice.mat"}]}
+    facility = {
+        "models": [{"name": "SR", "engine": "pyat", "deck": "simulation/decks/sr_lattice.mat"}]
+    }
     write_facility_v4(tmp_path, facility)
     context = config_derived_context({}, tmp_path)
     context["enabled_agents"] = {"pyat-specialist"}
@@ -164,7 +166,7 @@ def texture_only(tmp_path_factory: pytest.TempPathFactory) -> _TextureOnlyRender
         output_dir=tmp_path_factory.mktemp("texture-only"),
         data_bundle=bundle,
         context={"channel_finder_mode": "hierarchical"},
-        data_root=bundle_data_root(bundle),
+        repo_root=bundle_source_root(bundle),
     )
     profile, _profile_dir = resolve_build_profile(None, preset="demo")
     config_update_fields(project / "config.yml", profile.config)

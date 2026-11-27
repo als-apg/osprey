@@ -36,7 +36,7 @@ def _built_project(tmp_path: Path, name: str) -> Path:
 def _profile_with_user_dir(tmp_path: Path, user: str) -> Path:
     """Profile directory holding a ``web-terminal-context/<user>`` seed."""
     profile_dir = tmp_path / "profile"
-    user_dir = profile_dir / "web-terminal-context" / user
+    user_dir = profile_dir / "agent" / "context" / user
     user_dir.mkdir(parents=True)
     (user_dir / "extra.md").write_text(f"# {user}'s notes\n", encoding="utf-8")
     return profile_dir
@@ -62,7 +62,7 @@ def test_profile_base_md_overrides_the_framework_fallback(tmp_path: Path) -> Non
     project_path = _built_project(tmp_path, "context-base-override")
     profile_dir = _profile_with_user_dir(tmp_path, "alice")
     authored = "# Facility baseline\n\nOur own ground rules.\n"
-    (profile_dir / "web-terminal-context" / "base.md").write_text(authored, encoding="utf-8")
+    (profile_dir / "agent" / "context" / "base.md").write_text(authored, encoding="utf-8")
 
     framework_text = (project_path / CONTEXT_DIR / "base.md").read_text(encoding="utf-8")
     assert framework_text != authored  # the override must be observable
@@ -82,13 +82,13 @@ def test_loose_file_in_context_dir_is_rejected(tmp_path: Path) -> None:
     """
     project_path = _built_project(tmp_path, "context-loose-file")
     profile_dir = _profile_with_user_dir(tmp_path, "alice")
-    (profile_dir / "web-terminal-context" / "everyone.md").write_text("# all\n", encoding="utf-8")
+    (profile_dir / "agent" / "context" / "everyone.md").write_text("# all\n", encoding="utf-8")
 
     with pytest.raises(BuildProfileError) as excinfo:
         _apply_conventions(profile_dir, project_path, ["alice"])
 
     message = str(excinfo.value)
-    assert "web-terminal-context/everyone.md" in message
+    assert "agent/context/everyone.md" in message
     assert "one directory per web-terminal user" in message
     assert (project_path / CONTEXT_DIR / "base.md").is_file()
 
@@ -97,7 +97,7 @@ def test_departed_user_context_is_skipped(tmp_path: Path) -> None:
     """Context for someone off the roster is left alone, baseline untouched."""
     project_path = _built_project(tmp_path, "context-departed")
     profile_dir = _profile_with_user_dir(tmp_path, "alice")
-    departed = profile_dir / "web-terminal-context" / "bob"
+    departed = profile_dir / "agent" / "context" / "bob"
     departed.mkdir()
     (departed / "extra.md").write_text("# bob\n", encoding="utf-8")
 

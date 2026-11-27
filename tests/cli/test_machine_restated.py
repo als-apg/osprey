@@ -1,7 +1,7 @@
 """Tests for the ``machine-restated`` stop of a mounted deployment.
 
 While a profile mounts a machine root (``machine:``), the deployment's own
-facility tree (``<data>/facility``) holds only the deployment's content
+facility tree (``facility/``) holds only the deployment's content
 directories. Any other entry restates a machine fact, so validate and build
 stop on it with a message naming the deployment file, the machine file it
 restates (or the machine root when there is none) and the remedy.
@@ -27,11 +27,11 @@ def _write(path: Path, text: str = "x: 1\n") -> Path:
 
 @pytest.fixture
 def roots(tmp_path: Path) -> FacilityRoots:
-    """A mounted deployment: ``machine/`` beside ``data/facility``."""
+    """A mounted deployment: ``machine/`` beside ``facility/``."""
     machine = tmp_path / "machine"
     _write(machine / "identity.yaml", "code: m\nname: M\n")
     _write(machine / "records" / "x.yaml")
-    content = tmp_path / "data" / "facility"
+    content = tmp_path / "facility"
     content.mkdir(parents=True)
     return FacilityRoots(machine=machine, content=content)
 
@@ -48,10 +48,10 @@ def test_restated_record_stops_naming_both_files(roots: FacilityRoots) -> None:
     assert isinstance(error, FacilityBuildError)
     assert error.kind == "machine-restated"
     message = error.format_message()
-    assert "data/facility/records/x.yaml" in message
+    assert "facility/records/x.yaml" in message
     assert "machine/records/x.yaml" in message
     assert "fix:" in message
-    assert error.sources == ("data/facility/records/x.yaml",)
+    assert error.sources == ("facility/records/x.yaml",)
 
 
 def test_stray_limits_stops_naming_the_machine_root(roots: FacilityRoots) -> None:
@@ -62,7 +62,7 @@ def test_stray_limits_stops_naming_the_machine_root(roots: FacilityRoots) -> Non
     assert isinstance(error, FacilityBuildError)
     assert error.kind == "machine-restated"
     message = error.format_message()
-    assert "data/facility/limits.yaml" in message
+    assert "facility/limits.yaml" in message
     # The machine has no limits.yaml, so the message names its root instead.
     assert "machine/limits.yaml" not in message
     assert "machine/" in message
@@ -99,14 +99,14 @@ def test_empty_restated_directory_passes(roots: FacilityRoots) -> None:
 
 
 def test_first_offender_is_deterministic(roots: FacilityRoots) -> None:
-    _write(roots.content / "scenarios" / "b.yaml")
+    _write(roots.content / "simulation" / "scenarios" / "b.yaml")
     _write(roots.content / "classes" / "a.yaml")
     _write(roots.content / "limits.yaml")
 
     error = machine_restated_violation(roots)
 
     assert error is not None
-    assert error.sources == ("data/facility/classes/a.yaml",)
+    assert error.sources == ("facility/classes/a.yaml",)
 
 
 def test_stated_probe_channel_is_not_its_concern(roots: FacilityRoots) -> None:
@@ -121,7 +121,7 @@ def test_stated_probe_channel_is_not_its_concern(roots: FacilityRoots) -> None:
 
 
 def test_unmounted_deployment_never_stops(tmp_path: Path) -> None:
-    facility = tmp_path / "data" / "facility"
+    facility = tmp_path / "facility"
     _write(facility / "identity.yaml", "code: m\nname: M\n")
     _write(facility / "records" / "x.yaml")
     _write(facility / "limits.yaml", "limits: []\n")
@@ -132,6 +132,6 @@ def test_unmounted_deployment_never_stops(tmp_path: Path) -> None:
 def test_missing_content_root_passes(tmp_path: Path) -> None:
     machine = tmp_path / "machine"
     _write(machine / "identity.yaml", "code: m\nname: M\n")
-    roots = FacilityRoots(machine=machine, content=tmp_path / "data" / "facility")
+    roots = FacilityRoots(machine=machine, content=tmp_path / "facility")
 
     assert machine_restated_violation(roots) is None

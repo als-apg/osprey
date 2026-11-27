@@ -72,8 +72,8 @@ def test_a_single_pass_model_declares_none() -> None:
 
 def _tree(faults: dict[str, Any]) -> dict[str, Any]:
     tree = plain_tree()
-    tree["models.yaml"] = [{"name": "optics", "engine": "pyat", "wiring": WIRING}]
-    tree["scenarios/seeded.yaml"] = {"faults": {"optics": faults}}
+    tree["simulation/models.yaml"] = [{"name": "optics", "engine": "pyat", "wiring": WIRING}]
+    tree["simulation/scenarios/seeded.yaml"] = {"faults": {"optics": faults}}
     return tree
 
 

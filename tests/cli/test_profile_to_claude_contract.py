@@ -44,7 +44,7 @@ from osprey.registry.mcp import (
     FRAMEWORK_AGENTS,
 )
 from tests._builds import copy_build
-from tests._preset_data import bundle_data_root
+from tests._preset_data import bundle_source_root
 from tests.cli._lifecycle_build import invoke_build
 from tests.cli._template_projects import create_project_with_manifest, graph_permission_entries
 
@@ -105,7 +105,7 @@ def _build_demo(tmp_path_factory) -> Path:
         output_dir=out_dir,
         data_bundle="demo",
         context={"channel_finder_mode": "hierarchical"},
-        data_root=bundle_data_root("demo"),
+        repo_root=bundle_source_root("demo"),
     )
     return _apply_preset_config(manager, project, "demo")
 
@@ -118,7 +118,7 @@ def _build_hello_world(tmp_path_factory) -> Path:
         project_name="hw-contract",
         output_dir=out_dir,
         data_bundle="hello_world",
-        data_root=bundle_data_root("hello_world"),
+        repo_root=bundle_source_root("hello_world"),
     )
     return _apply_preset_config(manager, project, "hello-world")
 
@@ -507,7 +507,7 @@ def test_narrowed_skill_selection_renders_only_the_selected_skills(tmp_path):
             "output_styles": ["control-operator"],
             "web_panels": ["ariel"],
         },
-        data_root=bundle_data_root("demo"),
+        repo_root=bundle_source_root("demo"),
     )
 
     skills_dir = project / ".claude" / "skills"
@@ -531,7 +531,7 @@ def test_overlay_agent_frontmatter_preserved(tmp_path):
         output_dir=tmp_path,
         data_bundle="demo",
         context={"channel_finder_mode": "hierarchical"},
-        data_root=bundle_data_root("demo"),
+        repo_root=bundle_source_root("demo"),
     )
 
     # Drop a custom agent file with a known frontmatter shape.
@@ -589,7 +589,7 @@ def test_extends_phoebus2_rendered_artifacts(tmp_path, monkeypatch):
         output_dir=tmp_path,
         data_bundle="demo",
         context={"channel_finder_mode": "hierarchical"},
-        data_root=bundle_data_root("demo"),
+        repo_root=bundle_source_root("demo"),
     )
 
     from osprey.utils.config_writer import config_update_fields
@@ -676,7 +676,7 @@ def test_hook_config_write_tools_dedupe(tmp_path):
         project_name="write-tools-dedupe",
         output_dir=tmp_path,
         data_bundle="hello_world",
-        data_root=bundle_data_root("hello_world"),
+        repo_root=bundle_source_root("hello_world"),
     )
 
     baseline = _read_hook_config(project)["write_tools"]
@@ -728,7 +728,7 @@ def test_hook_config_with_no_enabled_servers(tmp_path):
         project_name="no-servers",
         output_dir=tmp_path,
         data_bundle="hello_world",
-        data_root=bundle_data_root("hello_world"),
+        repo_root=bundle_source_root("hello_world"),
     )
 
     enabled = _server_names_from_prefixes(_read_hook_config(project))
@@ -788,7 +788,7 @@ def test_hook_config_lane_addressed_tools_come_from_the_registry(tmp_path):
         project_name="lane-addressed-tools",
         output_dir=tmp_path,
         data_bundle="hello_world",
-        data_root=bundle_data_root("hello_world"),
+        repo_root=bundle_source_root("hello_world"),
     )
 
     hook_cfg = _read_hook_config(project)
@@ -940,7 +940,7 @@ def test_crown_jewel_invariant_catches_missing_tool(tmp_path):
         output_dir=tmp_path,
         data_bundle="demo",
         context={"channel_finder_mode": "hierarchical"},
-        data_root=bundle_data_root("demo"),
+        repo_root=bundle_source_root("demo"),
     )
 
     bogus = project / ".claude" / "agents" / "bogus.md"
@@ -974,7 +974,7 @@ def test_crown_jewel_invariant_rejects_wildcards(tmp_path):
         output_dir=tmp_path,
         data_bundle="demo",
         context={"channel_finder_mode": "hierarchical"},
-        data_root=bundle_data_root("demo"),
+        repo_root=bundle_source_root("demo"),
     )
 
     wild = project / ".claude" / "agents" / "wild.md"
@@ -1028,9 +1028,8 @@ def test_build_command_fails_on_violation(tmp_path, caplog):
     """
     profile_dir = tmp_path / "broken-deployment"
     profile_dir.mkdir()
-    (profile_dir / "data").mkdir()
-    agents_dir = profile_dir / "agents"
-    agents_dir.mkdir()
+    agents_dir = profile_dir / "agent" / "agents"
+    agents_dir.mkdir(parents=True)
     (agents_dir / "bogus.md").write_text(
         textwrap.dedent(
             """\
@@ -1055,7 +1054,6 @@ def test_build_command_fails_on_violation(tmp_path, caplog):
                 # The preset carries the posture floor and the bundle; only the
                 # unbacked agent tool below is what this build should die on.
                 "extends": "hello-world",
-                "data": "data",
                 "provider": "anthropic",
                 "model": "claude-haiku-4-5",
                 "agents": ["agents/bogus"],
@@ -1567,7 +1565,7 @@ def _render_profile_project(tmp_path_factory, profile_path: Path, label: str) ->
         output_dir=tmp_path_factory.mktemp("floor_build"),
         data_bundle=bundle,
         context={"channel_finder_mode": "hierarchical"},
-        data_root=bundle_data_root(bundle),
+        repo_root=bundle_source_root(bundle),
     )
     config_update_fields(project / "config.yml", profile.config)
     manager.regenerate_claude_code(project)
@@ -1687,7 +1685,7 @@ def test_hook_helper_files_ship_with_their_hooks_but_are_never_wired(tmp_path):
             "hooks": ["approval", "memory-guard"],
             "rules": ["safety"],
         },
-        data_root=bundle_data_root("demo"),
+        repo_root=bundle_source_root("demo"),
     )
 
     helpers = (
@@ -1782,7 +1780,7 @@ def _project_with_hooks(
         output_dir=tmp_path,
         data_bundle="demo",
         context={"channel_finder_mode": "hierarchical"},
-        data_root=bundle_data_root("demo"),
+        repo_root=bundle_source_root("demo"),
         artifacts=_selection_without(manager, *dropped),
     )
     profile, _profile_dir = resolve_build_profile(None, preset="demo")
@@ -1979,7 +1977,7 @@ def test_a_sibling_data_directory_grants_no_read_permission(tmp_path):
         project_name="hw-textbooks",
         output_dir=out_dir,
         data_bundle="hello_world",
-        data_root=bundle_data_root("hello_world"),
+        repo_root=bundle_source_root("hello_world"),
     )
     _apply_preset_config(manager, project, "hello-world")
 

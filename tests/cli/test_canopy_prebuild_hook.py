@@ -84,6 +84,26 @@ def test_an_unset_payload_passes_the_step_once_it_is_on(
     monkeypatch.delenv("OSPREY_CANOPY_PAYLOAD", raising=False)
     _run(repo, stage)
     assert not (repo / "canopy_payload").exists()
+    assert list(stage.iterdir()) == []
+
+
+def test_the_materialized_step_stages_into_the_stage_directory_not_the_repo_root(
+    repo: Path, stage: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The step text a deployment already carries writes only into the render."""
+    from tests.integrations.canopy.test_stage import CANOPY_WHEEL, PYDM_WHEEL, make_payload
+
+    monkeypatch.setenv("OSPREY_CANOPY_PAYLOAD_CHECK", "1")
+    monkeypatch.setenv("OSPREY_CANOPY_PAYLOAD", str(make_payload(tmp_path / "payload")))
+    before = sorted(entry.name for entry in repo.iterdir())
+
+    _run(repo, stage)
+
+    assert sorted(entry.name for entry in repo.iterdir()) == before
+    assert sorted(entry.name for entry in stage.iterdir()) == sorted(
+        ["canopy_payload", CANOPY_WHEEL, PYDM_WHEEL]
+    )
+    assert (stage / "canopy_payload" / "STAGED.json").is_file()
 
 
 def test_a_named_payload_that_is_missing_refuses_the_build(

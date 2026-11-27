@@ -24,8 +24,6 @@ from osprey.cli.build_profile import BuildProfile, DispatchConfig, ServiceDef, _
 from osprey.cli.build_profile_schema import env_names_errors
 from tests.cli._profiles import validation_errors
 
-pytestmark = pytest.mark.usefixtures("facility_data_tree")
-
 
 def _env_errors(profile: BuildProfile, profile_dir: Path) -> list[str]:
     """Return only the failures that mention an ``env`` key."""
@@ -40,7 +38,7 @@ def _triggers(tmp_path: Path, name: str = "trig.yml") -> str:
 
 def _profile(**raw: Any) -> BuildProfile:
     """Parse a profile from the YAML surface, filling in the required name."""
-    return _parse_profile({"name": "envaxis", "data": "data", **raw})
+    return _parse_profile({"name": "envaxis", **raw})
 
 
 # --- the shared checker ---------------------------------------------------
@@ -405,7 +403,6 @@ def test_a_profile_declaring_no_env_anywhere_stays_clean(tmp_path: Path) -> None
     """The axis is inert when unset — an untouched profile validates as before."""
     profile = BuildProfile(
         name="envaxis",
-        data="data",
         dispatch=DispatchConfig(triggers=_triggers(tmp_path)),
         services={
             "gchat_bridge": ServiceDef(template="osprey.gchat_bridge", config={"port": 8080})

@@ -9,7 +9,7 @@ What IS verified:
   - Key structural files are generated (CLAUDE.md, .mcp.json, config.yml)
   - config.yml serves the simulator in process with limits checking enabled, in
     ``optional`` mode, reading the limits database the build writes
-  - channel_limits.json holds the three records of data/facility/limits.yaml
+  - channel_limits.json holds the three records of facility/limits.yaml
   - Hook files are present in .claude/hooks/
   - VAInProcessConnector reads tutorial channels successfully
 """
@@ -22,6 +22,7 @@ from pathlib import Path
 import pytest
 import yaml
 
+from osprey import repo_layout
 from osprey.cli.build_cmd import _profile_data_bundle
 from tests._builds import BuiltProject, init_project, run_build
 from tests.facility.served_tree import in_process_config
@@ -116,10 +117,10 @@ class TestHelloWorldBuildOutput:
         }
 
     def test_hello_world_ships_no_hand_written_limits_file(self, hello_world_project: Path):
-        """The repo authors limits in data/facility/limits.yaml and nowhere else."""
+        """The repo authors limits in facility/limits.yaml and nowhere else."""
         repo = hello_world_project.parent
 
-        assert (repo / "data" / "facility" / "limits.yaml").is_file()
+        assert (repo / repo_layout.entry("facility").path / "limits.yaml").is_file()
         assert not (repo / "data" / "channel_limits.json").exists()
 
     def test_hello_world_hooks_present(self, hello_world_project: Path):

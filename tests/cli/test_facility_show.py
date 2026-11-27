@@ -19,6 +19,7 @@ import pytest
 import yaml
 from click.testing import CliRunner, Result
 
+from osprey import repo_layout
 from osprey.cli.main import cli
 from osprey_connectors.workspace import BUILD_DIR_NAME
 from tests._builds import init_project
@@ -195,7 +196,7 @@ def test_a_build_error_exits_1_with_an_empty_stdout(repo: Path) -> None:
         "schema": "osprey.facility.fixes/1",
         "fixes": [{"op": "drop", "kind": "device", "id": "SR/Q9", "why": "gone"}],
     }
-    (repo / "data" / "facility" / "fixes.yaml").write_text(
+    (repo / repo_layout.entry("facility").path / "provenance" / "fixes.yaml").write_text(
         yaml.safe_dump(fixes, sort_keys=False), encoding="utf-8"
     )
 
@@ -224,7 +225,7 @@ def test_a_record_matches_its_golden(shown: Callable[..., Result]) -> None:
 
 
 def test_a_fixed_record_lists_the_fix_applied(repo: Path) -> None:
-    facility = repo / "data" / "facility"
+    facility = repo / repo_layout.entry("facility").path
     imported = facility / "imported" / "mml" / "channels.yaml"
     imported.parent.mkdir(parents=True)
     imported.write_text(yaml.safe_dump([{"id": CHANNEL, "unit": "mm"}]), encoding="utf-8")
@@ -236,7 +237,7 @@ def test_a_fixed_record_lists_the_fix_applied(repo: Path) -> None:
         "was": {"unit": {"authored": "mm", "mml": "mm"}},
         "why": "The unit is micrometres.",
     }
-    (facility / "fixes.yaml").write_text(
+    (facility / "provenance" / "fixes.yaml").write_text(
         yaml.safe_dump({"schema": "osprey.facility.fixes/1", "fixes": [fix]}, sort_keys=False),
         encoding="utf-8",
     )
@@ -274,7 +275,7 @@ def test_an_unknown_id_exits_1(repo: Path, as_json: bool) -> None:
 @pytest.mark.parametrize("as_json", [False, True])
 def test_an_id_naming_a_place_and_a_device_shows_both(repo: Path, as_json: bool) -> None:
     _append(
-        repo / "data" / "facility" / "records" / "devices.yaml",
+        repo / repo_layout.entry("facility").path / "records" / "devices.yaml",
         {"id": "GTL", "class": "BeamPositionMonitor", "place": "GTL"},
     )
 
@@ -304,7 +305,7 @@ def test_an_id_naming_a_place_and_a_device_shows_both(repo: Path, as_json: bool)
 
 def _with_shared_name(repo: Path) -> None:
     """Give a place and a device of the demo's Appendix A records one shared name."""
-    facility = repo / "data" / "facility"
+    facility = repo / repo_layout.entry("facility").path
     for relpath, id_ in (
         ("records/places.yaml", "HALL/ROW3/RK08"),
         ("records/devices.yaml", "SR/BPM13-EL"),
@@ -485,7 +486,7 @@ def test_a_device_lists_object_end_claims_in_the_claims_direction(
 def test_a_claim_naming_the_record_at_both_ends_is_listed_once(repo: Path, as_json: bool) -> None:
     """A jumper between two ports of one device names it at both ends [CF-9]."""
     _append(
-        repo / "data" / "facility" / "records" / "relations.yaml",
+        repo / repo_layout.entry("facility").path / "records" / "relations.yaml",
         {
             "id": "qf05-ps-jumper",
             "type": "cabled_to",

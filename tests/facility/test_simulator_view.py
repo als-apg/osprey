@@ -207,7 +207,7 @@ def test_the_deck_is_a_byte_copy_that_pyat_loads(built_demo: BuiltProject) -> No
     import at
 
     copy = built_demo.build_dir / DECK
-    source = built_demo.facility_dir / "decks" / "SR.json"
+    source = built_demo.facility_dir / "simulation" / "decks" / "SR.json"
 
     assert hashlib.sha256(copy.read_bytes()).hexdigest() == (
         hashlib.sha256(source.read_bytes()).hexdigest()
@@ -252,7 +252,7 @@ def test_two_in_process_renders_differing_only_in_the_key_render_different_lists
     repo = tmp_path / "repo"
     (repo / "data").mkdir(parents=True)
     (repo / "profile.yml").write_text(
-        "name: demo\ndata: data\nconfig:\n  control_system.type: virtual_accelerator\n"
+        "name: demo\nconfig:\n  control_system.type: virtual_accelerator\n"
         "  control_system.connector.virtual_accelerator.serving: in_process\n"
         "  simulation.models: null\n"
     )
@@ -491,11 +491,13 @@ def test_a_deck_keeps_its_suffix(tmp_path: Path, built_demo: BuiltProject) -> No
 
     facility_dir = tmp_path / "facility"
     shutil.copytree(built_demo.facility_dir, facility_dir)
-    source = facility_dir / "decks" / "SR.mat"
-    at.save_lattice(at.load_lattice(str(facility_dir / "decks" / "SR.json")), str(source))
+    source = facility_dir / "simulation" / "decks" / "SR.mat"
+    at.save_lattice(
+        at.load_lattice(str(facility_dir / "simulation" / "decks" / "SR.json")), str(source)
+    )
     facility = copy.deepcopy(built_demo.facility)
     (sr,) = [model for model in facility["models"] if model["name"] == "SR"]
-    sr["deck"] = "decks/SR.mat"
+    sr["deck"] = "simulation/decks/SR.mat"
     render_dir = tmp_path / "render"
     render_dir.mkdir()
     _render_simulator(render_dir, facility, {}, facility_dir)
@@ -654,7 +656,7 @@ def test_scenarios_carry_every_scenario_and_its_blocks(
     built_demo: BuiltProject,
 ) -> None:
     scenarios = _view(built_demo.build_dir, SCENARIOS)
-    source = built_demo.facility_dir / "scenarios"
+    source = built_demo.facility_dir / "simulation" / "scenarios"
     names = sorted([*(path.stem for path in source.glob("*.yaml")), "still"])
 
     assert set(scenarios) == {"schema", "scenarios"}
@@ -692,7 +694,8 @@ def test_each_attached_file_is_a_byte_copy_beside_the_scenarios(
     for relative in SCENARIO_FILES:
         copied = built_demo.build_dir / relative
         assert (
-            copied.read_bytes() == (source / relative.removeprefix("data/simulator/")).read_bytes()
+            copied.read_bytes()
+            == (source / "simulation" / relative.removeprefix("data/simulator/")).read_bytes()
         )
 
 
@@ -1013,7 +1016,7 @@ def test_a_still_selection_matching_no_float_channel_stops_the_build(
     error = caught.value
     assert error.kind == "value-invalid"
     assert (error.record_kind, error.record_id) == ("scenario", "quiet")
-    assert error.sources == ("scenarios/quiet.yaml",)
+    assert error.sources == ("simulation/scenarios/quiet.yaml",)
     assert repr(selection) in error.detail
 
 
@@ -1036,7 +1039,7 @@ def test_a_still_selection_meeting_the_scenarios_own_motion_stops_the_build(
 
     error = caught.value
     assert error.kind == "value-invalid"
-    assert error.sources == ("scenarios/quiet.yaml",)
+    assert error.sources == ("simulation/scenarios/quiet.yaml",)
     assert f"`{slot}.{monitors[0]}`" in error.detail
 
 

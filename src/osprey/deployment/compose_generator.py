@@ -28,6 +28,7 @@ from typing import Any, NamedTuple
 import yaml
 from jinja2 import Environment, FileSystemLoader, StrictUndefined, Undefined, UndefinedError
 
+from osprey import repo_layout
 from osprey.agent_record.config import HISTORY_SERVICE, history_page_deployed
 from osprey.agent_runner.claude_state import (
     CLAUDE_CONFIG_VOLUME_SUFFIX,
@@ -91,8 +92,12 @@ from osprey_connectors.control_system import LIMITS_DATABASE_CONFIG_KEY
 from osprey_connectors.log_filter import quiet_logger
 from osprey_connectors.logger import get_logger
 from osprey_connectors.safety_file import SHARED_DIR_MODE, atomic_replace
+from osprey_facility import source_tree
 
 logger = get_logger("deployment.compose")
+
+#: The limits file a build renders the limits database from, as a remedy names it.
+_LIMITS_SOURCE_DISPLAY = repo_layout.display_path("facility", source_tree.path("limits"))
 
 
 def _report_fact(message: str) -> None:
@@ -1138,7 +1143,7 @@ def resolve_limits_mount(config, config_dir, deployed_config_dir):
                 remedy=(
                     "Rebuild with `osprey build`; it names data/channel_limits.json as "
                     f"{LIMITS_DATABASE_CONFIG_KEY}, which it renders from "
-                    "data/facility/limits.yaml, whenever the profile states a limits "
+                    f"{_LIMITS_SOURCE_DISPLAY}, whenever the profile states a limits "
                     "block.\n"
                     "Or turn limits checking off for that target — "
                     "limits_checking.enabled: false, deployment-wide or in that "
@@ -1188,7 +1193,7 @@ def resolve_limits_mount(config, config_dir, deployed_config_dir):
                 ),
                 remedy=(
                     "Rebuild with `osprey build`; it writes data/channel_limits.json "
-                    "from data/facility/limits.yaml and names it as "
+                    f"from {_LIMITS_SOURCE_DISPLAY} and names it as "
                     f"{LIMITS_DATABASE_CONFIG_KEY}, so a file absent here usually "
                     "means the build has not been re-run. To deploy without one, set limits_checking.enabled: false for "
                     "that target — a target that checks no limits opens no "
@@ -4422,7 +4427,7 @@ def ensure_shared_corpus_dir(path, relative_to=None):
     :param relative_to: Root to spell the directory against in the INFO line
         below. The default view carries exactly one absolute path — the tree the
         build wrote — and a second one wraps a normal terminal and buries it, so
-        this line names ``data/facility/knowledge`` rather than 90 characters of
+        this line names ``facility/knowledge`` rather than 90 characters of
         ``/private/var/folders/...``. Affects the message only; the directory
         acted on is always *path*.
     :type relative_to: str | pathlib.Path | None

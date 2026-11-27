@@ -23,7 +23,6 @@ from osprey.cli.build_profile_merge import compute_profile_hash, layer_fold_labe
 from osprey.cli.profile_root import ProfileKind, layer_files
 from osprey.deployment.staleness import MATERIAL_PREFIX, profile_fingerprint
 from osprey.deployment.web_terminals.render_naming import RENDER_KIND_TIER
-from osprey.utils import workspace
 from osprey.utils.workspace import (
     APPS_DIRNAME,
     LAYER_DIR_KINDS,
@@ -77,20 +76,27 @@ def test_fold_label_refuses_a_path_outside_a_layer_directory(tmp_path: Path) -> 
 
 _WINDOW_CLOSED_PROBE = textwrap.dedent(
     """
-    import importlib.util, json, logging, sys
+    import dataclasses, json, logging, sys
     from pathlib import Path
 
-    # Load the layout leaf with its retired map emptied -- the one edit that
-    # closes the deprecation window -- before anything that reads it.
-    source, retired_map, layer = sys.argv[1], sys.argv[2], Path(sys.argv[3])
+    from osprey import repo_layout
+
+    # Delete the retired path from its row -- the one edit that closes the
+    # deprecation window -- before anything that reads the layout is imported.
+    retired, layer = sys.argv[1], Path(sys.argv[2])
     root = layer.parent.parent
-    text = Path(source).read_text(encoding="utf-8")
-    assert text.count(retired_map) == 1, retired_map
-    spec = importlib.util.spec_from_loader("osprey.utils.workspace", loader=None)
-    module = importlib.util.module_from_spec(spec)
-    module.__file__ = source
-    sys.modules[spec.name] = module
-    exec(compile(text.replace(retired_map, "{}"), source, "exec"), module.__dict__)
+    assert "osprey.utils.workspace" not in sys.modules
+    holders = [row for row in repo_layout.ROOT_ENTRIES if retired in row.retired_paths]
+    assert len(holders) == 1, retired
+    repo_layout.ROOT_ENTRIES = tuple(
+        dataclasses.replace(
+            row, retired_paths=tuple(p for p in row.retired_paths if p != retired)
+        )
+        if row in holders
+        else row
+        for row in repo_layout.ROOT_ENTRIES
+    )
+    repo_layout.check_layout(repo_layout.ROOT_ENTRIES, repo_layout.ROOT_CHILDREN)
 
     records = []
     handler = logging.Handler()
@@ -117,15 +123,13 @@ def test_closing_the_window_is_deleting_the_retired_map_entry(tmp_path: Path) ->
     (root / RETIRED_LAYER_DIRNAME).mkdir(parents=True)
     (root / RETIRED_LAYER_DIRNAME / "operator.yml").write_text("name: operator\n")
     (root / "profile.yml").write_text("name: repo\n")
-    retired_map = f'{{"{RETIRED_LAYER_DIRNAME}": TIERS_DIRNAME}}'
 
     result = subprocess.run(
         [
             sys.executable,
             "-c",
             _WINDOW_CLOSED_PROBE,
-            workspace.__file__,
-            retired_map,
+            RETIRED_LAYER_DIRNAME,
             str(root / RETIRED_LAYER_DIRNAME / "operator.yml"),
         ],
         capture_output=True,

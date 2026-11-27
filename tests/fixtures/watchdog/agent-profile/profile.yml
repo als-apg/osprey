@@ -6,7 +6,6 @@ project_name: watchdog-agent-fixture
 provider: anthropic
 model: claude-haiku-4-5
 channel_finder_mode: hierarchical
-data: data
 hooks:
   - approval
   - turn-state

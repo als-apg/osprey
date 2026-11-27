@@ -78,6 +78,8 @@ import _mml
 import _transfer
 import _tree
 
+from osprey_facility import source_tree
+
 #: The model's name, the booster's section.
 NAME = "BR"
 
@@ -236,8 +238,8 @@ def deck_text(section: _mml.Section) -> str:
 
 
 def write_deck(tree: Path, root: Path | None = _mml.MML_ROOT) -> Path:
-    """Write ``decks/BR.json`` under ``tree`` from the MML at ``root``."""
-    path = tree / "decks" / f"{NAME}.json"
+    """Write ``simulation/decks/BR.json`` under ``tree`` from the MML at ``root``."""
+    path = tree / _transfer.deck_path(NAME)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(deck_text(_mml.load(NAME, root)), encoding="utf-8")
     return path
@@ -532,7 +534,7 @@ def model(deck_document: dict[str, Any]) -> dict[str, Any]:
     return {
         "name": NAME,
         "engine": "pyat",
-        "deck": f"decks/{NAME}.json",
+        "deck": _transfer.deck_path(NAME),
         "settings": {"pyat": {"solve": "periodic"}},
         "wiring": wiring(deck_document),
     }
@@ -632,7 +634,7 @@ def write_sources(tree: Path) -> None:
     """Write the booster's lattice records and model into the facility tree ``tree``.
 
     The records this module owns are replaced whole; the model goes into
-    ``models.yaml``, the measurement file is written whole, place ``BR``
+    ``simulation/models.yaml``, the measurement file is written whole, place ``BR``
     gains its span, the corrector ranges go into ``limits.yaml`` and the
     seeds lose every removed channel and every wired nominal. Every other
     record keeps its text.
@@ -642,8 +644,8 @@ def write_sources(tree: Path) -> None:
     _replace(records / "devices.yaml", devices(deck_document), ordered=True)
     _replace(records / "channels.yaml", channels(deck_document), ordered=True)
     _replace(records / "groups.yaml", groups(deck_document), ordered=True)
-    _tree.merge(tree / "models.yaml", [model(deck_document)], "name", ordered=True)
-    measured = tree / "measurement" / f"{NAME}.yaml"
+    _tree.merge(tree / source_tree.path("models"), [model(deck_document)], "name", ordered=True)
+    measured = tree / source_tree.keyed_file("measurement", NAME)
     measured.parent.mkdir(parents=True, exist_ok=True)
     measured.write_text(_tree.dump(measurement()), encoding="utf-8")
     places_path = records / "places.yaml"
@@ -654,7 +656,7 @@ def write_sources(tree: Path) -> None:
         raise ValueError(f"{places_path}: no place {NAME}")
     _tree.merge(places_path, spanned, "id", ordered=False)
     _write_limits(tree / "limits.yaml", deck_document)
-    _write_seeds(tree / "seeds.yaml", deck_document)
+    _write_seeds(tree / source_tree.path("seeds"), deck_document)
 
 
 if __name__ == "__main__":

@@ -87,7 +87,7 @@ def _sample(turn: int, trigger_sample: int) -> int:
 
 
 def _ring_settings() -> Any:
-    models = yaml.safe_load((FIXTURE / "models.yaml").read_text())
+    models = yaml.safe_load((FIXTURE / "simulation" / "models.yaml").read_text())
     return next(model for model in models if model["name"] == RING)["settings"]
 
 

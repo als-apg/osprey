@@ -20,8 +20,9 @@ watchdogs, in any mix of engines, with several of one engine::
 
 The key is the watchdog's name and names its directory. A definition's text is
 never spelled in the block: ``instructions.md`` and the optional ``references/``
-tree are derived from ``<base_dir>/watchdogs/<name>/``, where ``base_dir`` is the
-profile directory at validation time and the build directory at run time.
+tree are derived from ``<watchdogs_dir>/<name>/``, where ``watchdogs_dir`` is the
+directory that holds the watchdogs: the profile's declared watchdogs source at
+validation time and the render's watchdogs directory at run time.
 
 :func:`parse_watchdogs_block` answers the definitions or refuses the whole block;
 :func:`watchdog_errors` lists every problem, so an author fixes them in one pass.
@@ -46,7 +47,10 @@ from typing import Any
 
 from osprey_connectors.errors import BuildProfileError
 
-#: The profile key, and the top-level key of the rendered ``config.yml``.
+#: The profile key, the top-level key of the rendered ``config.yml``, and the
+#: name of the render's directory holding each enabled watchdog's ``<name>/``.
+#: The authored watchdogs sit where the deployment root declares them
+#: (:func:`osprey.repo_layout.watchdogs_source_dir`), which does not follow this.
 WATCHDOGS_BLOCK = "watchdogs"
 
 #: The engine that asks a model to choose among the facility's verdict options.
@@ -234,10 +238,13 @@ def _engine_key_errors(label: str, entry: Mapping[Any, Any], engine: str) -> lis
     return errors
 
 
-def instructions_error(name: str, base_dir: Path) -> str | None:
-    """Say what is wrong with a watchdog's instructions file, or ``None``."""
+def instructions_error(name: str, watchdogs_dir: Path) -> str | None:
+    """Say what is wrong with a watchdog's instructions file, or ``None``.
+
+    *watchdogs_dir* is the directory holding ``<name>/``.
+    """
     label = f"{WATCHDOGS_BLOCK}.{name}"
-    path = base_dir / WATCHDOGS_BLOCK / name / INSTRUCTIONS_FILENAME
+    path = watchdogs_dir / name / INSTRUCTIONS_FILENAME
     try:
         text = path.read_text(encoding="utf-8")
     except (OSError, UnicodeDecodeError):
@@ -251,7 +258,7 @@ def instructions_error(name: str, base_dir: Path) -> str | None:
 
 
 def _definition_errors(
-    name: Any, entry: Any, base_dir: Path, *, files_when_disabled: bool
+    name: Any, entry: Any, watchdogs_dir: Path, *, files_when_disabled: bool
 ) -> list[str]:
     """Every problem one watchdog has on its own, whatever profile surrounds it.
 
@@ -281,7 +288,7 @@ def _definition_errors(
         errors.append(f"{label}.engine must be one of {', '.join(ENGINES)} (got {engine!r})")
 
     if files_when_disabled or entry.get("enabled", False) is not False:
-        instructions = instructions_error(name, base_dir)
+        instructions = instructions_error(name, watchdogs_dir)
         if instructions is not None:
             errors.append(instructions)
     return errors
@@ -346,7 +353,7 @@ def _grants_write(tool: str, write_tools: Iterable[str]) -> bool:
 def watchdog_errors(
     raw: Any,
     *,
-    base_dir: Path,
+    watchdogs_dir: Path,
     write_tools: Iterable[str],
     hook_selection: Iterable[Any],
 ) -> list[str]:
@@ -354,8 +361,8 @@ def watchdog_errors(
 
     Args:
         raw: The block itself, the name-keyed map; ``None`` reads as empty.
-        base_dir: The directory holding ``watchdogs/<name>/``, read for the
-            enabled entries only.
+        watchdogs_dir: The directory holding each watchdog's ``<name>/``, read
+            for the enabled entries only.
         write_tools: The write-tool classification an agent watchdog's ``tools``
             must stay clear of.
         hook_selection: The library hooks the profile selects, as
@@ -373,7 +380,7 @@ def watchdog_errors(
     turn_state = TURN_STATE_HOOK in tuple(hook_selection)
     errors: list[str] = []
     for name, entry in items:
-        errors.extend(_definition_errors(name, entry, base_dir, files_when_disabled=False))
+        errors.extend(_definition_errors(name, entry, watchdogs_dir, files_when_disabled=False))
         if not isinstance(entry, Mapping):
             continue
         tools = entry.get("tools")
@@ -399,8 +406,8 @@ def _references(directory: Path) -> tuple[Path, ...]:
     return tuple(sorted(path for path in directory.rglob("*") if path.is_file()))
 
 
-def _definition(name: str, entry: Mapping[str, Any], base_dir: Path) -> WatchdogDefinition:
-    directory = base_dir / WATCHDOGS_BLOCK / name
+def _definition(name: str, entry: Mapping[str, Any], watchdogs_dir: Path) -> WatchdogDefinition:
+    directory = watchdogs_dir / name
     engine = entry["engine"]
     decision = engine == ENGINE_DECISION
     return WatchdogDefinition(
@@ -421,12 +428,12 @@ def _definition(name: str, entry: Mapping[str, Any], base_dir: Path) -> Watchdog
     )
 
 
-def parse_watchdogs_block(raw: Any, *, base_dir: Path) -> tuple[WatchdogDefinition, ...]:
+def parse_watchdogs_block(raw: Any, *, watchdogs_dir: Path) -> tuple[WatchdogDefinition, ...]:
     """Parse a ``watchdogs:`` block into its definitions, in block order.
 
     Args:
         raw: The block itself, the name-keyed map; ``None`` reads as empty.
-        base_dir: The directory holding ``watchdogs/<name>/``.
+        watchdogs_dir: The directory holding each watchdog's ``<name>/``.
 
     Returns:
         One definition per entry, enabled or not.
@@ -441,10 +448,10 @@ def parse_watchdogs_block(raw: Any, *, base_dir: Path) -> tuple[WatchdogDefiniti
     problems = [
         problem
         for name, entry in items
-        for problem in _definition_errors(name, entry, base_dir, files_when_disabled=True)
+        for problem in _definition_errors(name, entry, watchdogs_dir, files_when_disabled=True)
     ]
     if problems:
         raise BuildProfileError(
             f"Profile '{WATCHDOGS_BLOCK}' block is invalid:\n  - " + "\n  - ".join(problems)
         )
-    return tuple(_definition(name, entry, base_dir) for name, entry in items)
+    return tuple(_definition(name, entry, watchdogs_dir) for name, entry in items)

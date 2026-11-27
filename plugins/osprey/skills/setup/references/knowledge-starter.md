@@ -26,7 +26,7 @@ INTERVIEW.md with its source, and its ledger row reads the facility's name.
 **Step 1, the skeleton.**
 
 ```
-osprey scaffold pull demo:data/facility/knowledge
+osprey scaffold pull demo:facility/knowledge
 ```
 
 It writes six `index.md` files and reports `17 knowledge documents skipped (use
@@ -43,7 +43,7 @@ What lands is a skeleton, not a bundle:
   Subdirectories list with no descriptions.
 
 Tell the user this. An empty index before stubs exist is correct, not a failure.
-Ledger row: `data/facility/knowledge/ · pulled · skeleton`.
+Ledger row: `facility/knowledge/ · pulled · skeleton`.
 
 **Step 2, stubs.** One file per subsystem, device or procedure the user named,
 in the user's own words (`stated`), filed under the matching directory — or, on
@@ -53,8 +53,8 @@ else.
 **Step 3, regenerate the indexes.** Name the bundle path explicitly.
 
 ```
-osprey knowledge regen-index data/facility/knowledge
-osprey knowledge validate data/facility/knowledge
+osprey knowledge regen-index facility/knowledge
+osprey knowledge validate facility/knowledge
 ```
 
 The no-argument forms read the default bundle from `build/config.yml`, which only
@@ -127,11 +127,11 @@ through OSPREY verbs — nothing in it is typed by the agent.
 | Source named | Chain | Lands as |
 | --- | --- | --- |
 | Documents (a wiki export, operations manuals, design reports) | One `derived` stub per subsystem, device or procedure the documents describe, filed under the matching OKF directory; then `regen-index` and `validate` | `derived`, this facility |
-| A channel list, a CSV or an IOC database export | `osprey facility import list <file>.csv` writes one channel record per row under `data/facility/imported/list/` (§4); the columns are in the verb's `--help`. Then `osprey facility validate` | `built` |
-| The build's graph view, for the graph | `osprey build && osprey up`: the build writes `data/graph/facility.ttl` and the search index from the facility file, and `osprey up` seeds the store from that view | `built` |
-| The build's graph view, for the OKF bundle | `osprey knowledge seed-from-ttl data/facility/knowledge` reads `build/data/graph/facility.ttl` and writes one device stub per device, its `device_id` the facility file's device id (`--force` to overwrite a `localize` stub written earlier) | `built`, this facility |
-| A MATLAB Middle Layer the facility runs | The chain in §3.1: pull the exporter, the user exports, `osprey facility import mml` drafts the mapping, review, import again, `osprey facility validate`, `osprey build`. The import writes the facility's records, models and decks under `data/facility/imported/mml/`, and the build writes every view from them | `stated` (the mapping), `built` (everything the import writes) |
-| A pyAT lattice | Stage it as `data/facility/decks/<model>.json` and name it in the model's record in `data/facility/models.yaml`, with the `wiring` that ties each channel to an element of the deck. The wiring is the facility's to state: ask for it, never guess it | `ported` (the deck), `stated` (the wiring) |
+| A channel list, a CSV or an IOC database export | `osprey facility import list <file>.csv` writes one channel record per row under `facility/imported/list/` (§4); the columns are in the verb's `--help`. Then `osprey facility validate` | `built` |
+| The build's graph view, for the graph | `osprey build && osprey up`: the build writes `build/data/graph/facility.ttl` and the search index from the facility file, and `osprey up` seeds the store from that view | `built` |
+| The build's graph view, for the OKF bundle | `osprey knowledge seed-from-ttl facility/knowledge` reads `build/data/graph/facility.ttl` and writes one device stub per device, its `device_id` the facility file's device id (`--force` to overwrite a `localize` stub written earlier) | `built`, this facility |
+| A MATLAB Middle Layer the facility runs | The chain in §3.1: pull the exporter, the user exports, `osprey facility import mml` drafts the mapping, review, import again, `osprey facility validate`, `osprey build`. The import writes the facility's records, models and decks under `facility/imported/mml/`, and the build writes every view from them | `stated` (the mapping), `built` (everything the import writes) |
+| A pyAT lattice | Stage it as `facility/simulation/decks/<model>.json` and name it in the model's record in `facility/simulation/models.yaml`, with the `wiring` that ties each channel to an element of the deck. The wiring is the facility's to state: ask for it, never guess it | `ported` (the deck), `stated` (the wiring) |
 | A logbook export | The LOGBOOK feature port for the keys, then `osprey ariel ingest -s <file or URL> -a <adapter>` once the service is up; `-a` takes the adapter names `--help` lists | `ported` |
 
 Read each verb's `--help` before running it; the option names above are the
@@ -140,7 +140,7 @@ wins.
 
 A harvest that cannot run yet (no `osprey up` yet, a source the
 user has not exported) is a Deferred entry with the exact command, not a
-skipped row. Empty placeholders are the skeleton from §1 and a `data/facility/`
+skipped row. Empty placeholders are the skeleton from §1 and a `facility/`
 tree holding no record (§4): the build then writes the views of a facility with
 no channel, and the graph store is seeded from an empty graph view.
 
@@ -168,7 +168,7 @@ types none of them.
    `osprey facility import mml <machine>.<sub>.ao.json [<machine>.<sub2>.ao.json ...]`.
    Name the `.ao.json` files only; the files beside each one are read automatically,
    and the sub-machine name recorded in the file becomes the system name. The first run
-   writes `data/facility/imported/mml/mapping.yaml` and stops with
+   writes `facility/imported/mml/mapping.yaml` and stops with
    `import mml: mapping-draft`. No record is written. Every slot the export states a
    fact for is pre-filled, every other slot is `null`. This file is the only place a
    decision about this facility is recorded.
@@ -203,11 +203,11 @@ types none of them.
 8. **Import.** Run the command of step 4 again. A mapping that disagrees with the
    exports prints one `<key>: <message>` line per problem and writes nothing; fix each
    and run it again. A clean run prints one `wrote <path>` line per file: the records,
-   models and decks under `data/facility/imported/mml/`, which every import rewrites,
-   and — only where the file does not exist yet — `data/facility/limits.yaml` (the
-   export's write bands), `seeds.yaml`, `identity.yaml`, `classes.yaml`,
-   `measurement/<model>.yaml` and `scenarios/readout.yaml`. The kinds a
-   `measurement/<model>.yaml` lists come from a registry, and a deployment adds its own
+   models and decks under `facility/imported/mml/`, which every import rewrites,
+   and — only where the file does not exist yet — `facility/limits.yaml` (the
+   export's write bands), `simulation/seeds.yaml`, `identity.yaml`, `vocabulary/classes.yaml`,
+   `simulation/measurement/<model>.yaml` and `simulation/scenarios/readout.yaml`. The kinds a
+   `simulation/measurement/<model>.yaml` lists come from a registry, and a deployment adds its own
    ([Register a measurement kind](https://als-apg.github.io/osprey/how-to/register-a-measurement-kind.html)).
    Afterwards it lists, as
    `rm` lines, each scenario file that names a channel the facility no longer has;
@@ -270,13 +270,13 @@ slots are filled; the import refuses while one is still open.
 
 ## 4. Facility records
 
-Channels, devices, places and groups are records under `data/facility/`. They come
+Channels, devices, places and groups are records under `facility/`. They come
 from the facility's own list (`osprey facility import list`, §3), from its MATLAB
-Middle Layer export (§3.1), or are authored by hand under `data/facility/records/`,
+Middle Layer export (§3.1), or are authored by hand under `facility/records/`,
 one file per kind. The reference example's records are the shape to follow:
 
 ```
-osprey scaffold pull demo:data/facility/records
+osprey scaffold pull demo:facility/records
 ```
 
 What the pull brings describes the reference facility. It is a `pulled` row whose
@@ -289,7 +289,7 @@ because the deployment acts on it.
 
 ## 5. Write limits
 
-Limits are authored in `data/facility/limits.yaml`, one record per channel. The
+Limits are authored in `facility/limits.yaml`, one record per channel. The
 build renders the records into the limits database, `build/data/channel_limits.json`,
 on every build; that file is output, and a profile's own `channel_limits.json` stops
 the build. The database holds the records and nothing else. What happens to a
@@ -304,7 +304,7 @@ limits file. `limits.yaml` has two legal starting states:
 Never hand-write a min or max value.
 
 There is a third state, and it is the one every build actually starts in.
-`osprey init --preset hello-world` writes `data/facility/limits.yaml` **already
+`osprey init --preset hello-world` writes `facility/limits.yaml` **already
 populated**, with three records for the demo facility's channels: two setpoints
 with bounds and one channel marked `writable: false`. It is neither of the two
 above, and it must not survive BUILD: the limits check holds every write to what
@@ -343,7 +343,7 @@ Then delete the ones this deployment has no role for:
 Deleting a tier is three deletions that go together: `tiers/<name>.yml`, every
 roster entry under `modules.web_terminals.users` (and every
 `authorization.roles.<role>.tier`) that names it, and those users'
-`web-terminal-context/<user>/` once a build has seeded it. Deleting a shared login is
+`agent/context/<user>/` once a build has seeded it. Deleting a shared login is
 `tiers/<name>.yml`, its name under `modules.web_terminals.shared`, and its seeded
 context directory. Leave one behind and the next build either fails on the missing
 file or warns about context for a name not on the roster.
@@ -365,19 +365,19 @@ the devil's advocate walks the same list against the ledger afterwards.
 
 | Path | Why it is the reference facility's |
 | --- | --- |
-| `data/facility/knowledge/*/` documents other than the user's stubs | the demo facility's 17 documents |
-| `data/facility/records/`, `seeds.yaml` and `identity.yaml` nobody replaced | the demo facility's channels |
-| `data/facility/limits.yaml` with records nobody ported | the demo facility's limits |
-| `data/facility/benchmarks/` | demo query sets |
-| `data/facility/models.yaml`, `decks/`, `measurement/`, `scenarios/` nobody replaced | demo machine model |
-| `data/facility/ariel/vocabulary.yml` | demo facility terms |
-| `data/landing/working-safely.md` | the demo product's safety notice |
-| `web-terminal-context/base.md` | opens by naming the demo product |
+| `facility/knowledge/*/` documents other than the user's stubs | the demo facility's 17 documents |
+| `facility/records/`, `simulation/seeds.yaml` and `identity.yaml` nobody replaced | the demo facility's channels |
+| `facility/limits.yaml` with records nobody ported | the demo facility's limits |
+| `facility/benchmarks/` | demo query sets |
+| `facility/simulation/models.yaml`, `simulation/decks/`, `simulation/measurement/`, `simulation/scenarios/` nobody replaced | demo machine model |
+| `facility/ariel/vocabulary.yml` | demo facility terms |
+| `web/landing/working-safely.md` | the demo product's safety notice |
+| `agent/context/base.md` | opens by naming the demo product |
 | `profile.yml` roster entries `alice`, `bob`, `carol` | demo logins |
 | `.env` keys `OSPREY_AUTH_PW_ALICE`, `_BOB`, `_CAROL` | demo passwords |
 | `tiers/*.yml` that no roster entry, `default_tier` or `shared:` names | orphaned login files |
-| `data/facility/limits.yaml` still holding hello-world's demo records | the base's own emitted demo records, §5 |
-| `web-terminal-context/<name>/` for a name no roster entry has | seeded by an earlier build for a user since deleted |
+| `facility/limits.yaml` still holding hello-world's demo records | the base's own emitted demo records, §5 |
+| `agent/context/<name>/` for a name no roster entry has | seeded by an earlier build for a user since deleted |
 
 A row that survives on purpose is fine: `keep — <reason>` on the gate, and the
 reason in INTERVIEW.md so the next reader does not have to guess. Triggers are

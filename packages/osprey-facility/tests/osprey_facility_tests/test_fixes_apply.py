@@ -1,4 +1,4 @@
-"""fixes.yaml applied by stage S2: set, add and drop, and every fix stop."""
+"""provenance/fixes.yaml applied by stage S2: set, add and drop, and every fix stop."""
 
 from __future__ import annotations
 
@@ -49,7 +49,7 @@ def _fixes(*entries: dict[str, Any]) -> dict[str, Any]:
 def _build(tmp_path: Path, fixes: Any = None, **overrides: Any) -> CombineResult:
     files = {**_TREE, **{k.replace("__", "/"): v for k, v in overrides.items()}}
     if fixes is not None:
-        files["fixes.yaml"] = fixes
+        files["provenance/fixes.yaml"] = fixes
     for rel, data in files.items():
         path = tmp_path / rel
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -111,7 +111,7 @@ class TestSet:
 
     def test_map_slot_conflict_is_cleared_by_a_whole_set(self, tmp_path: Path) -> None:
         authored = [{"name": "lattice", "settings": {"pyat": {"twiss_in": [1, 2]}}}]
-        err = _one(_build(tmp_path / "a", **{"models.yaml": authored}).errors)
+        err = _one(_build(tmp_path / "a", **{"simulation/models.yaml": authored}).errors)
         assert (err.kind, err.record_kind, err.record_id) == ("layer-conflict", "model", "lattice")
         fix = {
             "op": "set",
@@ -126,7 +126,7 @@ class TestSet:
             },
             "why": "Both keys are needed.",
         }
-        result = _build(tmp_path / "b", _fixes(fix), **{"models.yaml": authored})
+        result = _build(tmp_path / "b", _fixes(fix), **{"simulation/models.yaml": authored})
         assert result.errors == []
         assert _record(result, "models", "lattice")["settings"] == {
             "pyat": {"solve": "closed", "twiss_in": [1, 2]}
@@ -177,7 +177,7 @@ class TestSet:
         fix = {"op": "set", "kind": "device", "id": "BPM9", "fields": {"class": "X"}, "why": "x"}
         err = _one(_build(tmp_path, _fixes(fix)).errors)
         assert (err.kind, err.record_id) == ("fix-authored", "BPM9")
-        assert err.remedy == "edit data/facility/records/devices.yaml"
+        assert err.remedy == "edit facility/records/devices.yaml"
 
 
 class TestAdd:
@@ -290,18 +290,22 @@ class TestDrop:
     def test_drop_of_a_group_named_by_a_measurement_is_fix_referenced(self, tmp_path: Path) -> None:
         fix = {"op": "drop", "kind": "group", "id": "SR/QUAD", "why": "x"}
         measurement = {"kinds": ["orm"], "groups": {"quad": "SR/QUAD"}}
-        result = _build(tmp_path, _fixes(fix), **{"measurement__lattice.yaml": measurement})
+        result = _build(
+            tmp_path, _fixes(fix), **{"simulation__measurement__lattice.yaml": measurement}
+        )
         err = _one(result.errors)
         assert (err.kind, err.record_kind) == ("fix-referenced", "group")
-        assert "measurement/lattice.yaml (groups)" in err.detail
+        assert "simulation/measurement/lattice.yaml (groups)" in err.detail
 
     def test_drop_of_a_group_inside_a_role_list_is_fix_referenced(self, tmp_path: Path) -> None:
         fix = {"op": "drop", "kind": "group", "id": "SR/QUAD", "why": "x"}
         measurement = {"kinds": ["orm"], "groups": {"quad": ["SR/OTHER", "SR/QUAD"]}}
-        result = _build(tmp_path, _fixes(fix), **{"measurement__lattice.yaml": measurement})
+        result = _build(
+            tmp_path, _fixes(fix), **{"simulation__measurement__lattice.yaml": measurement}
+        )
         err = _one(result.errors)
         assert (err.kind, err.record_kind) == ("fix-referenced", "group")
-        assert "measurement/lattice.yaml (groups)" in err.detail
+        assert "simulation/measurement/lattice.yaml (groups)" in err.detail
 
 
 class TestFixStops:
@@ -309,7 +313,7 @@ class TestFixStops:
         fix = {"op": "drop", "kind": "device", "id": "Q7", "why": "x"}
         err = _one(_build(tmp_path, _fixes(fix)).errors)
         assert (err.kind, err.record_kind, err.record_id) == ("fix-missing", "device", "Q7")
-        assert err.remedy == "remove the fix from fixes.yaml"
+        assert err.remedy == "remove the fix from provenance/fixes.yaml"
 
     def test_fix_missing_names_the_former_addresses_match(self, tmp_path: Path) -> None:
         fix = {"op": "drop", "kind": "channel", "id": "SR:Q2:OLD", "why": "x"}
@@ -337,7 +341,7 @@ class TestFixStops:
     def test_malformed_fixes_file_is_source_invalid(self, tmp_path: Path, fixes: Any) -> None:
         err = _one(_build(tmp_path, fixes).errors)
         assert (err.kind, err.record_kind) == ("source-invalid", "path")
-        assert err.sources == ("fixes.yaml",)
+        assert err.sources == ("provenance/fixes.yaml",)
 
 
 def test_permuted_fixes_give_a_byte_equal_document(tmp_path: Path) -> None:

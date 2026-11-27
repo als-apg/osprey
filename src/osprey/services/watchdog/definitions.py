@@ -17,6 +17,7 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
+from osprey.repo_layout import watchdogs_source_dir
 from osprey.services.watchdog.config import (
     INSTRUCTIONS_FILENAME,
     WATCHDOG_NAME_RE,
@@ -63,7 +64,7 @@ def _loadable_entries(raw: Mapping[Any, Any], build_dir: Path) -> dict[Any, Any]
         if (
             isinstance(name, str)
             and WATCHDOG_NAME_RE.fullmatch(name)
-            and instructions_error(name, build_dir) is not None
+            and instructions_error(name, build_dir / WATCHDOGS_BLOCK) is not None
         ):
             logger.warning(
                 "Watchdog %r is not running: %s has no readable, non-empty %s",
@@ -93,7 +94,7 @@ def load_watchdogs(config: Mapping[str, Any], build_dir: Path) -> tuple[Watchdog
     raw = config.get(WATCHDOGS_BLOCK)
     if isinstance(raw, Mapping):
         raw = _loadable_entries(raw, build_dir)
-    return parse_watchdogs_block(raw, base_dir=build_dir)
+    return parse_watchdogs_block(raw, watchdogs_dir=build_dir / WATCHDOGS_BLOCK)
 
 
 def load_profile_watchdogs(profile_dir: Path) -> tuple[WatchdogDefinition, ...]:
@@ -124,4 +125,6 @@ def load_profile_watchdogs(profile_dir: Path) -> tuple[WatchdogDefinition, ...]:
     if not isinstance(raw, dict):
         raise BuildProfileError(f"Profile must be a YAML mapping, got {type(raw).__name__}")
     document = resolve_profile_document(raw, path)
-    return parse_watchdogs_block(document.raw.get(WATCHDOGS_BLOCK), base_dir=document.root_dir)
+    return parse_watchdogs_block(
+        document.raw.get(WATCHDOGS_BLOCK), watchdogs_dir=watchdogs_source_dir(document.root_dir)
+    )

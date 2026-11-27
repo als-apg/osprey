@@ -109,8 +109,8 @@ def _patch_corrector_limit(repo: Path, channel: str, limit: float) -> None:
     configured as the relative ``data/channel_limits.json`` and resolved against
     the directory of ``CONFIG_FILE``, which the rendered ``.mcp.json`` sets to
     ``<repo>/build/config.yml`` — so ``<repo>/build/data/`` is the copy the
-    running limits validator reads. The source ``<repo>/data/`` copy is the
-    operator's, and nothing at runtime consults it.
+    running limits validator reads. The source ``<repo>/facility/limits.yaml``
+    is the operator's, and nothing at runtime consults it.
 
     Also strips ``max_step`` from the channel entry: the test grades the
     agent's behavior against the *absolute* limit. Leaving ``max_step``

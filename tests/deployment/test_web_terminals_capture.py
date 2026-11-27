@@ -721,7 +721,7 @@ def test_local_mode_up_still_never_pulls(monkeypatch, tmp_path):
 
 
 def _write_verify_script(project_root, body: str = "echo ok") -> None:
-    scripts = project_root / "scripts"
+    scripts = project_root / "ops" / "scripts"
     scripts.mkdir(parents=True, exist_ok=True)
     (scripts / "verify.sh").write_text(f"#!/usr/bin/env bash\n{body}\n", encoding="utf-8")
 
@@ -737,7 +737,7 @@ def test_verify_script_is_captured_from_the_project_root(monkeypatch, tmp_path, 
     postup_hooks.run_verify_script(str(tmp_path), {"COMPOSE_PROJECT_NAME": "demo"})
 
     call = recorder.by_spool("verify-script")
-    assert call["cmd"] == ["bash", str(tmp_path / "scripts" / "verify.sh")]
+    assert call["cmd"] == ["bash", str(tmp_path / "ops" / "scripts" / "verify.sh")]
     assert call["cwd"] == str(tmp_path)
     assert call["repo_root"] == str(tmp_path)
     # Advisory: the script's own convention is to always exit 0, and a

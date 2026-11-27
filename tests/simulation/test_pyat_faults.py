@@ -73,7 +73,7 @@ def attribute_of(keyword: str) -> str:
 
 @pytest.fixture(scope="module")
 def records() -> dict[str, dict[str, Any]]:
-    models = yaml.safe_load((DEMO / "models.yaml").read_text(encoding="utf-8"))
+    models = yaml.safe_load((DEMO / "simulation" / "models.yaml").read_text(encoding="utf-8"))
     sr = next(model for model in models if model["name"] == "SR")
     return {record["address"]: record for record in sr["wiring"]}
 
@@ -90,7 +90,7 @@ def model(records) -> LUMEPyATModel:
 
 def demo_model(records: dict[str, dict[str, Any]]) -> LUMEPyATModel:
     """A fresh model of the demo deck with BPM03's two readings and one of BPM04."""
-    simulator = PyATSimulator(at.load_lattice(str(DEMO / "decks" / "SR.json")))
+    simulator = PyATSimulator(at.load_lattice(str(DEMO / "simulation" / "decks" / "SR.json")))
     energy = deck_energy(simulator)
     variables = [
         variable_from_wiring(records[address], deck_energy_gev=energy)
@@ -305,7 +305,7 @@ def converted_model(
     records: dict[str, dict[str, Any]], addresses: tuple[str, ...] = (X_ADDRESS, Y_ADDRESS)
 ) -> LUMEPyATModel:
     """The demo deck with BPM03's readings copied onto the linear conversions in ``CONVERTED``."""
-    simulator = PyATSimulator(at.load_lattice(str(DEMO / "decks" / "SR.json")))
+    simulator = PyATSimulator(at.load_lattice(str(DEMO / "simulation" / "decks" / "SR.json")))
     energy = deck_energy(simulator)
     variables = []
     for address in addresses:
@@ -457,7 +457,7 @@ class TestSupplyCalibration:
     def test_a_setpoint_lands_through_its_supply_calibration(
         self, records, address, element, attribute, index
     ) -> None:
-        simulator = PyATSimulator(at.load_lattice(str(DEMO / "decks" / "SR.json")))
+        simulator = PyATSimulator(at.load_lattice(str(DEMO / "simulation" / "decks" / "SR.json")))
         record = records[address]
         gain = record["calibration"]["curve"]["linear"]["gain"]
         offset = record["calibration"]["curve"]["linear"]["offset"]
@@ -474,7 +474,7 @@ class TestSupplyCalibration:
         assert held == pytest.approx(gain * (300.0 * 1.3 + 2.0) + offset, rel=1e-12)
 
     def test_an_element_with_no_supply_calibration_takes_the_setpoint(self, records) -> None:
-        simulator = PyATSimulator(at.load_lattice(str(DEMO / "decks" / "SR.json")))
+        simulator = PyATSimulator(at.load_lattice(str(DEMO / "simulation" / "decks" / "SR.json")))
         record = records[QUADRUPOLE_ADDRESS]
         gain = record["calibration"]["curve"]["linear"]["gain"]
         offset = record["calibration"]["curve"]["linear"]["offset"]

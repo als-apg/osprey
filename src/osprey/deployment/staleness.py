@@ -75,8 +75,7 @@ KEY_DIGESTS_MANIFEST_KEY = "profile_key_digests"
 #: points at rather than says. Prefixed so the two kinds of key stay tellable
 #: apart when they are read back out of a manifest: :func:`_changed_keys` has to
 #: know whether a named input already accounts for the material having moved,
-#: and a profile key called ``data`` must never be confused for the ``data/``
-#: tree it names.
+#: and a profile key must never be confused for a source tree of the same name.
 MATERIAL_PREFIX = "material:"
 
 #: Digest over *all* the material at once — every input
@@ -265,10 +264,9 @@ def _material_input_digests(inputs: Iterable[ProfileInput]) -> dict[str, str]:
     """One digest per *named* file input, so a refusal can point at a path.
 
     :data:`MATERIAL_KEY` alone can only say "something the profile points at
-    moved". That is what made the refusal misleading: a layer edit was
-    reported under the label ``data/``, which the operator had not touched.
-    Splitting the fold per input lets the message name ``tiers/readonly.yml``
-    — the file that actually changed.
+    moved", so a layer edit would be reported under a source tree the operator
+    had not touched. Splitting the fold per input lets the message name
+    ``tiers/readonly.yml`` — the file that actually changed.
 
     Each input is folded by the same
     :meth:`~osprey.cli.build_profile_merge.ProfileInput.fold` the build's

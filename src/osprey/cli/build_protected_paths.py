@@ -14,7 +14,10 @@ compare the profile schema and the configuration manifest against them:
 1. :data:`INPUT_ENUMERATION_KEYS` — the profile keys the build's own input
    enumeration (:func:`~osprey.cli.build_profile_merge.profile_inputs`) already
    lists; its entries are emitted as that enumeration keys them, minus the
-   installed applications, which are no repository content.
+   installed applications, which are no repository content. The enumeration
+   also lists the sources the deployment layout declares
+   (:func:`~osprey.repo_layout.rendered_sources`), which no key names; they
+   are emitted with the rest.
 2. :data:`PROFILE_PATH_FIELDS` — path-valued profile fields that enumeration
    does not list.
 3. :data:`CONFIG_PATH_KEYS` — path-valued configuration keys, read from a
@@ -68,6 +71,7 @@ __all__ = [
     "UndecidedPath",
     "emit_protected_paths",
     "is_path_shaped",
+    "root_entry_names",
 ]
 
 
@@ -195,7 +199,6 @@ _ROOT = Anchor.PROJECT_ROOT
 INPUT_ENUMERATION_KEYS: Final[frozenset[str]] = frozenset(
     {
         "extends",
-        "data",
         "machine",
         "services.<name>.template",
         "dispatch.triggers",
@@ -352,6 +355,23 @@ def is_path_shaped(value: str) -> bool:
         return True
     segments = value.split("/")
     return len(segments) > 1 and all(segments) and bool(PurePosixPath(segments[-1]).suffix)
+
+
+def root_entry_names(entries: Iterable[str]) -> tuple[str, ...]:
+    """The deployment-root entries the root-relative *entries* lie under, once each.
+
+    The first segment of each entry anchored at the project root, in entry
+    order. An absolute entry, one that begins with ``~`` or a placeholder, and
+    one that climbs out of the root name no root entry.
+    """
+    names: dict[str, None] = {}
+    for entry in entries:
+        if entry.startswith(("/", "~", "$")):
+            continue
+        first = posixpath.normpath(entry).split("/", 1)[0]
+        if first not in (".", ".."):
+            names[first] = None
+    return tuple(names)
 
 
 def _key_matches(pattern: str, key: str) -> bool:

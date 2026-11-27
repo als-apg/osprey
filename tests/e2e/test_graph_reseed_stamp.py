@@ -45,8 +45,10 @@ from typing import Any
 import pytest
 import yaml
 
+from osprey import repo_layout
 from osprey.deployment import container_lifecycle
 from osprey.services.graph_store import seeder as graph_seeder
+from osprey_facility import source_tree
 from tests._graphdb_container import GRAPHDB_TEST_PASSWORD, graphdb_store_published_port
 
 pytestmark = [
@@ -65,7 +67,7 @@ GRAPH_VIEW_TTL_PATH = "./data/graph/facility.ttl"
 SEARCH_INDEX_PATH = Path("data") / "channel_databases" / "graph.duckdb"
 
 #: The repo-side facility records holding the channel descriptions.
-CHANNEL_RECORDS = Path("data") / "facility" / "records" / "channels.yaml"
+CHANNEL_RECORDS = Path(repo_layout.entry("facility").path) / source_tree.path("channels")
 
 #: The description the test gives its one changed channel.
 CHANGED_DESCRIPTION = "Reseed stamp probe: a description the shipped records never carry"

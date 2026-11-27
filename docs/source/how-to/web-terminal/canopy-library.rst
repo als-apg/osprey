@@ -33,7 +33,7 @@ the source tree directly. Both end in the same kind of commit.
 The library and its report
 --------------------------
 
-``data/canopy/library`` holds:
+``web/canopy/library`` holds:
 
 - ``screens/``: one ``<id>.screen.json`` per screen, and the images the
   screens show. A screen's id is its path below ``screens/``, such as
@@ -62,7 +62,7 @@ They are a starting point to replace with your facility's own.
 
 .. warning::
 
-   ``osprey init --force`` replaces the deployment's ``data/`` directory, the
+   ``osprey init --force`` replaces the deployment's ``web/`` directory, the
    library included. Commit the library first.
 
 Accept a screen a user shared
@@ -74,7 +74,7 @@ it needs, where it should go, and a note. Nothing is published yet. The user
 gets a request id and passes it to you.
 
 You review it on the host, from inside the deployment, as the user who owns
-``data/canopy/library``. Do not use ``sudo``: put that user in the ``docker``
+``web/canopy/library``. Do not use ``sudo``: put that user in the ``docker``
 group instead. Docker is the only container runtime the review supports.
 
 .. code-block:: bash
@@ -141,7 +141,7 @@ on their own machine. No OSPREY stack runs: channels show mock values, so a
 screenshot shows the layout, not the machine.
 
 1. Install the CANOPY and PyDMConverter wheels that ``osprey build`` copied
-   into the deployment root (``canopy-*.whl`` and ``pydmconverter-*.whl``) into
+   into the render (``build/canopy-*.whl`` and ``build/pydmconverter-*.whl``) into
    a fresh virtual environment, with the browser for screenshots. Use exactly
    these: the image build recomputes the report with the same CANOPY.
 
@@ -166,8 +166,8 @@ screenshot shows the layout, not the machine.
       umask 022                    # screen files readable by all, writable by you
       unset CANOPY_PUSH_DIR        # this server takes no push requests
       CANOPY_ACCESS_TOKEN_FILE="$HOME/canopy-dev/access.key" \
-      CANOPY_DRAFTS_DIR="$HOME/my-assistant/data/canopy/library" \
-      CANOPY_VIEWER_DIST="$HOME/my-assistant/canopy_payload/viewer" \
+      CANOPY_DRAFTS_DIR="$HOME/my-assistant/web/canopy/library" \
+      CANOPY_VIEWER_DIST="$HOME/my-assistant/build/canopy_payload/viewer" \
       CANOPY_VIEWS_DIR="$HOME/canopy-dev/views" \
       CANOPY_CACHE_DIR="$HOME/canopy-dev/cache" \
       CANOPY_PV_MODE=mock \
@@ -181,7 +181,7 @@ screenshot shows the layout, not the machine.
    server writes that file to ``.cache/`` inside the store it serves, and a
    library that holds a ``.cache`` directory is refused by the report check
    and by ``osprey build``. If you started the server without it, delete
-   ``data/canopy/library/.cache`` before you regenerate the report.
+   ``web/canopy/library/.cache`` before you regenerate the report.
 
 4. Register the server with Claude Code, export the token, and start Claude
    Code in ``~/canopy-dev/project``. The single quotes store the placeholder,
@@ -200,9 +200,9 @@ screenshot shows the layout, not the machine.
 
    .. code-block:: bash
 
-      git -C ~/my-assistant add -- data/canopy/library
-      git -C ~/my-assistant status --ignored -- data/canopy/library   # nothing may be ignored
-      git -C ~/my-assistant commit -m 'canopy: add sr/rf overview' -- data/canopy/library
+      git -C ~/my-assistant add -- web/canopy/library
+      git -C ~/my-assistant status --ignored -- web/canopy/library   # nothing may be ignored
+      git -C ~/my-assistant commit -m 'canopy: add sr/rf overview' -- web/canopy/library
 
    A file git ignores would be missing from the commit but present in the
    image; the ``status --ignored`` line catches it.
@@ -222,7 +222,7 @@ differently:
 
 .. code-block:: bash
 
-   ~/canopy-dev/venv/bin/python -m canopy_mcp.report ~/my-assistant/data/canopy/library --served-at library --write
+   ~/canopy-dev/venv/bin/python -m canopy_mcp.report ~/my-assistant/web/canopy/library --served-at library --write
 
 Use a virtual environment built from the wheels of the payload the deployment
 builds with (step 1 above): a report written by another CANOPY version can fail
@@ -240,9 +240,9 @@ it with git, regenerate the report, commit and build as above.
 .. code-block:: bash
 
    # remove a screen
-   git -C ~/my-assistant rm -- data/canopy/library/screens/sr/rf/view.screen.json
+   git -C ~/my-assistant rm -- web/canopy/library/screens/sr/rf/view.screen.json
    # bring one back as it was at an earlier commit
-   git -C ~/my-assistant restore --source=<sha> -- data/canopy/library/screens/sr/rf/view.screen.json
+   git -C ~/my-assistant restore --source=<sha> -- web/canopy/library/screens/sr/rf/view.screen.json
 
 Read the report diff before you commit: a screen that opened the one you
 removed now lists a reference that no longer resolves.
@@ -255,7 +255,7 @@ back each time, and regenerate it once at the end:
 .. code-block:: bash
 
    git -C ~/my-assistant revert --no-commit <accept commit>
-   git -C ~/my-assistant checkout HEAD -- data/canopy/library/LIBRARY-REPORT.json data/canopy/library/LIBRARY-REPORT.md
+   git -C ~/my-assistant checkout HEAD -- web/canopy/library/LIBRARY-REPORT.json web/canopy/library/LIBRARY-REPORT.md
    # ...repeat both lines for each commit, then:
    git -C ~/my-assistant revert --quit
    git -C ~/my-assistant status       # every screen you are rolling back is staged
@@ -272,7 +272,7 @@ Order the sidebar
 
 Without further input the viewer's sidebar shows the library as its folder
 tree. To choose the order, the names and the grouping yourself, write
-``data/canopy/library/navigation.json``, beside ``screens/``:
+``web/canopy/library/navigation.json``, beside ``screens/``:
 
 .. code-block:: json
 
@@ -301,7 +301,7 @@ Facility collections
 --------------------
 
 A **collection** opens several screens and tools together in one view. The
-deployment's own collections are JSON files in ``data/canopy/collections``,
+deployment's own collections are JSON files in ``web/canopy/collections``,
 one ``<id>.json`` each, and every user sees them read-only. The image build
 checks them against the library and fails on a collection that names a
 screen the library does not hold. The format is CANOPY's own; see its

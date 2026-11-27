@@ -13,7 +13,7 @@ profile.
 Volatile content, left out of the comparison:
 
 - The image context's copy of the repo's source zone, ``.image/<project>/profile.yml``
-  and ``.image/<project>/watchdogs/``: the operator's own files, verbatim, which
+  and ``.image/<project>/agent/watchdogs/``: the operator's own files, verbatim, which
   differ between a repo with a block and one without because the repo itself does.
   The image's ``build/`` is outside this and compared like the rest.
 - In ``.osprey-manifest.json``: the render's timestamp, the profile fingerprint and
@@ -36,7 +36,7 @@ from typing import Any
 import pytest
 import yaml
 
-from tests._preset_data import copy_bundle_data
+from tests._preset_data import bundle_source_root
 
 ROOT = Path(__file__).resolve().parents[2]
 TEMPLATE_HOOKS = "src/osprey/templates/claude_code/claude/hooks"
@@ -57,7 +57,7 @@ PORT_RENDER_PATHS = (
     "src/osprey/profiles/config_key_manifest.yml",
 )
 
-SOURCE_ZONE_COPIES = (".image/w/profile.yml", ".image/w/watchdogs/")
+SOURCE_ZONE_COPIES = (".image/w/profile.yml", ".image/w/agent/watchdogs/")
 MANIFEST_NAME = ".osprey-manifest.json"
 VOLATILE_MANIFEST_KEYS = frozenset({"timestamp", "preset_hash", "watchdogs"})
 
@@ -82,7 +82,6 @@ PROFILE: dict[str, Any] = {
     "provider": "anthropic",
     "model": "claude-haiku-4-5",
     "channel_finder_mode": "hierarchical",
-    "data": "data",
     "hooks": ["approval", "turn-state", "memory-guard", "writes-check"],
     "config": {
         "control_system.type": "virtual_accelerator",
@@ -173,12 +172,12 @@ def _apply_port(base: str, worktree: Path, root: Path = ROOT) -> None:
 
 def _write_repo(repo: Path, block: dict[str, Any] | None) -> None:
     """Point *repo* at the profile with *block*, with the source each entry names."""
-    shutil.rmtree(repo / "watchdogs", ignore_errors=True)
+    shutil.rmtree(repo / "agent" / "watchdogs", ignore_errors=True)
     profile = dict(PROFILE)
     if block is not None:
         profile["watchdogs"] = block
         for name in block:
-            directory = repo / "watchdogs" / name
+            directory = repo / "agent" / "watchdogs" / name
             directory.mkdir(parents=True)
             (directory / "instructions.md").write_text(f"Judge as {name}.\n", encoding="utf-8")
     (repo / "profile.yml").write_text(yaml.safe_dump(profile, sort_keys=False), encoding="utf-8")
@@ -237,7 +236,7 @@ def _differing(left: dict[str, str], right: dict[str, str]) -> list[str]:
 def repo(tmp_path_factory: pytest.TempPathFactory) -> Path:
     path = tmp_path_factory.mktemp("identity") / "repo"
     path.mkdir()
-    copy_bundle_data(path / "data", "hello_world")
+    shutil.copytree(bundle_source_root("hello_world"), path, dirs_exist_ok=True)
     return path
 
 

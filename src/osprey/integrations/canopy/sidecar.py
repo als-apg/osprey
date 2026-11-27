@@ -553,15 +553,24 @@ class CanopySidecar:
 
     @property
     def payload_dir(self) -> Path:
-        """The staged payload directory this sidecar serves from."""
+        """The staged payload directory this sidecar serves from.
+
+        The build stages it into the render, so on a host it is
+        ``build/canopy_payload/``: beside the deployment's
+        ``build/config.yml``, and one level above a layer render's
+        ``build/<render>/config.yml``. In an image it sits at the context
+        root, one level above ``build/config.yml``. The first of those that
+        exists wins, then the working directory's.
+        """
         if self._payload_dir is not None:
             return self._payload_dir
         config = self._config_path()
         candidates = [Path.cwd() / PAYLOAD_DIRNAME]
         if config:
+            render = Path(config).parent
             candidates = [
-                repo_root_for_config(config) / PAYLOAD_DIRNAME,
-                Path(config).parent / PAYLOAD_DIRNAME,
+                render / PAYLOAD_DIRNAME,
+                render.parent / PAYLOAD_DIRNAME,
                 *candidates,
             ]
         for candidate in candidates:

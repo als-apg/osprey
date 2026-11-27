@@ -1,12 +1,13 @@
 """Shipped text names only files and pages that exist where it is read.
 
-Four guards over the paths the shipped templates cite. Each one pins a class
+Five guards over the paths the shipped templates cite. Each one pins a class
 of drift that has recurred: a prompt that sends the agent to a ``src/osprey/``
 path (only a source checkout has one — a facility runs the installed package),
 a ``config.yml`` comment that cites a docs page by a path the docs tree no
 longer has, a generated README that tells the operator to copy or edit a file
 the renderer never produces, and a prompt that names the reference facility's
-own lattice constants where it should name this deployment's bindings file.
+own lattice constants where it should name this deployment's bindings file,
+and a built README that describes web content the deployment does not hold.
 
 The scans read template SOURCE, not a render: the offending text is literal in
 the template, and a scan over the source names the line to fix. The one
@@ -19,9 +20,10 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-from tests._builds import BuiltProject
+from tests._builds import BuiltProject, init_project, run_build
 
 import osprey
+from osprey import repo_layout
 from osprey_connectors.simulation.view import VARIABLES_FILE, VIEW_RELPATH
 from osprey_connectors.workspace import BUILD_DIR_NAME
 
@@ -272,3 +274,40 @@ def test_the_pyat_prompt_names_the_bindings_file(built_demo: BuiltProject) -> No
         f"the rendered {PYAT_AGENT} has no {_CHANNEL_SECTION_HEADING!r} section, so the "
         "path may survive as a bare mention while the instruction that reads it is gone"
     )
+
+
+# ---------------------------------------------------------------------------
+# 5. The built README describes web content only where the deployment holds it
+# ---------------------------------------------------------------------------
+
+_README = "README.md"
+_CANOPY_HEADING = "## CANOPY screens"
+
+
+def _web_paths_named(readme: str) -> set[str]:
+    """Every ``web/...`` path the README names in backticks, without a trailing slash."""
+    web = repo_layout.entry("web").path
+    return {path.rstrip("/") for path in re.findall(rf"`({re.escape(web)}/[^`*<]*)`", readme)}
+
+
+def test_the_built_readme_describes_the_web_content_a_deployment_holds(
+    built_demo: BuiltProject,
+) -> None:
+    readme = (built_demo.build_dir / _README).read_text(encoding="utf-8")
+    assert _CANOPY_HEADING in readme
+    assert "\n\n\n" not in readme
+    named = _web_paths_named(readme)
+    assert named
+    assert [path for path in sorted(named) if not (built_demo.repo / path).exists()] == []
+
+
+def test_the_built_readme_names_no_web_content_a_deployment_lacks(tmp_path: Path) -> None:
+    repo = init_project(tmp_path, "hello-world", "hello")
+    web = repo_layout.entry("web").path
+    assert not (repo / web).exists()
+    built = run_build(repo)
+    assert built.exit_code == 0, built.output
+    readme = (repo / BUILD_DIR_NAME / _README).read_text(encoding="utf-8")
+    assert _CANOPY_HEADING not in readme
+    assert f"{web}/" not in readme
+    assert "\n\n\n" not in readme

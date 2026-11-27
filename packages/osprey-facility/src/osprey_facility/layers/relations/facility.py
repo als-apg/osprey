@@ -19,6 +19,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from osprey_facility import source_tree
 from osprey_facility.errors import FacilityBuildError, LayerSourceInvalid
 from osprey_facility.places import resolve_place_name
 from osprey_facility.sources import AUTHORED, load_sources
@@ -27,7 +28,7 @@ __all__ = ["FacilityIndex"]
 
 
 def _in_layer(source: str, layer: str) -> bool:
-    prefix = f"imported/{layer}"
+    prefix = source_tree.layer_dir(layer)
     return source == prefix or source.startswith(prefix + "/")
 
 
@@ -57,7 +58,7 @@ class FacilityIndex:
         """Read the facility with ``layer``'s records dropped.
 
         Args:
-            facility_dir: The ``data/facility`` directory.
+            facility_dir: The ``facility`` directory.
             layer: The layer the import replaces.
 
         Returns:

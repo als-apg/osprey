@@ -33,7 +33,7 @@ def _channel(
         tree["records/channels.yaml"] = [channel]
     else:
         tree["imported/mml/channels.yaml"] = [channel]
-        tree["fixes.yaml"] = {"schema": FIXES_HEADER, "fixes": fixes}
+        tree["provenance/fixes.yaml"] = {"schema": FIXES_HEADER, "fixes": fixes}
     document = build_facility(
         write_tree(tmp_path / "facility", tree), project_name="demo", extra_checks=FRAMEWORK_CHECKS
     )

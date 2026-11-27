@@ -35,14 +35,16 @@ def _rel(path: Path) -> str:
 def _operator_files() -> list[Path]:
     """Prose that lands in a deployment repo outside ``build/``."""
     files = [_SRC / "cli" / "init_cmd.py"]
-    files += sorted(_TEMPLATES.glob("apps/*/data/**/*.md"))
+    files += sorted(_TEMPLATES.glob("apps/*/web/**/*.md"))
     files += sorted(_TEMPLATES.glob("**/web-terminal-context/*.md"))
+    files += sorted(_TEMPLATES.glob("apps/*/agent/context/*.md"))
     return files
 
 
 def _agent_files() -> list[Path]:
     """Text seeded into an agent session: the context baselines and every skill."""
     files = sorted(_TEMPLATES.glob("**/web-terminal-context/*.md"))
+    files += sorted(_TEMPLATES.glob("apps/*/agent/context/*.md"))
     files += sorted(_TEMPLATES.glob("claude_code/claude/skills/**/SKILL.md"))
     files += sorted(_PRESETS.glob("**/SKILL.md"))
     return files
@@ -98,7 +100,7 @@ def test_the_context_tree_is_named_where_it_is_authored() -> None:
         if re.search(r"(?<!build/)docker/web-terminal-context", path.read_text(encoding="utf-8"))
     ]
     assert not offences, (
-        "per-user context is authored in `web-terminal-context/<user>/` at the repo root:\n"
+        "per-user context is authored in `agent/context/<user>/` in the repo:\n"
         + "\n".join(sorted(set(offences)))
     )
 
@@ -119,7 +121,7 @@ def test_agent_text_uses_no_retired_web_terminal_words() -> None:
 
 def test_the_demo_context_names_every_tier_that_can_write() -> None:
     """The sentence telling the agent who may write lists the write-armed tiers."""
-    context = _TEMPLATES / "apps" / "demo" / "web-terminal-context" / "base.md"
+    context = _TEMPLATES / "apps" / "demo" / "agent" / "context" / "base.md"
     prose = " ".join(context.read_text(encoding="utf-8").split()).replace("-", "")
     sentence = re.search(r"[^.]*\bcan execute writes\b", prose)
     assert sentence, f"{_rel(context)} no longer says which tiers can execute writes"

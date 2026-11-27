@@ -68,7 +68,9 @@ def _build(root: Path, fixes: list[dict[str, Any]]) -> tuple[FacilityDocument, d
     layer.mkdir(parents=True)
     (layer / "channels.yaml").write_text(yaml.safe_dump(CSV_CHANNELS), encoding="utf-8")
     document = {"schema": FIXES_HEADER, "fixes": fixes}
-    (root / "fixes.yaml").write_text(yaml.safe_dump(document, sort_keys=False), encoding="utf-8")
+    (root / "provenance" / "fixes.yaml").write_text(
+        yaml.safe_dump(document, sort_keys=False), encoding="utf-8"
+    )
     report = run_stages(
         root, project_name="demo", later=LATER_STAGES, extra_checks=FRAMEWORK_CHECKS
     )

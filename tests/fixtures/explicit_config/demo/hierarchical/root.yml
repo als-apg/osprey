@@ -194,7 +194,7 @@ deployed_services:
 execution:
   execution_method: subprocess
 facility_knowledge:
-  bundle_path: data/facility/knowledge
+  bundle_path: facility/knowledge
 file_paths:
   registry_exports_dir: registry_exports
 health:
@@ -231,7 +231,7 @@ modules:
       - label: Shared logins
         type: shared
       notices:
-      - data/landing/working-safely.md
+      - web/landing/working-safely.md
     renders:
       admin:
         kind: tier

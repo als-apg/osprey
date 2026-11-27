@@ -1,13 +1,15 @@
-"""Staging the CANOPY payload into a deployment repo before ``osprey build``.
+"""Staging the CANOPY payload into the render ``osprey build`` is making.
 
 ``python -m osprey.integrations.canopy.stage`` runs as a ``pre_build`` step with
-the repo root as its working directory. It builds nothing: the payload — two
-wheels, the viewer (whose ``ir-map.json`` is the widget catalog), Trace, the
-staged spec when there is one, and ``STAGED.json`` — is made in the canopy
-repo, and the step only checks it and copies it in. These tests
-drive :func:`main` in a temporary repo root, and once through
-:func:`_run_lifecycle_phase` exactly as ``build_cmd`` does, so the module is
-also proven runnable under ``"{python}" -m``.
+the repo root as its working directory and the render's stage directory named
+in ``OSPREY_BUILD_STAGE_DIR``. It builds nothing: the payload — two wheels, the
+viewer (whose ``ir-map.json`` is the widget catalog), Trace, the staged spec
+when there is one, and ``STAGED.json`` — is made in the canopy repo, and the
+step only checks it and copies it into the stage directory, never into the repo
+root. These tests drive :func:`main` in a temporary repo root with a stage
+directory beside it, and through :func:`_run_lifecycle_phase` exactly as
+``build_cmd`` does, so the module is also proven runnable under
+``"{python}" -m``.
 
 No CANOPY import is needed: the step runs under the build interpreter, where
 CANOPY is not installed.
@@ -88,13 +90,24 @@ def make_payload(
 
 @pytest.fixture
 def repo(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
-    """An empty repo root as the working directory, with the staging variables unset."""
+    """An empty repo root as the working directory, with the staging variables unset.
+
+    The stage directory a build would name (:func:`_target`) exists and is
+    named in :data:`~osprey.integrations.canopy.stage.STAGE_DIR_ENV`.
+    """
     root = tmp_path / "repo"
     root.mkdir()
+    _target(root).mkdir()
     monkeypatch.chdir(root)
     monkeypatch.delenv(stage.PAYLOAD_ENV, raising=False)
     monkeypatch.delenv(stage.CHECK_ENV, raising=False)
+    monkeypatch.setenv(stage.STAGE_DIR_ENV, str(_target(root)))
     return root
+
+
+def _target(repo: Path) -> Path:
+    """The stage directory of the render being built: outside the repo root here."""
+    return repo.parent / "render"
 
 
 @pytest.fixture
@@ -116,10 +129,10 @@ def _tree(root: Path) -> dict[str, bytes | None]:
     }
 
 
-def _identity(repo: Path) -> dict[str, tuple[int, int]]:
+def _identity(target: Path) -> dict[str, tuple[int, int]]:
     """Inode and mtime of everything staged: any rewrite changes one of them."""
-    paths = [repo / stage.PAYLOAD_DIRNAME, *(repo / stage.PAYLOAD_DIRNAME).rglob("*")]
-    paths += [repo / name for name in _root_wheels(repo)]
+    paths = [target / stage.PAYLOAD_DIRNAME, *(target / stage.PAYLOAD_DIRNAME).rglob("*")]
+    paths += [target / name for name in _root_wheels(target)]
     return {str(p): (p.stat().st_ino, p.stat().st_mtime_ns) for p in paths}
 
 
@@ -132,9 +145,9 @@ def _identity(repo: Path) -> dict[str, tuple[int, int]]:
 def test_a_payload_named_in_the_environment_is_staged(repo: Path) -> None:
     assert stage.main([]) == 0
 
-    assert _root_wheels(repo) == [CANOPY_WHEEL, PYDM_WHEEL]
-    assert (repo / CANOPY_WHEEL).read_bytes() == b"canopy wheel one"
-    staged = repo / stage.PAYLOAD_DIRNAME
+    assert _root_wheels(_target(repo)) == [CANOPY_WHEEL, PYDM_WHEEL]
+    assert (_target(repo) / CANOPY_WHEEL).read_bytes() == b"canopy wheel one"
+    staged = _target(repo) / stage.PAYLOAD_DIRNAME
     assert json.loads((staged / "STAGED.json").read_text(encoding="utf-8")) == _staged()
     assert (staged / "viewer" / "index.html").read_text(encoding="utf-8") == "<html>one</html>"
     assert (staged / "viewer" / "ir-map.json").is_file()
@@ -146,7 +159,7 @@ def test_a_payload_named_in_the_environment_is_staged(repo: Path) -> None:
 @pytest.mark.usefixtures("payload")
 def test_the_wheels_are_not_copied_under_the_payload_directory(repo: Path) -> None:
     assert stage.main([]) == 0
-    assert not list((repo / stage.PAYLOAD_DIRNAME).rglob("*.whl"))
+    assert not list((_target(repo) / stage.PAYLOAD_DIRNAME).rglob("*.whl"))
 
 
 def test_the_payload_is_read_from_env_shared_when_the_process_leaves_it_unset(
@@ -156,7 +169,7 @@ def test_the_payload_is_read_from_env_shared_when_the_process_leaves_it_unset(
     (repo / ".env.shared").write_text(f"{stage.PAYLOAD_ENV}={path}\n", encoding="utf-8")
 
     assert stage.main([]) == 0
-    assert (repo / stage.PAYLOAD_DIRNAME / "STAGED.json").is_file()
+    assert (_target(repo) / stage.PAYLOAD_DIRNAME / "STAGED.json").is_file()
 
 
 def test_dot_env_wins_over_env_shared(repo: Path, tmp_path: Path) -> None:
@@ -166,8 +179,8 @@ def test_dot_env_wins_over_env_shared(repo: Path, tmp_path: Path) -> None:
     (repo / ".env").write_text(f'{stage.PAYLOAD_ENV}="{local}"\n', encoding="utf-8")
 
     assert stage.main([]) == 0
-    assert (repo / CANOPY_WHEEL).read_bytes() == b"canopy wheel local"
-    index = repo / stage.PAYLOAD_DIRNAME / "viewer" / "index.html"
+    assert (_target(repo) / CANOPY_WHEEL).read_bytes() == b"canopy wheel local"
+    index = _target(repo) / stage.PAYLOAD_DIRNAME / "viewer" / "index.html"
     assert index.read_text(encoding="utf-8") == "<html>local</html>"
 
 
@@ -180,8 +193,8 @@ def test_the_process_environment_wins_over_the_env_files(
     monkeypatch.setenv(stage.PAYLOAD_ENV, str(from_env))
 
     assert stage.main([]) == 0
-    assert (repo / CANOPY_WHEEL).read_bytes() == b"canopy wheel env"
-    index = repo / stage.PAYLOAD_DIRNAME / "viewer" / "index.html"
+    assert (_target(repo) / CANOPY_WHEEL).read_bytes() == b"canopy wheel env"
+    index = _target(repo) / stage.PAYLOAD_DIRNAME / "viewer" / "index.html"
     assert index.read_text(encoding="utf-8") == "<html>env</html>"
 
 
@@ -192,7 +205,7 @@ def test_a_relative_payload_path_is_taken_from_the_repo_root(
     monkeypatch.setenv(stage.PAYLOAD_ENV, ".payload")
 
     assert stage.main([]) == 0
-    assert (repo / stage.PAYLOAD_DIRNAME / "STAGED.json").is_file()
+    assert (_target(repo) / stage.PAYLOAD_DIRNAME / "STAGED.json").is_file()
 
 
 # ---------------------------------------------------------------------------
@@ -201,8 +214,9 @@ def test_a_relative_payload_path_is_taken_from_the_repo_root(
 
 
 def _assert_nothing_staged(repo: Path) -> None:
-    assert _root_wheels(repo) == []
-    assert not (repo / stage.PAYLOAD_DIRNAME).exists()
+    for directory in (repo, _target(repo)):
+        assert _root_wheels(directory) == []
+        assert not (directory / stage.PAYLOAD_DIRNAME).exists()
 
 
 def test_an_unset_payload_stages_nothing_and_passes(
@@ -228,6 +242,15 @@ def test_the_panel_is_off_only_when_no_payload_is_named_and_staging_is_on(
     assert stage.panel_off(repo) is off
 
 
+@pytest.mark.parametrize(("check", "off"), [("", True), ("0", False)])
+def test_a_build_running_no_lifecycle_step_turns_the_panel_off_unless_staging_is_skipped(
+    repo: Path, monkeypatch: pytest.MonkeyPatch, check: str, off: bool
+) -> None:
+    monkeypatch.setenv(stage.PAYLOAD_ENV, "/some/payload")
+    monkeypatch.setenv(stage.CHECK_ENV, check)
+    assert stage.panel_off(repo, staging_runs=False) is off
+
+
 def test_a_payload_named_in_the_env_file_keeps_the_panel(repo: Path) -> None:
     (repo / ".env").write_text(f"{stage.PAYLOAD_ENV}=/some/payload\n", encoding="utf-8")
     assert stage.panel_off(repo) is False
@@ -242,7 +265,7 @@ def test_an_empty_payload_value_counts_as_unset(
     (repo / ".env").write_text(f"{stage.PAYLOAD_ENV}={path}\n", encoding="utf-8")
 
     assert stage.main([]) == 0
-    assert (repo / stage.PAYLOAD_DIRNAME / "STAGED.json").is_file()
+    assert (_target(repo) / stage.PAYLOAD_DIRNAME / "STAGED.json").is_file()
 
 
 def test_a_missing_payload_directory_is_refused(
@@ -369,11 +392,11 @@ def test_a_refusal_leaves_the_previous_staging_in_place(
     repo: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     assert stage.main([]) == 0
-    before = _identity(repo)
+    before = _identity(_target(repo))
 
     monkeypatch.setenv(stage.PAYLOAD_ENV, str(tmp_path / "nowhere"))
     assert stage.main([]) != 0
-    assert _identity(repo) == before
+    assert _identity(_target(repo)) == before
 
 
 # ---------------------------------------------------------------------------
@@ -407,7 +430,7 @@ def test_check_zero_is_read_from_the_env_files_too(repo: Path) -> None:
 def test_any_other_check_value_still_stages(repo: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv(stage.CHECK_ENV, "1")
     assert stage.main([]) == 0
-    assert _root_wheels(repo) == [CANOPY_WHEEL, PYDM_WHEEL]
+    assert _root_wheels(_target(repo)) == [CANOPY_WHEEL, PYDM_WHEEL]
 
 
 # ---------------------------------------------------------------------------
@@ -416,12 +439,14 @@ def test_any_other_check_value_still_stages(repo: Path, monkeypatch: pytest.Monk
 
 
 @pytest.mark.usefixtures("payload")
-def test_an_unchanged_payload_rewrites_nothing(repo: Path) -> None:
+def test_an_unchanged_payload_is_staged_afresh(repo: Path) -> None:
+    """Every build renders a fresh stage directory: there is no "already current"."""
     assert stage.main([]) == 0
-    before = _identity(repo)
+    before = _identity(_target(repo))
 
     assert stage.main([]) == 0
-    assert _identity(repo) == before
+    assert _identity(_target(repo)) != before
+    assert _root_wheels(_target(repo)) == [CANOPY_WHEEL, PYDM_WHEEL]
 
 
 def test_a_changed_payload_replaces_the_staged_directory_whole(
@@ -429,17 +454,19 @@ def test_a_changed_payload_replaces_the_staged_directory_whole(
 ) -> None:
     (payload / "viewer" / "gone-in-the-next-build.js").write_text("old", encoding="utf-8")
     assert stage.main([]) == 0
-    assert (repo / stage.PAYLOAD_DIRNAME / "viewer" / "gone-in-the-next-build.js").is_file()
+    assert (
+        _target(repo) / stage.PAYLOAD_DIRNAME / "viewer" / "gone-in-the-next-build.js"
+    ).is_file()
 
     newer = make_payload(tmp_path / "newer", marker="two", spec=SPEC_A)
     monkeypatch.setenv(stage.PAYLOAD_ENV, str(newer))
     assert stage.main([]) == 0
 
-    staged = repo / stage.PAYLOAD_DIRNAME
+    staged = _target(repo) / stage.PAYLOAD_DIRNAME
     expected = {k: v for k, v in _tree(newer).items() if not k.endswith(".whl")}
     assert _tree(staged) == expected
-    assert (repo / CANOPY_WHEEL).read_bytes() == b"canopy wheel two"
-    assert (repo / PYDM_WHEEL).read_bytes() == b"pydm wheel two"
+    assert (_target(repo) / CANOPY_WHEEL).read_bytes() == b"canopy wheel two"
+    assert (_target(repo) / PYDM_WHEEL).read_bytes() == b"pydm wheel two"
 
 
 @pytest.mark.usefixtures("payload")
@@ -456,7 +483,7 @@ def test_a_new_version_removes_the_wheels_of_the_old_one(
     monkeypatch.setenv(stage.PAYLOAD_ENV, str(newer))
     assert stage.main([]) == 0
 
-    assert _root_wheels(repo) == [
+    assert _root_wheels(_target(repo)) == [
         "canopy-0.5.0-py3-none-any.whl",
         "pydmconverter-1.3.0-py3-none-any.whl",
     ]
@@ -464,54 +491,102 @@ def test_a_new_version_removes_the_wheels_of_the_old_one(
 
 @pytest.mark.usefixtures("payload")
 def test_stale_wheels_are_removed_whatever_their_case(repo: Path) -> None:
-    (repo / "PyDMConverter-0.9.0-py3-none-any.whl").write_bytes(b"stale")
-    (repo / "Canopy-0.1.0-py3-none-any.WHL").write_bytes(b"stale")
+    (_target(repo) / "PyDMConverter-0.9.0-py3-none-any.whl").write_bytes(b"stale")
+    (_target(repo) / "Canopy-0.1.0-py3-none-any.WHL").write_bytes(b"stale")
 
     assert stage.main([]) == 0
-    assert _root_wheels(repo) == [CANOPY_WHEEL, PYDM_WHEEL]
+    assert _root_wheels(_target(repo)) == [CANOPY_WHEEL, PYDM_WHEEL]
 
 
 @pytest.mark.usefixtures("payload")
-def test_other_wheels_in_the_repo_root_are_left_alone(repo: Path) -> None:
-    """``osprey up --dev`` stages the framework's own wheels in the same directory."""
+def test_other_wheels_in_the_stage_directory_are_left_alone(repo: Path) -> None:
+    """Only the two CANOPY wheels are this step's; a neighbour's wheel is not."""
     others = [
         "osprey_framework-2026.9.0-py3-none-any.whl",
         "osprey_connectors-2026.9.0-py3-none-any.whl",
         "canopy_extras-1.0-py3-none-any.whl",
     ]
     for name in others:
-        (repo / name).write_bytes(b"not ours")
+        (_target(repo) / name).write_bytes(b"not ours")
 
     assert stage.main([]) == 0
-    assert _root_wheels(repo) == sorted([CANOPY_WHEEL, PYDM_WHEEL, *others])
-    assert all((repo / name).read_bytes() == b"not ours" for name in others)
+    assert _root_wheels(_target(repo)) == sorted([CANOPY_WHEEL, PYDM_WHEEL, *others])
+    assert all((_target(repo) / name).read_bytes() == b"not ours" for name in others)
 
 
 @pytest.mark.usefixtures("payload")
 def test_a_wheel_deleted_from_the_repo_root_is_staged_again(repo: Path) -> None:
     """``STAGED.json`` alone does not prove the staging is whole: the wheels sit beside it."""
     assert stage.main([]) == 0
-    (repo / PYDM_WHEEL).unlink()
+    (_target(repo) / PYDM_WHEEL).unlink()
 
     assert stage.main([]) == 0
-    assert _root_wheels(repo) == [CANOPY_WHEEL, PYDM_WHEEL]
+    assert _root_wheels(_target(repo)) == [CANOPY_WHEEL, PYDM_WHEEL]
 
 
 @pytest.mark.usefixtures("payload")
 def test_leftovers_of_an_interrupted_run_are_cleared(repo: Path) -> None:
-    leftover = repo / stage.SCRATCH_DIRNAME
+    leftover = _target(repo) / stage.SCRATCH_DIRNAME
     leftover.mkdir()
     (leftover / "half").write_text("half a copy", encoding="utf-8")
 
     assert stage.main([]) == 0
     assert not leftover.exists()
-    assert not (repo / stage.PAYLOAD_DIRNAME / "half").exists()
+    assert not (_target(repo) / stage.PAYLOAD_DIRNAME / "half").exists()
 
 
 @pytest.mark.usefixtures("payload")
-def test_staging_leaves_nothing_the_root_warning_would_flag(repo: Path) -> None:
+def test_staging_writes_nothing_at_the_repo_root(repo: Path) -> None:
+    before = _tree(repo)
     assert stage.main([]) == 0
+    assert _tree(repo) == before
     assert unknown_root_entries(repo) == []
+
+
+# ---------------------------------------------------------------------------
+# Outside a build
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.usefixtures("payload")
+def test_a_payload_named_outside_a_build_is_refused_and_nothing_is_written(
+    repo: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.delenv(stage.STAGE_DIR_ENV)
+    before = _tree(repo)
+
+    assert stage.main([]) == 1
+    assert f"{stage.STAGE_DIR_ENV} is not set" in capsys.readouterr().err
+    assert _tree(repo) == before
+    _assert_nothing_staged(repo)
+
+
+def test_nothing_to_stage_passes_outside_a_build(
+    repo: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.delenv(stage.STAGE_DIR_ENV)
+    assert stage.main([]) == 0
+    assert "nothing staged" in capsys.readouterr().out
+    _assert_nothing_staged(repo)
+
+
+@pytest.mark.usefixtures("payload")
+def test_a_stage_directory_that_does_not_exist_is_refused(
+    repo: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setenv(stage.STAGE_DIR_ENV, str(tmp_path / "gone"))
+    assert stage.main([]) == 1
+    assert "is not a directory" in capsys.readouterr().err
+    _assert_nothing_staged(repo)
+
+
+def test_a_payload_naming_the_staged_copy_itself_is_refused(
+    repo: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    make_payload(_target(repo) / stage.PAYLOAD_DIRNAME)
+    monkeypatch.setenv(stage.PAYLOAD_ENV, str(_target(repo) / stage.PAYLOAD_DIRNAME))
+    assert stage.main([]) == 1
+    assert "names the staging directory itself" in capsys.readouterr().err
 
 
 # ---------------------------------------------------------------------------
@@ -524,7 +599,7 @@ def make_library(repo: Path, *, report: bool = True) -> Path:
     root = repo / LIBRARY_SUBPATH
     (root / "screens" / "sr").mkdir(parents=True)
     (root / "screens" / "sr" / "overview.screen.json").write_bytes(b"{}\n")
-    for path in [repo / "data", repo / "data" / "canopy", root, *root.rglob("*")]:
+    for path in [repo / "web", repo / "web" / "canopy", root, *root.rglob("*")]:
         path.chmod(0o755 if path.is_dir() else 0o644)
     if report:
         write_report(root)
@@ -553,7 +628,7 @@ def test_a_repo_without_a_library_passes_the_check(repo: Path) -> None:
 def test_a_library_with_a_current_report_is_staged_over(repo: Path) -> None:
     make_library(repo)
     assert stage.main([]) == 0
-    assert _root_wheels(repo) == [CANOPY_WHEEL, PYDM_WHEEL]
+    assert _root_wheels(_target(repo)) == [CANOPY_WHEEL, PYDM_WHEEL]
 
 
 @pytest.mark.usefixtures("payload")
@@ -572,7 +647,7 @@ def test_a_stale_library_is_refused_before_anything_is_staged(
     lines = captured.err.splitlines()
     assert all(line.startswith("canopy library: ") for line in lines)
     assert lines[0] == (
-        "canopy library: data/canopy/library does not match its write-binding report"
+        "canopy library: web/canopy/library does not match its write-binding report"
     )
     assert lines[1].startswith("canopy library: digest mismatch: ")
     assert lines[2] == (
@@ -591,7 +666,7 @@ def test_a_library_with_no_report_is_refused(
     err = capsys.readouterr().err
     assert "no report: the library holds 1 files and no LIBRARY-REPORT.json" in err
     assert "python -m canopy_mcp.report" in err
-    assert not (repo / stage.PAYLOAD_DIRNAME).exists()
+    assert not (_target(repo) / stage.PAYLOAD_DIRNAME).exists()
 
 
 def test_check_zero_does_not_skip_the_library_check(
@@ -639,7 +714,7 @@ def test_a_mode_refusal_prints_the_chmod_command(
 def test_run_raises_the_refusal_with_its_lines(repo: Path) -> None:
     make_library(repo, report=False)
     with pytest.raises(stage.StaleLibrary) as excinfo:
-        stage.run(repo)
+        stage.run(repo, _target(repo))
     assert isinstance(excinfo.value, stage.StageError)
     assert excinfo.value.lines == library.library_is_fresh(repo / LIBRARY_SUBPATH).lines
 
@@ -660,24 +735,29 @@ _STEP = LifecycleStep(
 )
 
 
-def test_the_step_stages_when_run_as_build_cmd_runs_it(
+def test_the_step_stages_into_the_stage_directory_the_runner_exports(
     repo: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Repo root as working directory, an empty stage directory as ``project_path``.
 
-    The runner overlays the *stage* directory's env chain, so the repo's own
-    ``.env`` reaches the step only because the step reads it itself.
+    The step text is the one every deployment's ``profile.yml`` carries; the
+    runner names ``project_path`` in ``OSPREY_BUILD_STAGE_DIR``, and nothing
+    lands at the repo root.
     """
     path = make_payload(tmp_path / "payload")
     (repo / ".env").write_text(f"{stage.PAYLOAD_ENV}={path}\n", encoding="utf-8")
     monkeypatch.chdir(tmp_path)  # the step must use the cwd the runner gives it, not ours
-    empty_stage = tmp_path / "stage"
-    empty_stage.mkdir()
+    monkeypatch.delenv(stage.STAGE_DIR_ENV)  # the runner's export, not the fixture's
+    render = tmp_path / "build" / ".tmp" / "demo"
+    render.mkdir(parents=True)
+    before = _tree(repo)
 
-    _run_lifecycle_phase("pre_build", [_STEP], repo, empty_stage, venv=None, repo_root=repo)
+    _run_lifecycle_phase("pre_build", [_STEP], repo, render, venv=None, repo_root=repo)
 
-    assert _root_wheels(repo) == [CANOPY_WHEEL, PYDM_WHEEL]
-    assert (repo / stage.PAYLOAD_DIRNAME / "STAGED.json").is_file()
+    assert _root_wheels(render) == [CANOPY_WHEEL, PYDM_WHEEL]
+    assert (render / stage.PAYLOAD_DIRNAME / "STAGED.json").is_file()
+    assert _tree(repo) == before
+    assert not (_target(repo) / stage.PAYLOAD_DIRNAME).exists()
 
 
 def test_the_step_stops_the_build_when_the_payload_is_missing(
@@ -710,7 +790,7 @@ def test_the_step_stops_the_build_on_a_stale_library_though_staging_is_skipped(
 
 
 # ---------------------------------------------------------------------------
-# The staged spec: copied with the payload, and part of what "current" means
+# The staged spec: copied with the payload
 # ---------------------------------------------------------------------------
 
 SPEC_A = "5" * 40
@@ -725,7 +805,7 @@ def test_a_payload_with_a_spec_stages_it_beside_the_viewer(
 
     assert stage.main([]) == 0
 
-    staged = repo / stage.PAYLOAD_DIRNAME
+    staged = _target(repo) / stage.PAYLOAD_DIRNAME
     assert _tree(staged / "spec") == _tree(source / "spec")
     assert (staged / "spec" / "SPEC-SOURCE").read_text(
         encoding="utf-8"
@@ -736,25 +816,24 @@ def test_a_payload_with_a_spec_stages_it_beside_the_viewer(
 @pytest.mark.parametrize(
     "key", [pytest.param("spec", id="spec"), pytest.param("spec-digest", id="spec-digest")]
 )
-def test_a_changed_spec_record_is_not_current(
+def test_a_changed_spec_record_is_staged_anew(
     repo: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, key: str
 ) -> None:
     """A payload rebuilt with another spec — every repo SHA unchanged — is staged anew."""
     first = make_payload(tmp_path / "first", spec=SPEC_A)
     monkeypatch.setenv(stage.PAYLOAD_ENV, str(first))
     assert stage.main([]) == 0
-    assert stage.is_current(repo, stage.read_payload(first))
 
     second = make_payload(tmp_path / "second", spec=SPEC_A)
     record = json.loads((second / "STAGED.json").read_text(encoding="utf-8"))
     record[key] = _staged(spec=SPEC_B)[key]
     (second / "STAGED.json").write_text(json.dumps(record, indent=2), encoding="utf-8")
-    payload = stage.read_payload(second)
 
-    assert not stage.is_current(repo, payload)
     monkeypatch.setenv(stage.PAYLOAD_ENV, str(second))
     assert stage.main([]) == 0
-    staged = json.loads((repo / stage.PAYLOAD_DIRNAME / "STAGED.json").read_text(encoding="utf-8"))
+    staged = json.loads(
+        (_target(repo) / stage.PAYLOAD_DIRNAME / "STAGED.json").read_text(encoding="utf-8")
+    )
     assert staged[key] == record[key]
 
 
@@ -764,12 +843,12 @@ def test_a_spec_added_to_an_otherwise_equal_payload_is_staged(
     """The interim payload (no spec) and the same payload with FR17's spec differ only there."""
     monkeypatch.setenv(stage.PAYLOAD_ENV, str(make_payload(tmp_path / "interim")))
     assert stage.main([]) == 0
-    assert not (repo / stage.PAYLOAD_DIRNAME / "spec").exists()
+    assert not (_target(repo) / stage.PAYLOAD_DIRNAME / "spec").exists()
 
     with_spec = make_payload(tmp_path / "final", spec=SPEC_A)
     monkeypatch.setenv(stage.PAYLOAD_ENV, str(with_spec))
     assert stage.main([]) == 0
-    assert (repo / stage.PAYLOAD_DIRNAME / "spec" / "SPEC-SOURCE").is_file()
+    assert (_target(repo) / stage.PAYLOAD_DIRNAME / "spec" / "SPEC-SOURCE").is_file()
 
 
 def test_a_staged_copy_that_lost_its_spec_is_staged_again(
@@ -778,12 +857,11 @@ def test_a_staged_copy_that_lost_its_spec_is_staged_again(
     source = make_payload(tmp_path / "with-spec", spec=SPEC_A)
     monkeypatch.setenv(stage.PAYLOAD_ENV, str(source))
     assert stage.main([]) == 0
-    staged_spec = repo / stage.PAYLOAD_DIRNAME / "spec"
+    staged_spec = _target(repo) / stage.PAYLOAD_DIRNAME / "spec"
     for path in sorted(staged_spec.rglob("*"), reverse=True):
         path.rmdir() if path.is_dir() else path.unlink()
     staged_spec.rmdir()
 
-    assert not stage.is_current(repo, stage.read_payload(source))
     assert stage.main([]) == 0
     assert _tree(staged_spec) == _tree(source / "spec")
 
@@ -797,7 +875,7 @@ def test_a_payload_naming_a_spec_it_does_not_hold_is_refused(
 
     assert stage.main([]) == 1
     assert f"names spec {SPEC_A}" in capsys.readouterr().err
-    assert not (repo / stage.PAYLOAD_DIRNAME).exists()
+    assert not (_target(repo) / stage.PAYLOAD_DIRNAME).exists()
 
 
 def test_a_spec_dir_its_staged_json_does_not_name_is_refused(
@@ -809,7 +887,7 @@ def test_a_spec_dir_its_staged_json_does_not_name_is_refused(
 
     assert stage.main([]) == 1
     assert "holds spec/ but" in capsys.readouterr().err
-    assert not (repo / stage.PAYLOAD_DIRNAME).exists()
+    assert not (_target(repo) / stage.PAYLOAD_DIRNAME).exists()
 
 
 def test_a_half_named_spec_is_refused(
@@ -823,7 +901,7 @@ def test_a_half_named_spec_is_refused(
 
     assert stage.main([]) == 1
     assert "both spec and spec-digest or with neither" in capsys.readouterr().err
-    assert not (repo / stage.PAYLOAD_DIRNAME).exists()
+    assert not (_target(repo) / stage.PAYLOAD_DIRNAME).exists()
 
 
 def test_a_payload_recorded_before_the_spec_keys_existed_still_stages(
@@ -838,4 +916,4 @@ def test_a_payload_recorded_before_the_spec_keys_existed_still_stages(
 
     assert stage.main([]) == 0
     assert not stage.read_payload(source).has_spec
-    assert not (repo / stage.PAYLOAD_DIRNAME / "spec").exists()
+    assert not (_target(repo) / stage.PAYLOAD_DIRNAME / "spec").exists()

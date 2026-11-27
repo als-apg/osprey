@@ -39,7 +39,7 @@ own.
 A screen comes from one of two places:
 
 - **The library** holds the deployment's shared screens, in
-  ``data/canopy/library`` of the deployment repository. Everyone sees them, and
+  ``web/canopy/library`` of the deployment repository. Everyone sees them, and
   nobody can change them from the panel. :doc:`canopy-library` explains how a
   screen gets in.
 - **Your personal store** holds the screens you or the agent built. It lives in

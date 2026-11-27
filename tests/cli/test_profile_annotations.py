@@ -244,11 +244,10 @@ def _resolve(profile_dir: Path, lines: list[str]) -> BuildProfile:
     neither, and validation requires both. So they are created and the key added
     here, exactly as the verb would have.
     """
-    (profile_dir / "data").mkdir(exist_ok=True)
     if not (profile_dir / "apps").exists():
         lay_preset_applications("demo", profile_dir)
     path = profile_dir / "profile.yml"
-    path.write_text("data: data\n" + "\n".join(lines) + "\n")
+    path.write_text("" + "\n".join(lines) + "\n")
     return resolve_build_profile(path, None)[0]
 
 

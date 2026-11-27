@@ -27,6 +27,7 @@ from osprey.deployment.docker_desktop import (
 from osprey.deployment.runtime_helper import get_runtime_command
 from osprey.deployment.subprocess_capture import run_captured
 from osprey.deployment.web_terminals.ports import resolve_nginx_port
+from osprey.repo_layout import child_path, entry
 from osprey_connectors.logger import get_logger
 
 logger = get_logger("deployment.lifecycle")
@@ -109,17 +110,15 @@ def enable_linger(config: dict, run_env: dict[str, str]) -> None:
 
 
 def run_verify_script(project_root: str, run_env: dict[str, str]) -> None:
-    """Best-effort, advisory post-up smoke check via the scaffolded ``scripts/verify.sh``.
+    """Best-effort, advisory post-up smoke check via the scaffolded ``ops/scripts/verify.sh``.
 
-    A project built from a profile carrying ``project/scripts/verify.sh``
-    ships that file as ``<project_root>/scripts/verify.sh`` (the profile's
-    ``project/`` mirror copies it verbatim): a health-check script
-    parameterized per-facility with a probe for each enabled module.
-    ``osprey up`` runs it automatically as the last step of the post-up hook,
+    A deployment root carrying ``ops/scripts/verify.sh`` — the health-check
+    script ``osprey scaffold ci`` emits, parameterized per-facility with a
+    probe for each enabled module — has it run here. ``osprey up`` runs it automatically as the last step of the post-up hook,
     once ``compose up -d`` has already succeeded and containers are running, so
     an operator gets an immediate health signal without a separate manual step.
 
-    Silently skipped (no log line at all) when ``<project_root>/scripts/
+    Silently skipped (no log line at all) when ``<project_root>/ops/scripts/
     verify.sh`` doesn't exist — a profile that carries no such script must
     deploy without any mention of one.
 
@@ -135,16 +134,17 @@ def run_verify_script(project_root: str, run_env: dict[str, str]) -> None:
     spool file holding the whole health report. Under ``--verbose`` it streams
     to the terminal instead, like every other captured run.
 
-    :param project_root: The project root whose ``scripts/verify.sh`` (if
+    :param project_root: The project root whose ``ops/scripts/verify.sh`` (if
         any) to run; also the script's working directory, so its own
-        ``./scripts/...``-relative assumptions resolve the same as when an
+        root-relative assumptions resolve the same as when an
         operator runs it by hand from the project root.
     :param run_env: Environment for the subprocess — the one the compose calls
         in this module use. The script does not read the deployment from it:
         it reads the runtime and compose project from the record ``osprey up``
         wrote.
     """
-    verify_path = Path(project_root) / "scripts" / "verify.sh"
+    scripts_dir = Path(project_root) / entry("scripts").path
+    verify_path = child_path(scripts_dir, "scripts", "verify-script")
     if not verify_path.is_file():
         return
 

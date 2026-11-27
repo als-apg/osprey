@@ -147,8 +147,10 @@ def test_installed_scenarios_build_with_the_preset_facility(tmp_path: Path) -> N
 
     facility = tmp_path / "facility"
     shutil.copytree(packaged_facility_dir("demo"), facility)
-    fixture.install_scenarios(facility / "scenarios")
-    assert (facility / "scenarios" / fixture.LOGBOOK_SCENARIO / fixture.SPEC_PATH).is_file()
+    fixture.install_scenarios(facility / "simulation" / "scenarios")
+    assert (
+        facility / "simulation" / "scenarios" / fixture.LOGBOOK_SCENARIO / fixture.SPEC_PATH
+    ).is_file()
 
     document = build_facility(
         facility, project_name="chart-value-reading", extra_checks=FRAMEWORK_CHECKS
@@ -162,7 +164,9 @@ def test_installed_scenarios_build_with_the_preset_facility(tmp_path: Path) -> N
     logged = scenarios[fixture.LOGBOOK_SCENARIO]
     entries = {
         e.entry_id: e
-        for e in scenario_logbook(logged, facility / "scenarios" / fixture.LOGBOOK_SCENARIO)
+        for e in scenario_logbook(
+            logged, facility / "simulation" / "scenarios" / fixture.LOGBOOK_SCENARIO
+        )
     }
     target = entries[fixture.TARGET_ENTRY_ID]
     assert len(target.attachments) == 1 and isinstance(target.attachments[0], PlotSpec)

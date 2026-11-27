@@ -89,7 +89,7 @@ services:
       # directory — the deployment REPO ROOT (`--project-directory <repo>`, see
       # compose_generator.compose_base_cmd) — never this file's own subdir. So
       # render output is addressed under build/, and the repo's own zones by
-      # their plain names (data/, .env).
+      # their plain names (var/, .env).
       context: ./build/services/nextcloud_bridge
       dockerfile: Dockerfile
       args:

@@ -184,8 +184,8 @@ def test_a_profile_agent_of_the_same_name_refuses_the_build(
     tmp_path: Path, caplog: pytest.LogCaptureFixture
 ) -> None:
     repo = _knob_repo(tmp_path, build=False)
-    (repo / "agents").mkdir(exist_ok=True)
-    (repo / "agents" / "knob-helper.md").write_text(
+    (repo / "agent" / "agents").mkdir(parents=True, exist_ok=True)
+    (repo / "agent" / "agents" / "knob-helper.md").write_text(
         "---\nname: knob-helper\ndescription: The profile's own.\n---\n", encoding="utf-8"
     )
     profile = repo / "profile.yml"

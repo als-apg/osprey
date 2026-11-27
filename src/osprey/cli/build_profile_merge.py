@@ -23,7 +23,6 @@ from osprey.utils.workspace import (
     LAYER_DIR_KINDS,
     PROFILE_FILENAME,
     RETIRED_LAYER_DIRS,
-    RUNTIME_DATA_DIR_NAME,
 )
 from osprey_connectors.errors import BuildProfileError
 from osprey_connectors.types import (
@@ -112,20 +111,20 @@ _EXCLUDABLE_FIELDS: frozenset[str] = frozenset(
 )
 
 
-def _convention_source_for_field(field_name: str) -> str | None:
-    """The convention directory, if any, an ``exclude:`` field names.
+def _convention_key_for_field(field_name: str) -> str | None:
+    """The key of the convention, if any, an ``exclude:`` field names.
 
     Args:
         field_name: One key of an ``exclude:`` mapping.
 
     Returns:
-        The matching entry of
-        :data:`~osprey.cli.profile_conventions.CONVENTION_SOURCES`, or ``None``
-        when the field names no convention directory. A profile spells its list
-        fields with underscores (``output_styles``) while the directory is
-        hyphenated (``output-styles/``), so an underscore fallback bridges the
-        two; the identity match runs first, which keeps ``mcp_servers`` — whose
-        directory really does carry an underscore — from being rewritten.
+        The matching convention key
+        (:data:`~osprey.cli.profile_conventions.CONVENTION_SOURCES`), or ``None``
+        when the field names no convention. A profile spells its list fields
+        with underscores (``output_styles``) while the key is hyphenated
+        (``output-styles``), so an underscore fallback bridges the two; the
+        identity match runs first, which keeps ``mcp_servers`` — whose key
+        really does carry an underscore — from being rewritten.
     """
     from .profile_conventions import CONVENTION_SOURCES
 
@@ -155,12 +154,12 @@ _ARTIFACT_LIBRARY_FIELDS: frozenset[str] = frozenset(
 )
 
 
-def _selecting_list_field(source: str | None) -> str | None:
-    """The profile list field that selects convention directory *source*, if any."""
+def _selecting_list_field(key: str | None) -> str | None:
+    """The profile list field that selects the convention *key*, if any."""
     from .profile_conventions import SELECTED_CONVENTION_SOURCES
 
     return next(
-        (field for field, dirname in SELECTED_CONVENTION_SOURCES.items() if dirname == source),
+        (field for field, convention in SELECTED_CONVENTION_SOURCES.items() if convention == key),
         None,
     )
 
@@ -188,7 +187,7 @@ def _is_library_selection(field_name: str, name: str) -> bool:
         return False
 
 
-def _split_exclude_entry(field_name: str, source: str | None, entry: Any) -> tuple[str, bool]:
+def _split_exclude_entry(field_name: str, key: str | None, entry: Any) -> tuple[str, bool]:
     """Split one ``exclude:`` entry into its bare name and its spelling.
 
     The spelling is the contract, because the two things a profile can select
@@ -200,7 +199,7 @@ def _split_exclude_entry(field_name: str, source: str | None, entry: Any) -> tup
 
     Args:
         field_name: The ``exclude:`` key the entry was listed under.
-        source: That key's convention directory, or ``None``.
+        key: The key of that field's convention, or ``None``.
         entry: The raw list entry.
 
     Returns:
@@ -221,7 +220,7 @@ def _split_exclude_entry(field_name: str, source: str | None, entry: Any) -> tup
     head, sep, tail = entry.partition("/")
     if not sep:
         return entry, False
-    if source is not None and head in (source, field_name):
+    if key is not None and head in (key, field_name):
         if not tail:
             raise BuildProfileError(
                 f"exclude.{field_name}: entry {entry!r} names no artifact after the "
@@ -231,7 +230,7 @@ def _split_exclude_entry(field_name: str, source: str | None, entry: Any) -> tup
     # Checked for every field, not only convention-backed ones: a qualified
     # entry under an unrelated key (``hooks: [agents/x]``) is the same mistake
     # and must not pass as a literal hook name that matches nothing.
-    if _convention_source_for_field(head) is not None:
+    if _convention_key_for_field(head) is not None:
         raise BuildProfileError(
             f"exclude.{field_name}: entry {entry!r} names a {head!r} artifact under "
             f"the {field_name!r} key. List it under {head!r} instead, or drop the "
@@ -316,7 +315,7 @@ def _apply_exclude(
       (:data:`_EXCLUDABLE_FIELDS`), so a built-in artifact an ``extends`` base
       selected is no longer selected;
     * qualified (``agents/channel-finder``) records the entry in ``artifacts``
-      as ``"<source>/<name>"`` so the build omits the profile's own file for
+      as ``"<key>/<name>"`` so the build omits the profile's own file for
       it, and drops that same qualified selection from the list, leaving the
       bare library selection alone.
 
@@ -355,7 +354,7 @@ def _apply_exclude(
             place. ``None`` skips recording, for callers that only need list
             subtraction.
         shadow_candidates: Set collecting the *other* half — bare entries that
-            named a built-in library artifact, as ``"<source>/<name>"`` — so a
+            named a built-in library artifact, as ``"<key>/<name>"`` — so a
             caller that knows the profile root can tell whether the profile also
             shadows that name (see :func:`_warn_shadowed_bare_exclusions`).
             Deliberately disjoint from ``artifacts``: these entries record no
@@ -377,8 +376,8 @@ def _apply_exclude(
         if field_name == "config":
             _apply_config_exclude(merged, entries)
             continue
-        source = _convention_source_for_field(field_name)
-        if field_name not in _EXCLUDABLE_FIELDS and source is None:
+        key = _convention_key_for_field(field_name)
+        if field_name not in _EXCLUDABLE_FIELDS and key is None:
             raise BuildProfileError(
                 f"exclude: unknown or non-list field {field_name!r} (must be one of "
                 f"{sorted(_EXCLUDABLE_FIELDS)}, a convention directory: "
@@ -390,18 +389,18 @@ def _apply_exclude(
                 f"exclude.{field_name} must be a list of entries to remove "
                 f"(got {type(entries).__name__})"
             )
-        split = [_split_exclude_entry(field_name, source, entry) for entry in entries]
+        split = [_split_exclude_entry(field_name, key, entry) for entry in entries]
         if field_name == "hooks":
             _refuse_excluded_helpers(name for name, qualified in split if not qualified)
-        if source is not None:
+        if key is not None:
             for name, qualified in split:
                 # One library probe per entry: list_artifacts() walks a
                 # directory, and both records below key off the same answer.
                 library = not qualified and _is_library_selection(field_name, name)
                 if artifacts is not None and not library:
-                    artifacts.add(f"{source}/{name}")
+                    artifacts.add(f"{key}/{name}")
                 if shadow_candidates is not None and library:
-                    shadow_candidates.add(f"{source}/{name}")
+                    shadow_candidates.add(f"{key}/{name}")
 
         current = merged.get(field_name)
         if isinstance(current, dict):
@@ -413,10 +412,10 @@ def _apply_exclude(
         # A qualified entry also takes the profile's own artifact out of the
         # list that selects it (`exclude: {skills: [skills/beam-check]}` drops
         # `skills/beam-check` from `skills:`), whichever spelling the key used.
-        list_field = _selecting_list_field(source)
+        list_field = _selecting_list_field(key)
         selecting = merged.get(list_field) if list_field else None
         if list_field is not None and isinstance(selecting, list):
-            qualified_removal = {f"{source}/{name}" for name, qualified in split if qualified}
+            qualified_removal = {f"{key}/{name}" for name, qualified in split if qualified}
             merged[list_field] = [item for item in selecting if item not in qualified_removal]
 
 
@@ -581,12 +580,20 @@ def merge_layer_delta(
     return merged
 
 
+def _convention_dir(root_dir: Path, key: str) -> Path:
+    """Where the convention *key* sits under *root_dir*; a key that names none, as spelled."""
+    from .profile_conventions import convention_for
+
+    convention = convention_for(key)
+    return root_dir / (convention.source if convention is not None else key)
+
+
 def _profile_ships(root_dir: Path, artifact: str) -> bool:
-    """Whether the profile carries its own file for a ``"<source>/<name>"`` entry.
+    """Whether the profile carries its own file for a ``"<key>/<name>"`` entry.
 
     Args:
         root_dir: The profile root the exclusions anchor at.
-        artifact: A recorded exclusion, ``"<source>/<name>"``.
+        artifact: A recorded exclusion, ``"<key>/<name>"``.
 
     Returns:
         ``True`` when the profile ships that artifact. Markdown categories name
@@ -604,18 +611,18 @@ def _profile_ships(root_dir: Path, artifact: str) -> bool:
     """
     from .profile_conventions import EntryShape, convention_for
 
-    source, _, name = artifact.partition("/")
-    base = root_dir / source / name
+    key, _, name = artifact.partition("/")
+    base = _convention_dir(root_dir, key) / name
     if base.exists() or (base.parent / f"{base.name}.md").exists():
         return True
 
-    convention = convention_for(source)
+    convention = convention_for(key)
     if convention is None or convention.shape is not EntryShape.FILE:
         return False
     from .templates.artifact_library import resolve_artifact
 
     try:
-        library_file = resolve_artifact(source, name)
+        library_file = resolve_artifact(key, name)
     except Exception:
         return False
     return (base.parent / library_file.name).is_file()
@@ -633,18 +640,18 @@ def _warn_shadowed_bare_exclusions(root_dir: Path, shadow_candidates: set[str]) 
     successful build as a successful exclusion.
 
     The remedy is the other spelling, so the warning names it: the qualified
-    ``<source>/<name>`` form drops the profile's own file, which is what someone
+    ``<key>/<name>`` form drops the profile's own file, which is what someone
     who shadows an artifact and then excludes it almost always meant.
 
     Args:
         root_dir: The profile root the exclusions anchor at.
         shadow_candidates: Bare library-selection exclusions recorded by
-            :func:`_apply_exclude`, as ``"<source>/<name>"``.
+            :func:`_apply_exclude`, as ``"<key>/<name>"``.
     """
     for artifact in sorted(shadow_candidates):
         if not _profile_ships(root_dir, artifact):
             continue
-        source, _, name = artifact.partition("/")
+        key, _, name = artifact.partition("/")
         _LOGGER.warning(
             "Profile %s excludes the bare name %r under %r, but it also ships its own "
             "%r in %s. That file still renders, so the exclusion has no effect. "
@@ -653,9 +660,9 @@ def _warn_shadowed_bare_exclusions(root_dir: Path, shadow_candidates: set[str]) 
             "own file, which is what makes the built-in version render again.",
             root_dir,
             name,
-            source,
+            key,
             name,
-            root_dir / source,
+            _convention_dir(root_dir, key),
             artifact,
         )
 
@@ -670,18 +677,18 @@ def _warn_unmatched_exclusions(root_dir: Path, artifacts: set[str]) -> None:
 
     Args:
         root_dir: The profile root the exclusions anchor at.
-        artifacts: Recorded ``"<source>/<name>"`` exclusions.
+        artifacts: Recorded ``"<key>/<name>"`` exclusions.
     """
     for artifact in sorted(artifacts):
         if _profile_ships(root_dir, artifact):
             continue
-        source, _, _name = artifact.partition("/")
+        key, _, _name = artifact.partition("/")
         _LOGGER.warning(
             "Profile %s excludes %r, but no such artifact exists under %s. The "
             "exclusion has no effect. Check the spelling.",
             root_dir,
             artifact,
-            root_dir / source,
+            _convention_dir(root_dir, key),
         )
 
 
@@ -1762,12 +1769,12 @@ class ResolvedProfileDocument:
         raw: The fully resolved profile mapping — ``extends`` consumed and, for
             a layer, merged over its root.
         root_dir: The profile root every profile-relative path anchors at
-            (``data:``, convention directories, ``.env``, hash material). For a
+            (declared sources, convention directories, ``.env``, hash material). For a
             layer this is the directory *above* ``tiers/``, never the
             delta's own parent.
         is_layer: Whether the document was resolved as a layer.
         excluded_artifacts: Convention-dir artifacts the resolved profile
-            excludes, as ``"<source>/<name>"`` (e.g. ``"agents/orbit-writer"``).
+            excludes, as ``"<key>/<name>"`` (e.g. ``"agents/orbit-writer"``).
             The build omits these files, and ownership derivation scans the
             post-exclude set — so excluding a shadow restores the framework's
             own version of that artifact.
@@ -1839,9 +1846,8 @@ def resolve_profile_document(
         BuildProfileError: If a layer declares ``extends``, if the root
             of a layer is missing or is not a YAML mapping, or if
             ``extends`` resolution fails.
-        FacilityBuildError: ``profile-invalid`` when a layer names
-            ``data:`` (every render shares the root profile's facility tree)
-            or sets ``simulation.models`` on a VA-baselined render.
+        FacilityBuildError: ``profile-invalid`` when a layer sets
+            ``simulation.models`` on a VA-baselined render.
     """
     root_dir, kind = resolve_profile_root(profile_path)
     is_layer = bool(kind)
@@ -1907,21 +1913,6 @@ def resolve_profile_document(
             f"it, so a second base would be ambiguous. "
             f"Remove the 'extends' key; to change what every render of this deployment "
             f"inherits, edit {root_dir / PROFILE_FILENAME} instead."
-        )
-
-    if "data" in normalized:
-        from osprey_facility.errors import FacilityBuildError
-
-        raise FacilityBuildError(
-            "profile-invalid",
-            layer_rel,
-            [layer_rel],
-            f"remove `data:` from {layer_rel}",
-            record_kind="path",
-            detail=(
-                f"a {kind.value} names `data:`, and every render of a deployment shares "
-                f"the facility tree the root {PROFILE_FILENAME}'s `data:` names"
-            ),
         )
 
     if "machine" in normalized:
@@ -2000,7 +1991,6 @@ def _fold_source_tree(
     label: str,
     source: Path,
     *,
-    skip_runtime_output: bool = False,
     skip: Callable[[str], bool] | None = None,
 ) -> None:
     """Fold one file-or-directory build input into ``digest``, in place.
@@ -2010,14 +2000,6 @@ def _fold_source_tree(
     joined with the SHA-256 of its bytes. Entries are sorted by that relative
     path, and directories themselves contribute nothing — only their files —
     so the digest depends on content alone and not on filesystem walk order.
-
-    ``skip_runtime_output`` is passed for the ``data:`` tree only: the
-    top-level :data:`~osprey.utils.workspace.RUNTIME_DATA_DIR_NAME`
-    subtree is where ``osprey up`` mints its own material (per-lane CURVE
-    certificates), and hashing it would make every successful start mark its
-    own build OUT OF DATE (#716). The subtree is skipped statically — by its
-    reserved name, not by a manifest — so the fold and the writer cannot fall
-    out of sync about which files a start is allowed to create.
 
     ``skip`` is passed for an application directory (:attr:`ProfileInput.build_output`):
     it is handed each file's relative path and answers whether that file is build
@@ -2056,7 +2038,6 @@ def _fold_source_tree(
     """
     import hashlib
 
-    from osprey.utils.workspace import RUNTIME_DATA_DIR_NAME
     from osprey_facility.roots import FacilityRoots, is_machine_entry, is_vcs_metadata
 
     # The machine input is listed only when mounted, so its tree folds as the
@@ -2076,8 +2057,6 @@ def _fold_source_tree(
             if machine_roots is not None and not is_machine_entry(machine_roots, relative):
                 continue
             rel = relative.as_posix()
-            if skip_runtime_output and rel.split("/", 1)[0] == RUNTIME_DATA_DIR_NAME:
-                continue
             if skip is not None and skip(rel):
                 continue
             entries.append((rel, path))
@@ -2143,19 +2122,14 @@ def _fold_profile_material(digest: Any, inputs: Iterable[ProfileInput]) -> None:
     and the document entries, which the canonical JSON already covers, are not.
     Seven kinds of input are covered:
 
-    * the ``data:`` tree, anchored via
-      :meth:`~osprey.cli.build_profile_model.BuildProfile.resolved_data_root`
-      so it resolves exactly where the build copies it from — minus the
-      reserved ``data/.runtime/`` subtree
-      (:data:`~osprey.utils.workspace.RUNTIME_DATA_DIR_NAME`), which is
-      runtime-minted material (the Bluesky lanes' CURVE certificates) and
-      never build input: fold it and every successful ``osprey up`` marks its
-      own build OUT OF DATE, stranding a bare ``osprey up -d`` boot unit at
-      the drift gate;
+    * every declared source the render assembles
+      (:func:`~osprey.repo_layout.rendered_sources`), read from exactly where
+      the build copies it;
     * every convention directory the profile carries
       (:data:`~osprey.cli.profile_conventions.CONVENTION_SOURCES`, which
-      includes the ``project/`` verbatim mirror), folded in sorted name order
-      so reordering the mapping table cannot move a hash;
+      includes the ``project/`` verbatim mirror), folded in sorted key order
+      under ``convention:<key>``, so neither reordering the mapping table nor
+      moving a convention's directory moves a hash;
     * the trigger file ``dispatch.triggers`` names, when it lives with the
       profile (a bundled trigger file is package content, not profile
       material);
@@ -2216,7 +2190,7 @@ class ProfileInputRole(StrEnum):
 
     #: ``profile.yml`` and every non-preset file its ``extends`` chain reads.
     DOCUMENT = "document"
-    #: The ``data:`` tree, the convention directories, the trigger file, the
+    #: The declared sources, the convention directories, the trigger file, the
     #: layer files, the profile-relative service templates and the enabled
     #: watchdogs' directories.
     MATERIAL = "material"
@@ -2298,14 +2272,8 @@ class ProfileInput:
             digest,
             self.label,
             self.path,
-            skip_runtime_output=self.skips_runtime_output,
             skip=self.build_output,
         )
-
-    @property
-    def skips_runtime_output(self) -> bool:
-        """Whether the fold skips the runtime-minted subtree: the ``data:`` tree only."""
-        return self.label == "data"
 
     @property
     def build_output(self) -> Callable[[str], bool] | None:
@@ -2355,7 +2323,9 @@ def profile_inputs(
 
     1. documents — the root ``profile.yml``, then the non-preset files the
        ``extends`` chain read, nearest first (:attr:`ResolvedProfileDocument.extends_files`);
-    2. material — the ``data:`` root (``data``), the mounted machine root
+    2. material — each declared source present on disk
+       (:func:`~osprey.repo_layout.rendered_sources`, labelled by its key, in
+       declaration order), the mounted machine root
        when ``machine:`` is set (``machine``), each existing convention
        directory (``convention:<name>``, sorted by name), the trigger file that
        lives with the profile (``triggers``) and each layer file
@@ -2377,15 +2347,15 @@ def profile_inputs(
 
     Args:
         document: The profile's resolution, from :func:`resolve_profile_document`.
-        conventions: ``False`` for a bundled preset: the ``data:`` root alone.
+        conventions: ``False`` for a bundled preset, which lists nothing.
             A preset is one file among many in a shared package directory, so
             its neighbours, its own file and any overlay are package content.
     """
+    from osprey.repo_layout import display_path, rendered_sources, watchdogs_source_dir
     from osprey.services.watchdog.config import WATCHDOGS_BLOCK
 
-    from .build_profile_model import BuildProfile
     from .build_profile_watchdogs import enabled_watchdogs
-    from .profile_conventions import CONVENTION_SOURCES
+    from .profile_conventions import CONVENTION_DIRS
     from .profile_root import layer_files
     from .variant_selection import VARIANT_DIRNAME, active_variant_overlay
 
@@ -2398,25 +2368,28 @@ def profile_inputs(
             for path in (root / PROFILE_FILENAME, *document.extends_files)
         )
 
-    data = document.raw.get("data")
-    data_root = BuildProfile(name="", data=data).resolved_data_root(root)
-    # A data root resolves only from a non-empty string ``data:``.
-    if data_root is not None and isinstance(data, str):
-        entries.append(
-            ProfileInput(
-                f"{PurePosixPath(data).as_posix()}/", "data", data_root, ProfileInputRole.MATERIAL
-            )
-        )
-
     if not conventions:
         return tuple(entries)
 
-    # A mounted machine root (``machine:``), which needs a data root to be
-    # mounted beside. Listed unresolved, as spelled, so the repository walk
-    # sees a link that escapes; the build's own resolution refuses a missing or
-    # overlapping root, which the enumeration does not judge.
+    # Every declared source the render assembles, in declaration order: keyed
+    # as the operator spells its directory and labelled by its declaration
+    # key, so a source that moves keeps its label. An absent source renders
+    # nothing and folds nothing.
+    for source in rendered_sources():
+        candidate = root.joinpath(*source.source_rel.split("/"))
+        if candidate.exists():
+            entries.append(
+                ProfileInput(
+                    f"{source.source_rel}/", source.key, candidate, ProfileInputRole.MATERIAL
+                )
+            )
+
+    # A mounted machine root (``machine:``). Listed unresolved, as spelled, so
+    # the repository walk sees a link that escapes; the build's own resolution
+    # refuses a missing or overlapping root, which the enumeration does not
+    # judge.
     machine = document.raw.get("machine")
-    if data_root is not None and isinstance(machine, str) and machine.strip():
+    if isinstance(machine, str) and machine.strip():
         entries.append(
             ProfileInput(
                 f"{PurePosixPath(machine).as_posix()}/",
@@ -2426,12 +2399,17 @@ def profile_inputs(
             )
         )
 
-    for source in sorted(CONVENTION_SOURCES):
-        candidate = root / source
+    # Ordered and labelled by key, so a convention that moves keeps its place
+    # and its label; the input key names where it is, as the operator spells it.
+    for convention in sorted(CONVENTION_DIRS, key=lambda row: row.key):
+        candidate = root / convention.source
         if candidate.exists():
             entries.append(
                 ProfileInput(
-                    f"{source}/", f"convention:{source}", candidate, ProfileInputRole.MATERIAL
+                    f"{display_path(convention.key)}/",
+                    f"convention:{convention.key}",
+                    candidate,
+                    ProfileInputRole.MATERIAL,
                 )
             )
 
@@ -2475,9 +2453,9 @@ def profile_inputs(
 
     entries.extend(
         ProfileInput(
-            f"{WATCHDOGS_BLOCK}/{name}/",
+            f"{display_path('watchdogs', name)}/",
             f"watchdog:{name}",
-            root / WATCHDOGS_BLOCK / name,
+            watchdogs_source_dir(root) / name,
             ProfileInputRole.MATERIAL,
         )
         for name in sorted(enabled_watchdogs(document.raw.get(WATCHDOGS_BLOCK)))
@@ -2592,8 +2570,6 @@ def _links_outside(entry: ProfileInput, root: Path) -> list[OutsideInput]:
         except PermissionError:
             return
         for child in children:
-            if not prefix and entry.skips_runtime_output and child.name == RUNTIME_DATA_DIR_NAME:
-                continue
             rel = f"{prefix}{child.name}"
             if child.is_symlink() and not child.exists():
                 found.append(OutsideInput(entry, rel, unresolvable=True))
@@ -2675,9 +2651,7 @@ def refuse_inputs_outside_repository(document: ResolvedProfileDocument) -> None:
                 f"{_MOVE_INSIDE}"
             )
             continue
-        if entry.label == "data":
-            key = f"data: {document.raw['data']}"
-        elif entry.label == "triggers":
+        if entry.label == "triggers":
             key = f"dispatch.triggers: {entry.key}"
         elif entry.role is ProfileInputRole.PACKAGE:
             key = f"dependencies: {entry.key}"
@@ -2731,7 +2705,7 @@ def _hash_resolved_profile(
     Hashes the *resolved* content (canonical JSON, sorted keys) rather than
     file bytes, so comment/ordering churn is invisible while a change in any
     ``extends`` parent is not. The file inputs :func:`profile_inputs` lists —
-    the ``data:`` tree, convention directories, the named trigger file, the
+    the declared sources, convention directories, the named trigger file, the
     layer files and the selected host-variant overlay — are folded in on top by
     :func:`_fold_profile_material`, so a project whose facility data changed
     under an unchanged profile still reads as stale.

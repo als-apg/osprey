@@ -1,6 +1,6 @@
 """``osprey facility validate``: every facility check and every view, nothing written.
 
-The verb builds the facility file from ``data/facility/``, renders the repo's
+The verb builds the facility file from ``facility/``, renders the repo's
 main profile into a temporary directory and hands that render to
 ``render_facility_outputs``, then discards it. A clean repo without relation
 claims or a kept response export exits 0 and prints nothing; the demo, which
@@ -23,6 +23,7 @@ import pytest
 import yaml
 from click.testing import CliRunner, Result
 
+from osprey import repo_layout
 from osprey.cli.facility_cmd import _relation_summary
 from osprey.cli.main import cli
 from osprey_connectors.workspace import BUILD_DIR_NAME
@@ -89,7 +90,7 @@ def _snapshot(root: Path) -> dict[str, bytes | None]:
 
 def _fixes(repo: Path, *entries: dict[str, Any]) -> None:
     document = {"schema": "osprey.facility.fixes/1", "fixes": list(entries)}
-    (repo / "data" / "facility" / "fixes.yaml").write_text(
+    (repo / repo_layout.entry("facility").path / "provenance" / "fixes.yaml").write_text(
         yaml.safe_dump(document, sort_keys=False), encoding="utf-8"
     )
 
@@ -120,7 +121,7 @@ def test_a_clean_repo_exits_0_and_prints_only_its_limits_findings(
     The facility is the example without its Appendix A records, so no claim
     warns and no relation summary is printed; its open setpoints are reported.
     """
-    facility_dir = repo / "data" / "facility"
+    facility_dir = repo / repo_layout.entry("facility").path
     shutil.rmtree(facility_dir)
     example_without_appendix_a(facility_dir)
     asked: list[Any] = []
@@ -168,7 +169,7 @@ def test_the_demo_exits_0_with_its_relation_warning_and_summary(repo: Path) -> N
 
 def test_a_wrapped_position_warns_in_validate_and_in_the_build(repo: Path) -> None:
     """A stated s before the start of a periodic deck builds, with one warning per verb."""
-    devices = repo / "data" / "facility" / "records" / "devices.yaml"
+    devices = repo / repo_layout.entry("facility").path / "records" / "devices.yaml"
     records = yaml.safe_load(devices.read_text(encoding="utf-8"))
     records.append({"id": "SR/SPARE", "class": "Quadrupole", "model": "SR", "s": -1.3e-05})
     devices.write_text(yaml.safe_dump(records, sort_keys=False), encoding="utf-8")
@@ -227,7 +228,9 @@ def test_a_scenario_beyond_a_tolerance_warns_in_the_build_and_in_validate(
     )
     readback = setpoint["pair"]
     name = "settle-breach"
-    (repo / "data" / "facility" / "scenarios" / f"{name}.yaml").write_text(
+    (
+        repo / repo_layout.entry("facility").path / "simulation" / "scenarios" / f"{name}.yaml"
+    ).write_text(
         yaml.safe_dump(
             {"noise": {readback: {"absolute": setpoint["tolerance"]["absolute"]}}},
             sort_keys=False,
@@ -262,7 +265,7 @@ def test_a_run_repairs_nothing_the_build_would(built: tuple[Path, Result]) -> No
     assert (repo / BUILD_DIR_NAME / ".claude" / "rules" / "facility.md").is_file()
     # A repo from before the rule moved into the profile: no source-zone copy,
     # and the library rule selected by its bare name.
-    (repo / "rules" / "facility.md").unlink()
+    (repo / "agent" / "rules" / "facility.md").unlink()
     profile = repo / "profile.yml"
     text = profile.read_text(encoding="utf-8").replace("  - rules/facility ", "  - facility ")
     assert text.count("\n    users:\n") == 1
@@ -379,7 +382,7 @@ def test_an_omitted_view_is_named_on_stderr_and_the_run_passes(
 
 
 def test_a_stale_fix_prints_the_block_to_paste(repo: Path) -> None:
-    imported = repo / "data" / "facility" / "imported" / "mml" / "channels.yaml"
+    imported = repo / repo_layout.entry("facility").path / "imported" / "mml" / "channels.yaml"
     imported.parent.mkdir(parents=True)
     imported.write_text(yaml.safe_dump([{"id": CHANNEL, "unit": "mm"}]), encoding="utf-8")
     _fixes(
@@ -417,7 +420,7 @@ def test_every_error_of_the_failing_stage_is_printed_sorted(repo: Path) -> None:
     assert result.exit_code == 1, result.output
     assert result.stderr.splitlines() == [
         f"facility: fix-missing: device SR/{name} — no device SR/{name} exists; fix: remove "
-        "the fix from fixes.yaml"
+        "the fix from provenance/fixes.yaml"
         for name in ("Q8", "Q9")
     ]
 
@@ -449,13 +452,13 @@ def test_validate_has_no_json_flag(repo: Path) -> None:
 
 
 def _set_policy(repo: Path, variant: Variant) -> None:
-    """Give the demo repo the ``policy.yaml`` of an Appendix A variant.
+    """Give the demo repo the ``provenance/policy.yaml`` of an Appendix A variant.
 
     The demo ships the Appendix A records, claims and policy; a variant
     differs only by its policy, and ``no_policy`` removes the file.
     """
-    path = repo / "data" / "facility" / "policy.yaml"
-    policy = appendix_a_tree(variant).get("policy.yaml")
+    path = repo / repo_layout.entry("facility").path / "provenance" / "policy.yaml"
+    policy = appendix_a_tree(variant).get("provenance/policy.yaml")
     if policy is None:
         path.unlink()
     else:

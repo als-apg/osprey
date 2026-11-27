@@ -35,6 +35,7 @@ from osprey_connectors.simulation.engines import (
     to_hardware,
     to_physics,
 )
+from osprey_facility import source_tree
 from osprey_facility.build import build_facility
 from osprey_facility.records import FacilityRecords
 from osprey_facility.sources import read_yaml
@@ -43,6 +44,9 @@ from tests._builds import FRAMEWORK_CHECKS
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SOURCES = REPO_ROOT / "scripts/facility_demo"
 EXAMPLE = REPO_ROOT / "src/osprey/templates/facilities/example"
+MODELS = source_tree.path("models")
+SEEDS = source_tree.path("seeds")
+DECKS = source_tree.path("decks")
 
 SECTIONS = ("LTB", "BTS")
 
@@ -79,11 +83,11 @@ def _committed(rel: str) -> Any:
 
 
 def _models() -> dict[str, dict[str, Any]]:
-    return {model["name"]: model for model in _committed("models.yaml")}
+    return {model["name"]: model for model in _committed(MODELS)}
 
 
 def _deck(section: str) -> dict[str, Any]:
-    return json.loads((EXAMPLE / "decks" / f"{section}.json").read_text(encoding="utf-8"))
+    return json.loads((EXAMPLE / DECKS / f"{section}.json").read_text(encoding="utf-8"))
 
 
 def _deck_elements(section: str) -> dict[str, dict[str, Any]]:
@@ -116,14 +120,14 @@ def test_the_committed_model_is_the_generated_one(section: str) -> None:
 def test_each_line_is_a_single_pass_pyat_model_from_its_launch_twiss(section: str) -> None:
     model = _models()[section]
     assert model["engine"] == "pyat"
-    assert model["deck"] == f"decks/{section}.json"
+    assert model["deck"] == f"simulation/decks/{section}.json"
     pyat = model["settings"]["pyat"]
     assert pyat["solve"] == "single_pass"
     assert pyat["twiss_in"] == transfer.TWISS_IN[section]
 
 
 def test_the_models_are_sorted_by_name() -> None:
-    assert [model["name"] for model in _committed("models.yaml")] == ["BR", "BTS", "LTB", "SR"]
+    assert [model["name"] for model in _committed(MODELS)] == ["BR", "BTS", "LTB", "SR"]
 
 
 @pytest.mark.parametrize("section", SECTIONS)
@@ -239,7 +243,7 @@ def test_the_bpms_read_millimetres(section: str) -> None:
 @pytest.mark.parametrize("section", SECTIONS)
 def test_a_kicked_orbit_reads_in_millimetres_at_the_bpms(section: str) -> None:
     at = pytest.importorskip("at")
-    lattice = at.load_lattice(str(EXAMPLE / "decks" / f"{section}.json"))
+    lattice = at.load_lattice(str(EXAMPLE / DECKS / f"{section}.json"))
     wiring = _models()[section]["wiring"]
     corrector = next(r for r in wiring if r["engine"].get("attribute") == "KickAngle")
     curve = curve_from_record(corrector["calibration"]["curve"])
@@ -264,7 +268,7 @@ def test_a_kicked_orbit_reads_in_millimetres_at_the_bpms(section: str) -> None:
 
 def _bts_lattice() -> Any:
     at = pytest.importorskip("at")
-    lattice = at.load_lattice(str(EXAMPLE / "decks" / "BTS.json"))
+    lattice = at.load_lattice(str(EXAMPLE / DECKS / "BTS.json"))
     lattice.disable_6d()
     return lattice
 
@@ -319,7 +323,7 @@ def test_the_losing_current_loses_the_particle_on_a_bts_quadrupole() -> None:
 
 
 def test_the_bts_orbit_response_steps_stay_far_inside_the_aperture() -> None:
-    delta = _committed("measurement/BTS.yaml")["corrector_delta"]
+    delta = _committed(source_tree.keyed_file("measurement", "BTS"))["corrector_delta"]
     correctors = [
         r
         for r in _models()["BTS"]["wiring"]
@@ -383,19 +387,19 @@ def test_a_deck_element_maps_to_its_deck_name() -> None:
 
 
 def test_no_wired_channel_carries_a_seed_nominal() -> None:
-    seeds = _committed("seeds.yaml")
+    seeds = _committed(SEEDS)
     wired = {record["address"] for section in SECTIONS for record in _models()[section]["wiring"]}
     assert sorted(a for a in wired if "nominal" in seeds.get(a, {})) == []
 
 
 def test_the_frozen_bts_readbacks_keep_their_motion() -> None:
-    seeds = _committed("seeds.yaml")
+    seeds = _committed(SEEDS)
     assert "nominal" not in seeds["BTS:MAG:QF:01:CURRENT:RB"]
     assert "noise" in seeds["BTS:MAG:QF:01:CURRENT:RB"]
 
 
 def test_the_unwired_transfer_rows_keep_their_nominals() -> None:
-    seeds = _committed("seeds.yaml")
+    seeds = _committed(SEEDS)
     for address in ("LTB:MAG:QF:01:STATUS:ON", "BTS:DIAG:PADDLES:01:COUNT:INSERTED"):
         assert "nominal" in seeds[address], address
 
@@ -410,7 +414,7 @@ def test_each_line_place_spans_its_deck(section: str) -> None:
 
 @pytest.mark.parametrize("section", SECTIONS)
 def test_each_line_measures_its_orbit_response(section: str) -> None:
-    measurement = _committed(f"measurement/{section}.yaml")
+    measurement = _committed(source_tree.keyed_file("measurement", section))
     assert measurement == transfer.measurement(section)
     assert measurement["kinds"] == ["orm"]
     groups = {record["id"] for record in _committed("records/groups.yaml")}
@@ -422,10 +426,10 @@ def test_generation_rewrites_the_committed_files(tmp_path: Path) -> None:
     shutil.copytree(EXAMPLE, tree)
     transfer.write_sources(tree)
     for rel in (
-        "models.yaml",
-        "measurement/LTB.yaml",
-        "measurement/BTS.yaml",
+        MODELS,
+        source_tree.keyed_file("measurement", "LTB"),
+        source_tree.keyed_file("measurement", "BTS"),
         "records/places.yaml",
-        "seeds.yaml",
+        SEEDS,
     ):
         assert (tree / rel).read_bytes() == (EXAMPLE / rel).read_bytes(), rel

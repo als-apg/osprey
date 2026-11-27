@@ -67,7 +67,7 @@ def _alias_credential(suffix: str, owner: str) -> dict[str, Any]:
 #: A profile's qmd block declaring the two corpora the corpus tests name.
 QMD = {
     "corpora": [
-        {"name": "procedures", "source": "./data/procedures"},
+        {"name": "procedures", "source": "./procedures"},
         {"name": "ops_notes", "source": "/srv/ops-notes", "embed": False},
     ]
 }
@@ -167,7 +167,7 @@ def test_each_declared_corpus_is_bound_read_only_and_named() -> None:
     assert svc["environment"]["OSPREY_APP_CORPORA"] == (
         "procedures=/osprey/corpora/procedures:ops_notes=/osprey/corpora/ops_notes"
     )
-    assert "./data/procedures:/osprey/corpora/procedures:ro" in svc["volumes"]
+    assert "./procedures:/osprey/corpora/procedures:ro" in svc["volumes"]
     assert "/srv/ops-notes:/osprey/corpora/ops_notes:ro" in svc["volumes"]
 
 
@@ -188,7 +188,7 @@ def test_a_host_network_container_dials_each_sidecar_where_it_publishes() -> Non
     assert loopback["environment"]["OSPREY_QMD_PROCEDURES_URL"] == "http://127.0.0.1:10062"
     assert pinned["environment"]["OSPREY_QMD_PROCEDURES_URL"] == "http://10.0.0.5:10062"
     assert wildcard["environment"]["OSPREY_QMD_PROCEDURES_URL"] == "http://127.0.0.1:10062"
-    assert "./data/procedures:/osprey/corpora/procedures:ro" in loopback["volumes"]
+    assert "./procedures:/osprey/corpora/procedures:ro" in loopback["volumes"]
 
 
 def test_a_sidecar_this_deployment_does_not_run_is_dialled_where_it_publishes() -> None:
@@ -228,7 +228,7 @@ def test_the_corpus_fact_does_not_mutate_the_shared_config() -> None:
     assert context["services"][KEY]["corpus_mounts"] == [
         {
             "name": "procedures",
-            "source": "./data/procedures",
+            "source": "./procedures",
             "target": "/osprey/corpora/procedures",
             "url_env": "OSPREY_QMD_PROCEDURES_URL",
             "url": "http://qmd-procedures:10062",

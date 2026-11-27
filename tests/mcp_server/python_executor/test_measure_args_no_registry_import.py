@@ -52,7 +52,7 @@ print(json.dumps({
 def render(tmp_path_factory: pytest.TempPathFactory) -> Path:
     root = tmp_path_factory.mktemp("no-registry-import")
     tree = with_correctors(with_rf(measured_tree()))
-    tree["measurement/SR.yaml"] |= {"kinds": ["orm", "trm"], "corrector_delta": 1.0e-5}
+    tree["simulation/measurement/SR.yaml"] |= {"kinds": ["orm", "trm"], "corrector_delta": 1.0e-5}
     document, facility = built_document(root / "tree", tree)
     rendered = root / "render"
     rendered.mkdir()

@@ -58,7 +58,7 @@ WEB_TERMINALS_CATALOG: dict[str, Any] = {
 
 
 def _parsed(deploy: dict[str, Any]) -> Any:
-    return parse_deploy_block({"name": "Demo", "data": "data", "deploy": deploy})
+    return parse_deploy_block({"name": "Demo", "deploy": deploy})
 
 
 def _web_stack(**extra: Any) -> dict[str, Any]:

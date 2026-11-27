@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, Any
 
 from jinja2 import Environment, FileSystemLoader, TemplateRuntimeError, select_autoescape
 
+from osprey import repo_layout
 from osprey.agent_runner.tool_names import DENY_DEFAULTS
 from osprey.build.modes import VALID_CHANNEL_FINDER_MODES
 from osprey.cli.templates import claude_code, manifest, scaffolding
@@ -159,7 +160,7 @@ class TemplateManager:
         self,
         project_name: str,
         output_dir: Path,
-        data_root: Path,
+        repo_root: Path,
         data_bundle: str,
         context: dict[str, Any] | None = None,
         force: bool = False,
@@ -178,18 +179,17 @@ class TemplateManager:
         Args:
             project_name: Name of the project (e.g., "my-assistant")
             output_dir: Parent directory where project will be created
-            data_root: Facility data tree to copy, already resolved by
-                ``BuildProfile.resolved_data_root``. Copied verbatim, with no
-                Jinja rendering. Required: every profile declares ``data:``
-                and there is no packaged tree to fall back to, so a render
-                without one would produce a project with no data at all.
+            repo_root: The deployment root. Every source the layout declares
+                a render path for is copied from here into the project, with
+                no Jinja rendering; a declared source absent on disk renders
+                nothing.
             data_bundle: Data bundle — the ``apps/`` directory this render
                 takes its artifact defaults from, along with the optional
                 ``services/`` and ``machine_data/`` trees a bundle may ship.
                 Required, with no fallback: which bundle a build renders is
                 settled once, from the profile's preset lineage, by
                 ``_render_project``. Not the source of the project's ``data/``:
-                that is *data_root*.
+                that is the declared sources under *repo_root*.
             context: Additional template context variables
             force: If True, skip existence check (used when caller already handled deletion)
             artifacts: Profile-driven artifact selection (hooks, rules, skills, agents, etc.)
@@ -197,8 +197,8 @@ class TemplateManager:
                 are mounted, the machine root's facts are copied into the
                 project's ``data/facility`` beside the deployment's own content,
                 so the render holds one facility tree as a single-tree
-                deployment does. ``None`` (or a single tree) copies *data_root*
-                alone.
+                deployment does. ``None`` (or a single tree) copies the declared
+                sources alone.
 
         Returns:
             Path to created project directory
@@ -239,6 +239,13 @@ class TemplateManager:
         # effective selection the context was built from.
         artifacts = self._effective_artifacts(data_bundle, artifacts)
         ctx = self._project_context(project_name, project_dir, context, artifacts)
+        # What the README says of the web content follows what the deployment
+        # holds: a section on a tree it does not ship would send its reader to
+        # files that are not there.
+        web_dir = repo_root / repo_layout.entry("web").path
+        library_dir = repo_layout.child_path(web_dir, "web", "canopy-library")
+        ctx.setdefault("ships_web", web_dir.is_dir())
+        ctx.setdefault("ships_canopy_library", library_dir.is_dir())
 
         # 4. Create project structure
         scaffolding.create_project_structure(
@@ -257,7 +264,7 @@ class TemplateManager:
         #    own — it connects to a stack another OSPREY project deployed on
         #    the same host.
         if ctx.get("deploy_services", True):
-            bundle_services_dir = bundle_dir / "services"
+            bundle_services_dir = bundle_dir / repo_layout.entry("services").path
             if bundle_services_dir.is_dir():
                 service_names = [d.name for d in bundle_services_dir.iterdir() if d.is_dir()]
                 if service_names:
@@ -265,8 +272,7 @@ class TemplateManager:
                         self.template_root, project_dir, service_names
                     )
 
-        # 6. Copy data files from template (no src/ package), or from the
-        # profile's own data tree when one was resolved. Either way this lands
+        # 6. Assemble data/ from the deployment's declared sources. This lands
         # before step 6b's benchmark queries and the Claude Code render in
         # step 7, which reads the rendered config.yml.
         scaffolding.copy_template_data(
@@ -276,7 +282,7 @@ class TemplateManager:
             data_bundle,
             ctx,
             jinja_env=self.jinja_env,
-            data_root=data_root,
+            repo_root=repo_root,
             facility_roots=facility_roots,
         )
 
@@ -290,7 +296,7 @@ class TemplateManager:
         # 6a'. Install the web-terminal context baseline. This base.md is the
         # framework FALLBACK: seeding hard-requires one for any project that
         # seeds a user, so every bundle gets a generic copy — and a profile
-        # that ships its own `web-terminal-context/base.md` overrides it when
+        # that ships its own `agent/context/base.md` overrides it when
         # the convention copies apply after this render. Per-user
         # extra.md/skills stay user-authored under the same tree.
         context_src = self.template_root / "claude_code" / "web-terminal-context"

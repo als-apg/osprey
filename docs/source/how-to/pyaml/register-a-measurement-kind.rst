@@ -86,7 +86,7 @@ model:
    :language: python
    :pyobject: FixtureBlock
 
-The example's ``measurement/SR.yaml`` lists ``kinds: [trm, fixture_kind]``,
+The example's ``simulation/measurement/SR.yaml`` lists ``kinds: [trm, fixture_kind]``,
 names ``groups.series_monitors`` and the instruments, states
 ``corrector_delta``, and holds ``kind_blocks.fixture_kind`` with a
 ``trigger_sample``, two ``settings`` and three ``steps``. A kind with no schema

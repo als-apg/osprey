@@ -66,9 +66,9 @@ def _tier_key(section: dict[str, Any]) -> str:
 def limits_database_errors(render_dir: Path) -> list[str]:
     """The limits database a render will start on, parsed; one line when it cannot be.
 
-    Read after the profile's ``data/`` tree has been applied into the render,
-    because that is where a relative ``database_path`` resolves to and where
-    the file arrives from. The gate is the render's tier: the login tier allows
+    Read after the build has assembled the render's ``data/`` tree, because
+    that is where a relative ``database_path`` resolves to and where the file
+    arrives from. The gate is the render's tier: the login tier allows
     writes (:func:`~osprey_connectors.types.tier_allows`) *and* some configured
     target's resolved limits posture requires a database
     (:func:`~osprey_connectors.types.limits_database_required` — limits checking

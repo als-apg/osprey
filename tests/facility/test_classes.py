@@ -46,7 +46,7 @@ def _tree(classes: list[dict[str, Any]] | None, device_class: str) -> dict[str, 
     tree = plain_tree()
     tree["records/devices.yaml"].append({"id": "SR/K1", "class": device_class})
     if classes is not None:
-        tree["classes.yaml"] = classes
+        tree["vocabulary/classes.yaml"] = classes
     return tree
 
 
@@ -72,7 +72,7 @@ def test_an_undeclared_device_class_stops_the_build(build_project: Build) -> Non
     assert result.exit_code == 1
     assert result.stderr == (
         "facility: class-unknown: device SR/K1 — class BumpMagnet is in neither the vocabulary "
-        "nor classes.yaml; fix: use a vocabulary class or add it to classes.yaml\n"
+        "nor vocabulary/classes.yaml; fix: use a vocabulary class or add it to vocabulary/classes.yaml\n"
     )
 
 
@@ -81,10 +81,10 @@ def test_an_undeclared_parent_stops_the_build(build_project: Build) -> None:
 
     assert result.exit_code == 1
     assert result.stderr == (
-        "facility: class-unknown: class FastBumpMagnet — classes.yaml `parent` BumpMagnet is "
+        "facility: class-unknown: class FastBumpMagnet — vocabulary/classes.yaml `parent` BumpMagnet is "
         "neither "
         "a vocabulary class nor an earlier facility-added class; fix: name a vocabulary class "
-        "or a class listed earlier in classes.yaml\n"
+        "or a class listed earlier in vocabulary/classes.yaml\n"
     )
 
 

@@ -92,7 +92,7 @@ def test_a_design_corrector_step_moves_the_orbit_the_served_kick_does(
     after = np.array([reader.positions.get() for reader in readers])
 
     served = _served_response(
-        built_demo.facility_dir / "decks" / "SR.json",
+        built_demo.facility_dir / "simulation" / "decks" / "SR.json",
         _element_of(document, address),
         plane,
         list(bpms.values()),
@@ -111,7 +111,7 @@ def test_the_lattice_is_the_deck_with_its_driven_kicks_as_polynomials(
     elements = [
         _element_of(built_demo.facility, address) for address in groups["hcor"] + groups["vcor"]
     ]
-    deck = built_demo.facility_dir / "decks" / "SR.json"
+    deck = built_demo.facility_dir / "simulation" / "decks" / "SR.json"
     assert (view / LATTICE_FILE).read_text(encoding="utf-8") == polynomial_kicks(deck, elements)
     lattice = at.load_lattice(str(view / LATTICE_FILE))
     held = at.load_lattice(str(deck))
@@ -126,7 +126,7 @@ def test_a_thin_corrector_steps_the_orbit_the_served_kick_does(
     from pyaml.accelerator import Accelerator
 
     tree = with_correctors(with_rf(measured_tree()))
-    tree["measurement/SR.yaml"] |= {"kinds": ["orm"], "corrector_delta": 1.0e-5}
+    tree["simulation/measurement/SR.yaml"] |= {"kinds": ["orm"], "corrector_delta": 1.0e-5}
     directory, _ = write_view(tmp_path, tree)
     assert "leaves out" not in capsys.readouterr().err
     view = directory / "SR"
@@ -145,7 +145,10 @@ def test_a_thin_corrector_steps_the_orbit_the_served_kick_does(
     after = np.array([reader.positions.get() for reader in readers])
 
     served = _served_response(
-        tmp_path / "data" / "facility" / "decks" / "sr.json", "SCOR", plane, list(bpms.values())
+        tmp_path / "facility" / "simulation" / "decks" / "sr.json",
+        "SCOR",
+        plane,
+        list(bpms.values()),
     )
     assert np.max(np.abs(served)) > 1.0e-7
     assert after - before == pytest.approx(served, rel=1.0e-4, abs=1.0e-11)
@@ -172,8 +175,8 @@ def test_a_thin_multipole_s_kick_reads_back_and_a_step_moves_the_orbit_by_the_st
 
     kick = (2.0e-5, -3.0e-5)
     tree = with_correctors(with_rf(measured_tree()))
-    tree["measurement/SR.yaml"] |= {"kinds": ["orm"], "corrector_delta": 1.0e-5}
-    tree["decks/sr.json"] = _sr_deck_with_a_thin_multipole(kick)
+    tree["simulation/measurement/SR.yaml"] |= {"kinds": ["orm"], "corrector_delta": 1.0e-5}
+    tree["simulation/decks/sr.json"] = _sr_deck_with_a_thin_multipole(kick)
     tree["records/devices.yaml"].append({"id": "SR/COR2", "class": "HCorrector"})
     tree["records/channels.yaml"] += [
         {"id": "TCOR:H:SP", "role": "setpoint", "unit": "A", "on": {"device": "SR/COR2"}},
@@ -210,7 +213,10 @@ def test_a_thin_multipole_s_kick_reads_back_and_a_step_moves_the_orbit_by_the_st
 
     # SCOR holds no kick and sits where TCOR does, so a step on it alone is the reference.
     served = _served_response(
-        tmp_path / "data" / "facility" / "decks" / "sr.json", "SCOR", plane, list(bpms.values())
+        tmp_path / "facility" / "simulation" / "decks" / "sr.json",
+        "SCOR",
+        plane,
+        list(bpms.values()),
     )
     assert np.max(np.abs(served)) > 1.0e-7
     assert after - before == pytest.approx(served, rel=1.0e-4, abs=1.0e-11)
@@ -246,7 +252,7 @@ def test_an_engine_without_polynomial_kicks_stops_the_build_naming_engine_and_mo
     from osprey_facility.errors import FacilityBuildError
 
     tree = with_correctors(with_rf(measured_tree()))
-    tree["measurement/SR.yaml"] |= {"kinds": ["orm"], "corrector_delta": 1.0e-5}
+    tree["simulation/measurement/SR.yaml"] |= {"kinds": ["orm"], "corrector_delta": 1.0e-5}
     inputs = view_inputs(tmp_path, tree)
     stub = types.ModuleType("stub_engine")
     stub.describe = real.describe  # type: ignore[attr-defined]

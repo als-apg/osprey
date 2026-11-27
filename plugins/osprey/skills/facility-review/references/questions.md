@@ -38,7 +38,7 @@ The rack layout and the cable schedule disagree on which output feeds 6 correcto
  The schedule has no row for OUT1. Examples: HCM1, HCM2, VCM1.
 
  1. The rack layout wins for power (recommended: the schedule is off by one
-    from its first row). Writes powered_by: [drawing, spec] to policy.yaml.
+    from its first row). Writes powered_by: [drawing, spec] to provenance/policy.yaml.
     This also settles 2 other contested feeds, both in favour of the layout.
  2. The cable schedule wins. Writes powered_by: [spec, drawing].
  3. Rule on some of them one by one.
@@ -98,7 +98,7 @@ The MML export and the channel list disagree on the role of 48 channels.
  All 48 end in :SP. No channel ending in :RB is affected.
 
  1. The channel list is right: these are setpoints (recommended: the suffix
-    and the list agree). Writes 48 set fixes to fixes.yaml, one per channel,
+    and the list agree). Writes 48 set fixes to provenance/fixes.yaml, one per channel,
     each recording what both sources say today.
  2. The MML export is right. Writes 48 set fixes the other way.
  3. Rule on some of them one by one.
@@ -141,7 +141,7 @@ An earlier decision no longer matches its source.
  Recorded reason: "The export lists the setpoint as a monitor."
 
  1. The export was corrected; the fix is no longer needed (recommended).
-    Removes the fix from fixes.yaml.
+    Removes the fix from provenance/fixes.yaml.
  2. Keep the fix. Updates what it records about the source.
 ```
 

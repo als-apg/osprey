@@ -429,14 +429,14 @@ def test_a_plan_naming_an_unserved_channel_is_refused_before_motion(
 ) -> None:
     dead = preflight_stack.dead_address
 
-    # The authored file won: the entry this suite added by hand is in the file
-    # the worker mounts, not a roster-derived set that would never contain it.
+    # The entry this suite added by hand is in the file the worker mounts: the
+    # build's own view of the facility file would never contain it.
     staged = (
         preflight_stack.repo / "build" / "services" / "bluesky" / "bluesky_devices.yml"
     ).read_text(encoding="utf-8")
     assert dead in staged, (
-        f"the staged device file does not name {dead} -- the authored "
-        f"<repo>/data/bluesky_devices.yml did not reach the build zone, so this proof would "
+        f"the staged device file does not name {dead} -- the readable this suite "
+        f"appends to it after the build is gone, so this proof would "
         f"be testing a device the worker never had rather than a channel no IOC serves"
     )
 

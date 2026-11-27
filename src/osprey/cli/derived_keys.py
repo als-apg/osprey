@@ -43,7 +43,7 @@ from __future__ import annotations
 from collections.abc import Iterator, Mapping
 from typing import Any
 
-from osprey.utils.workspace import PROTECTED_PATHS_CONFIG_KEY
+from osprey.utils.workspace import PROFILE_FILENAME, PROTECTED_PATHS_CONFIG_KEY
 
 __all__ = ["DERIVED_KEYS", "derived_key_errors", "is_derived_key"]
 
@@ -105,7 +105,7 @@ def is_derived_key(dotted_key: str) -> bool:
     return _claiming_key(dotted_key) is not None
 
 
-def derived_key_errors(config: Any, source: str = "profile.yml") -> list[str]:
+def derived_key_errors(config: Any, source: str = PROFILE_FILENAME) -> list[str]:
     """Refuse a ``config:`` block that spells a key the build renders.
 
     Args:

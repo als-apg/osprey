@@ -23,18 +23,25 @@ container is handed to read. Anchored on the render, the qmd exporter wrote
 ``build/var/ariel_mirror`` while the sidecar indexed ``var/ariel_mirror`` — an
 empty tree — and a render's readers opened the image's baked bundle at
 ``build/data/...`` while the deployment's live bundle was mounted at
-``data/...`` one directory over. Same rule as
+``facility/...`` one directory over. Same rule as
 :func:`osprey_connectors.workspace.resolve_project_root` and every other
 relative path the runtime resolves.
 
 One key is the deliberate exception, through :func:`resolve_render_relative_path`:
 ``services.graphdb.ttl_path``. The corpus it names is an artifact OF the
 render: its documented default, ``./data/graph/facility.ttl``, is the graph
-view the build writes into the render from the project's ``data/facility/``
+view the build writes into the render from the project's ``facility/``
 sources, so a facility edit reaches the store on the next build, like every
 other rendered artifact. It therefore resolves against the ``config.yml``
 directory. The store is seeded from it once, by the deploy; nothing writes it
 back and nothing mounts it, which is why the argument above does not apply.
+
+One key names either kind of file, through :func:`resolve_facility_file_path`:
+``ariel.vocabulary.path``. The build states the vocabulary a facility ships as
+the render's copy of it, a path inside the render's facility tree, and that
+tree's name is one the project root does not hold. A relative value inside it
+resolves against the ``config.yml`` directory, like the corpus above; any other
+value is the profile's own file and resolves against the project root.
 
 Note that :func:`osprey.cli.project_utils.resolve_config_path` is a *different*
 function that happens to share a name with the workspace helper used below; the
@@ -44,14 +51,21 @@ answers "which ``config.yml`` is this process running against".
 
 from __future__ import annotations
 
-from pathlib import Path
+from pathlib import Path, PurePosixPath
+
+from osprey.repo_layout import render_path
 
 __all__ = [
+    "render_facility_relative",
     "resolve_config_dir",
     "resolve_config_relative_path",
+    "resolve_facility_file_path",
     "resolve_render_relative_path",
     "project_root_for_config_dir",
 ]
+
+#: The render's facility tree, relative to the directory holding ``config.yml``.
+_RENDER_FACILITY_DIR = PurePosixPath(render_path("facility"))
 
 
 def resolve_config_dir() -> Path | None:
@@ -156,3 +170,49 @@ def resolve_render_relative_path(value: str | Path, config_dir: Path | None = No
     if config_dir is None:
         return path.resolve()
     return (Path(config_dir) / path).resolve()
+
+
+def render_facility_relative(value: str | Path) -> PurePosixPath | None:
+    """Where a configured path lies inside the render's facility tree, or ``None``.
+
+    Args:
+        value: The configured value, as read from the config file.
+
+    Returns:
+        The path relative to the facility tree when *value* is a relative path
+        to something inside the render's copy of it; ``None`` for an absolute
+        value, one that begins with ``~``, the tree itself, and any other path.
+    """
+    path = Path(value)
+    if path.is_absolute() or path != path.expanduser():
+        return None
+    posix = PurePosixPath(path.as_posix())
+    if ".." in posix.parts or not posix.is_relative_to(_RENDER_FACILITY_DIR):
+        return None
+    relative = posix.relative_to(_RENDER_FACILITY_DIR)
+    return relative if relative.parts else None
+
+
+def resolve_facility_file_path(value: str | Path, config_dir: Path | None = None) -> Path:
+    """Resolve a configured path that may name a file of the render's facility tree.
+
+    The rule for ``ariel.vocabulary.path`` the module docstring describes. A
+    relative value inside the render's facility tree
+    (:func:`render_facility_relative`) names the render's copy of a facility
+    file and resolves against the directory holding ``config.yml``
+    (:func:`resolve_render_relative_path`), so a host render, a login's render
+    and a container each read their own copy. Any other value resolves as
+    :func:`resolve_config_relative_path` resolves it.
+
+    Args:
+        value: The configured value, as read from the config file.
+        config_dir: Directory containing ``config.yml``. When omitted it is
+            derived from :func:`osprey_connectors.workspace.resolve_config_path`,
+            which falls back to the process CWD when ``OSPREY_CONFIG`` is unset.
+
+    Returns:
+        Absolute :class:`~pathlib.Path`.
+    """
+    if render_facility_relative(value) is not None:
+        return resolve_render_relative_path(value, config_dir)
+    return resolve_config_relative_path(value, config_dir)

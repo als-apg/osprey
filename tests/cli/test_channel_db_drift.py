@@ -2,26 +2,24 @@
 
 ``osprey build`` snapshots the Channel Finder database into a ``channels.json``
 artifact under ``build/``. That artifact goes stale the moment a facility edits
-its channel database, and the DECISION documented here is how staleness is
-caught: the existing build-drift gate, not a regeneration hook at ``osprey up``
-time.
+the channels its database is built from, and the DECISION documented here is
+how staleness is caught: the existing build-drift gate, not a regeneration hook
+at ``osprey up`` time.
 
-A channel database lives under the profile's ``data:`` tree, which
-``_fold_profile_material`` folds into the profile fingerprint. Editing one moves
-``compute_profile_hash`` while ``profile.yml`` itself is byte-identical, so the
-fingerprint stamped into the build manifest no longer matches and ``osprey up``
-refuses with the rebuild remedy. No second mechanism is needed, and a
-regeneration hook would add an up-time code path that can disagree with what
-``build`` produced.
+The channels live in the repo's facility tree, which ``_fold_profile_material``
+folds into the profile fingerprint. Editing them moves ``compute_profile_hash``
+while ``profile.yml`` itself is byte-identical, so the fingerprint stamped into
+the build manifest no longer matches and ``osprey up`` refuses with the rebuild
+remedy. No second mechanism is needed, and a regeneration hook would add an
+up-time code path that can disagree with what ``build`` produced.
 
 The limitation this buys is deliberate: a database pointed at from OUTSIDE the
-profile's ``data:`` tree is not folded, so its edits are invisible to the gate.
-That is recorded in the proposal's Risks and is not asserted here — asserting it
-would pin behaviour we have chosen not to provide.
+repo's declared source trees is not folded, so its edits are invisible to the
+gate. That is recorded in the proposal's Risks and is not asserted here —
+asserting it would pin behaviour we have chosen not to provide.
 
-The fold itself is pinned in ``test_profile_material_hash.py`` (an edited or
-added database under ``data:`` moves the fingerprint, an untouched one does not)
-and ``test_profile_hash_folding.py``; the refusal is pinned in
+The fold itself is pinned in ``test_profile_material_hash.py`` and
+``test_profile_hash_folding.py``; the refusal is pinned in
 ``tests/deployment/test_drift_refusal.py``. This file speaks only for the
 snapshot's source: that the moved fingerprint makes a built repo refuse.
 """
@@ -33,7 +31,15 @@ from pathlib import Path
 
 import pytest
 
-PROFILE_YAML = "name: Facility\ndata: data\n"
+from osprey import repo_layout
+from osprey_facility import source_tree
+
+PROFILE_YAML = "name: Facility\n"
+
+
+def _channels(repo: Path) -> Path:
+    """The channel records file of *repo*'s facility tree."""
+    return repo / repo_layout.entry("facility").path / source_tree.path("channels")
 
 
 def _write(path: Path, text: str) -> Path:
@@ -44,9 +50,9 @@ def _write(path: Path, text: str) -> Path:
 
 @pytest.fixture
 def profile(tmp_path):
-    """A profile whose ``data:`` tree holds the database the snapshot is taken from."""
-    root = tmp_path / "facility"
-    _write(root / "data" / "channel_databases" / "als.json", '{"channels": []}\n')
+    """A profile whose facility tree holds the channels the snapshot is taken from."""
+    root = tmp_path / "repo"
+    _write(_channels(root), "channels: []\n")
     return _write(root / "profile.yml", PROFILE_YAML)
 
 
@@ -81,14 +87,11 @@ def test_a_channel_database_edit_makes_a_built_repo_refuse_to_start(profile):
     )
     assert staleness.check_drift(repo).state is DriftState.CLEAN
 
-    _write(
-        repo / "data" / "channel_databases" / "als.json",
-        '{"channels": ["SR:BPM1"]}\n',
-    )
+    _write(_channels(repo), "channels:\n  - SR:BPM1\n")
 
     report = staleness.check_drift(repo)
 
     assert report.state is DriftState.DRIFT
     assert report.refuses
-    assert "data/" in report.changed_keys
+    assert repo_layout.listing_name(repo_layout.entry("facility")) in report.changed_keys
     assert "osprey build" in report.remedy

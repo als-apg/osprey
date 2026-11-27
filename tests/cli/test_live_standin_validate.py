@@ -26,14 +26,11 @@ import pytest
 from osprey.cli.build_profile import BuildProfile, _parse_profile
 from tests.cli._profiles import validation_errors
 
-pytestmark = pytest.mark.usefixtures("facility_data_tree")
-
 
 def _standin_profile(live_standin: int = 5074, **extra: Any) -> BuildProfile:
     """A minimal profile whose VA block asks for a live stand-in."""
     raw: dict[str, Any] = {
         "name": "standin",
-        "data": "data",
         "virtual_accelerator": {"port": 5064, "live_standin": live_standin},
         **extra,
     }
@@ -135,7 +132,6 @@ def test_live_standin_validate_refuses_a_standin_baseline_with_no_standin(
     profile = _parse_profile(
         {
             "name": "standin",
-            "data": "data",
             "virtual_accelerator": {"port": 5064},
             "config": {
                 "control_system.type": "live_standin",
@@ -163,7 +159,6 @@ def test_live_standin_validate_refuses_a_standin_baseline_with_no_va_block(
     profile = _parse_profile(
         {
             "name": "standin",
-            "data": "data",
             "config": {
                 "control_system.type": "live_standin",
                 "archiver.type": "mongodb_archiver",
@@ -266,6 +261,4 @@ def test_live_standin_validate_accepts_a_clean_profile(tmp_path: Path) -> None:
 
 def test_live_standin_validate_leaves_a_profile_without_the_key_alone(tmp_path: Path) -> None:
     """Absent means no stand-in, and none of these rules have anything to say."""
-    _parse_profile({"name": "x", "data": "data", "virtual_accelerator": {"port": 5064}}).validate(
-        tmp_path
-    )
+    _parse_profile({"name": "x", "virtual_accelerator": {"port": 5064}}).validate(tmp_path)

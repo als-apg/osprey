@@ -74,7 +74,7 @@ What channels it serves
 =======================
 
 Your project's own. Every ``osprey build`` renders the facility definition
-under ``data/facility/`` into the simulator view, ``build/data/simulator/``,
+under ``facility/`` into the simulator view, ``build/data/simulator/``,
 which the compose file mounts at ``/data/simulator/``.
 
 The container serves the ``channels`` of the view's ``addresses.json``, which
@@ -390,7 +390,7 @@ Scenarios give tests, demos and rehearsals a known machine state: a fault for
 the agent to find, with the archive history and logbook entries that go with
 it.
 
-You write each scenario as one YAML file under ``data/facility/scenarios/``.
+You write each scenario as one YAML file under ``facility/simulation/scenarios/``.
 ``osprey build`` serves the scenarios from the simulator view under
 ``build/data/simulator/``. The ``osprey sim`` commands list, apply and report
 on them; :ref:`cli-osprey-sim` has their options.
@@ -399,7 +399,7 @@ The scenarios the demo ships
 ----------------------------
 
 The demo preset ships seven scenarios in
-``data/facility/scenarios/``:
+``facility/simulation/scenarios/``:
 
 .. list-table::
    :header-rows: 1
@@ -524,12 +524,12 @@ Write a scenario
 
 To add a scenario to your facility:
 
-#. Create ``data/facility/scenarios/<name>.yaml``. The file name is the
+#. Create ``facility/simulation/scenarios/<name>.yaml``. The file name is the
    scenario name.
 #. Add the keys the scenario needs, from :ref:`reference-scenario-files`.
    Every key is optional.
 #. If a logbook entry has attachments, put the files in the folder
-   ``data/facility/scenarios/<name>/`` beside the scenario file.
+   ``facility/simulation/scenarios/<name>/`` beside the scenario file.
 #. Check the sources with ``osprey facility validate``, which writes nothing.
    An address, model or key the facility does not have stops the check, and
    the error names the file.
@@ -542,7 +542,7 @@ Serving your facility's own model
 
 To version the model with the other machine facts apart from any one
 deployment, keep them in a :doc:`machine repository <machine-repository>`;
-``data/facility/`` in this section is then its machine root.
+``facility/`` in this section is then its machine root.
 
 .. toctree::
    :hidden:
@@ -552,15 +552,15 @@ deployment, keep them in a :doc:`machine repository <machine-repository>`;
 A pyAT lattice
 --------------
 
-#. Stage the deck in the facility tree as ``data/facility/decks/<model>.json``.
-#. Name it in the model's record in ``data/facility/models.yaml``, with the
+#. Stage the deck in the facility tree as ``facility/simulation/decks/<model>.json``.
+#. Name it in the model's record in ``facility/simulation/models.yaml``, with the
    ``wiring`` that ties each channel to an element of the deck:
 
    .. code-block:: yaml
 
       - name: <model>
         engine: pyat
-        deck: decks/<model>.json
+        deck: simulation/decks/<model>.json
 
 ``osprey build`` copies the deck into the simulator view as
 ``decks/<model>.json``, and the container builds the model from that copy when
@@ -581,7 +581,7 @@ invented addresses, for a ring whose RF wavelength is 0.6 m:
 
    - name: RING
      engine: pyat
-     deck: decks/RING.json
+     deck: simulation/decks/RING.json
      wiring:
        - address: RING:RF:FREQ:SP
          element: CAV
@@ -641,7 +641,7 @@ not, the model's ``pyat`` settings can switch radiation on:
 
    - name: RING
      engine: pyat
-     deck: decks/RING.json
+     deck: simulation/decks/RING.json
      settings:
        pyat:
          radiation: true
@@ -821,7 +821,7 @@ holds ``0``.
 
    - name: RING
      engine: pyat
-     deck: decks/RING.json
+     deck: simulation/decks/RING.json
      settings:
        pyat:
          solve: periodic
@@ -1099,7 +1099,7 @@ client moves it while the ring is served:
 
 .. code-block:: yaml
 
-   # data/facility/scenarios/injection-error.yaml
+   # facility/simulation/scenarios/injection-error.yaml
    overrides:
      SIM:RING:INJ:OFFSET:X: 4.0e-4
      SIM:RING:INJ:OFFSET:PX: -8.0e-5
@@ -1535,7 +1535,7 @@ image has to be on the host or pullable where it is named;
 Write limits
 ============
 
-Channels with a record in ``data/facility/limits.yaml`` carry a min/max range,
+Channels with a record in ``facility/limits.yaml`` carry a min/max range,
 and a write outside that range is rejected before it reaches the IOC; an
 in-range write goes through. The write switch's positions apply
 unchanged — the Virtual Accelerator connector inherits the same write-safety
@@ -1585,11 +1585,11 @@ rule is on :ref:`write-safety-config`.
    out. A block stating one of them alone is refused by ``osprey build`` and
    ``osprey validate``, naming the one that is missing. The limits database
    itself stays deployment-wide — the build renders one limits database from
-   ``data/facility/limits.yaml`` for every target, and a per-type block does
+   ``facility/limits.yaml`` for every target, and a per-type block does
    not take a path.
 
    With the pair above, a write to the simulator is still checked against the
-   ranges the records in ``data/facility/limits.yaml`` give. What changes is
+   ranges the records in ``facility/limits.yaml`` give. What changes is
    that a channel with *no* record is allowed through on the simulator, and
    refused on the live machine and the stand-in. That strict
    posture is what a switch to either real-machine target requires, and

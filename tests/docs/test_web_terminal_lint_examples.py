@@ -114,7 +114,7 @@ _CASES = (
         "external_origin: https://terminals.example.org",
     ),
     _Case("login-throttle", _LOGIN, "forget_after_s: 300"),
-    _Case("index-landing-notices", _MULTI_USER, "data/landing/working-safely.md"),
+    _Case("index-landing-notices", _MULTI_USER, "web/landing/working-safely.md"),
     _Case(
         "index-history-scope",
         _MULTI_USER,
@@ -149,7 +149,7 @@ def _snippet(page: Path, needle: str) -> dict[str, Any]:
 def _profile(case: _Case) -> dict[str, Any]:
     """The preset's profile with the case's snippets merged in, as the pages instruct."""
     raw, _ = _load_preset_raw(_PRESET)
-    profile: dict[str, Any] = {**raw, "project_name": _PROJECT, "data": "data"}
+    profile: dict[str, Any] = {**raw, "project_name": _PROJECT}
     for page, needle in (*case.layers, (case.page, case.needle)):
         profile = _merge(profile, _snippet(page, needle))
     if case.extra:
@@ -169,7 +169,6 @@ def _lint(profile: dict[str, Any], repo: Path, extra_logins: tuple[str, ...] = (
             shutil.copytree(_presets_dir() / dirname, repo / dirname)
     for login in extra_logins:
         shutil.copy(repo / "tiers" / "logbook.yml", repo / "tiers" / f"{login}.yml")
-    (repo / "data").mkdir()
     profile_file = repo / "profile.yml"
     profile_file.write_text(yaml.safe_dump(profile, sort_keys=False), encoding="utf-8")
 
@@ -194,7 +193,7 @@ def _lint(profile: dict[str, Any], repo: Path, extra_logins: tuple[str, ...] = (
 def test_the_preset_alone_lints_clean(tmp_path: Path) -> None:
     """The context every case starts from draws nothing of its own."""
     raw, _ = _load_preset_raw(_PRESET)
-    assert _lint({**raw, "project_name": _PROJECT, "data": "data"}, tmp_path) == []
+    assert _lint({**raw, "project_name": _PROJECT}, tmp_path) == []
 
 
 @pytest.mark.parametrize("case", [pytest.param(c, id=c.id) for c in _CASES])

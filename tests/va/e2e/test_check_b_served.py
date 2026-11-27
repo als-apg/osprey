@@ -52,6 +52,8 @@ from typing import Any
 
 import pytest
 
+from osprey import repo_layout
+from osprey_facility import source_tree
 from osprey_facility_tests._mml_trees import exports_taking
 from tests.va._collection import assert_module_collected
 from tests.va._still import assert_readings_still
@@ -107,7 +109,8 @@ class Served:
 
 def _measured_model(repo: Path) -> str:
     """The one model the deployment's measurement files name."""
-    files = sorted((repo / "data" / "facility" / "measurement").glob("*.yaml"))
+    measurements = repo / repo_layout.entry("facility").path / source_tree.path("measurement")
+    files = sorted(measurements.glob("*.yaml"))
     assert len(files) == 1, f"expected one measured model, found {[f.name for f in files]}"
     return files[0].stem
 

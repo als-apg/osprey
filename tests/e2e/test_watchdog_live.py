@@ -35,6 +35,7 @@ import yaml
 import osprey.services.watchdog.engines.agent as agent_engine
 from osprey.agent_runner import ToolUseEvent
 from osprey.cli.watchdog_cmd import _percentile
+from osprey.repo_layout import watchdogs_source_dir
 from osprey.services.watchdog.config import WatchdogDefinition, parse_watchdogs_block
 from osprey.services.watchdog.engines.agent import AgentEngine
 from osprey.services.watchdog.history import SessionNodes
@@ -114,7 +115,9 @@ requires_provider_or_fail = _gated(
 def _preset_decision_definition() -> WatchdogDefinition:
     """The decision watchdog the demo preset ships, switched on."""
     document = yaml.safe_load((PRESET_DIR / "demo.yml").read_text(encoding="utf-8"))
-    definitions = parse_watchdogs_block(document["watchdogs"], base_dir=PRESET_DIR)
+    definitions = parse_watchdogs_block(
+        document["watchdogs"], watchdogs_dir=watchdogs_source_dir(PRESET_DIR)
+    )
     by_name = {defn.name: defn for defn in definitions}
     return replace(by_name[PRESET_WATCHDOG], enabled=True)
 

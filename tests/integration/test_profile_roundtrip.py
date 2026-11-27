@@ -172,25 +172,33 @@ SHADOWED_RULE_BODY = "# Facility safety rule\n\nThis text is the profile's, not 
 #: artifact in every convention category. Directory-shaped categories name a
 #: file inside the directory that is copied as a unit.
 CONVENTION_EDITS: tuple[tuple[str, str, str], ...] = (
-    ("rules/safety.md", ".claude/rules/safety.md", SHADOWED_RULE_BODY),
-    ("rules/facility-ops.md", ".claude/rules/facility-ops.md", "# Ops rule\n"),
-    ("skills/orbit-check/SKILL.md", ".claude/skills/orbit-check/SKILL.md", "# Orbit check\n"),
-    ("agents/orbit-writer.md", ".claude/agents/orbit-writer.md", "# Orbit writer agent\n"),
-    ("commands/osprey/scan.md", ".claude/commands/osprey/scan.md", "# Scan command\n"),
-    ("output-styles/terse.md", ".claude/output-styles/terse.md", "# Terse style\n"),
-    ("hooks/facility_probe.py", ".claude/hooks/facility_probe.py", "#!/usr/bin/env python3\n"),
+    ("agent/rules/safety.md", ".claude/rules/safety.md", SHADOWED_RULE_BODY),
+    ("agent/rules/facility-ops.md", ".claude/rules/facility-ops.md", "# Ops rule\n"),
+    ("agent/skills/orbit-check/SKILL.md", ".claude/skills/orbit-check/SKILL.md", "# Orbit check\n"),
+    ("agent/agents/orbit-writer.md", ".claude/agents/orbit-writer.md", "# Orbit writer agent\n"),
+    ("agent/commands/osprey/scan.md", ".claude/commands/osprey/scan.md", "# Scan command\n"),
+    ("agent/output-styles/terse.md", ".claude/output-styles/terse.md", "# Terse style\n"),
     (
-        f"web-terminal-context/{ROSTER_USER}/context.md",
+        "agent/hooks/facility_probe.py",
+        ".claude/hooks/facility_probe.py",
+        "#!/usr/bin/env python3\n",
+    ),
+    (
+        f"agent/context/{ROSTER_USER}/context.md",
         f"docker/web-terminal-context/{ROSTER_USER}/context.md",
         "# Ops user context\n",
     ),
-    ("mcp_servers/facility_rpc/server.py", "_mcp_servers/facility_rpc/server.py", "# rpc server\n"),
     (
-        "services/facility_gw/docker-compose.yml",
+        "agent/mcp_servers/facility_rpc/server.py",
+        "_mcp_servers/facility_rpc/server.py",
+        "# rpc server\n",
+    ),
+    (
+        "ops/services/facility_gw/docker-compose.yml",
         "services/facility_gw/docker-compose.yml",
         "services: {}\n",
     ),
-    ("project/docs/runbook.md", "docs/runbook.md", "# Facility runbook\n"),
+    ("ops/project/docs/runbook.md", "docs/runbook.md", "# Facility runbook\n"),
 )
 
 #: ``scaffold.user_owned`` names the edits above must produce. Ownership follows
@@ -413,7 +421,7 @@ class TestEveryEditReachesTheProject:
             assert (roundtrip.project_dir / path).is_file(), f"{path} never landed"
 
         owned = _user_owned(roundtrip.project_dir)
-        assert not {name for name in owned if name.startswith("web-terminal-context/")}
+        assert not {name for name in owned if name.startswith("agent/context/")}
         assert not {name for name in owned if name.startswith("_mcp_servers/")}
         assert "docs/runbook.md" not in owned
 
@@ -489,7 +497,7 @@ class TestNoUnregenerableFacilityState:
         same artifact; the refusal names the channel that carries the change
         instead, which is the only way an operator finds it.
         """
-        _write(workspace.profile_dir / "project" / "config.yml", "control_system: {}\n")
+        _write(workspace.profile_dir / "ops" / "project" / "config.yml", "control_system: {}\n")
         with caplog.at_level(logging.ERROR):
             result = _build(workspace.profile_dir)
         assert result.exit_code != 0
@@ -726,7 +734,6 @@ BARE_PROFILE = """\
 name: Bare
 provider: anthropic
 model: claude-haiku-4-5
-data: data
 channel_finder_mode: hierarchical
 config:
   control_system.type: virtual_accelerator

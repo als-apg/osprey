@@ -2,7 +2,7 @@
 
 A repository builds from a clone or is refused before anything is installed:
 ``osprey validate``, ``osprey facility validate`` and ``osprey build`` refuse a
-profile whose ``extends`` file, ``data:`` tree or any other input resolves
+profile whose ``extends`` file, facility tree or any other input resolves
 outside the repository, one line per input naming the key, the path and the
 remedy. A repository that passes builds images that carry every input the
 stamp folds.
@@ -20,6 +20,7 @@ import pytest
 import yaml
 from click.testing import CliRunner
 
+from osprey import repo_layout
 from osprey.cli.build_profile_document import _read_profile_document
 from osprey.cli.build_profile_merge import (
     OutsideInput,
@@ -39,6 +40,9 @@ pytestmark = [pytest.mark.slow]
 
 #: The repo's directory name.
 REPO = "demo"
+
+#: Where the repo's facility tree sits.
+FACILITY = repo_layout.entry("facility").path
 
 #: The sentence every refusal line ends with.
 REMEDY = "Move it into the repository."
@@ -61,13 +65,6 @@ def _prepend(repo: Path, line: str) -> None:
     profile.write_text(f"{line}\n{profile.read_text(encoding='utf-8')}", encoding="utf-8")
 
 
-def _set_data(repo: Path, spelling: str) -> None:
-    profile = repo / PROFILE_FILENAME
-    text = profile.read_text(encoding="utf-8")
-    assert "\ndata: data\n" in text
-    profile.write_text(text.replace("\ndata: data\n", f"\ndata: {spelling}\n"), encoding="utf-8")
-
-
 def _set_template(repo: Path, spelling: str) -> None:
     """Declare one service, ``svc``, whose template is *spelling*."""
     profile = repo / PROFILE_FILENAME
@@ -87,11 +84,11 @@ def _extends_outside(repo: Path) -> Path:
     return base
 
 
-def _data_outside(repo: Path) -> Path:
-    """Move the data tree beside the repository and name it ``../data``; return it."""
-    outside = repo.parent / "data"
-    (repo / "data").rename(outside)
-    _set_data(repo, "../data")
+def _facility_outside(repo: Path) -> Path:
+    """Move the facility tree beside the repository behind a link; return where it went."""
+    outside = repo.parent / "shared-facility"
+    (repo / FACILITY).rename(outside)
+    (repo / FACILITY).symlink_to(outside, target_is_directory=True)
     return outside
 
 
@@ -106,7 +103,7 @@ def _template_outside(repo: Path) -> Path:
 
 def _watchdog(repo: Path, *, enabled: bool = True) -> Path:
     """Declare one decision watchdog, ``judge``, with its files; return its directory."""
-    directory = repo / "watchdogs" / "judge"
+    directory = repo / "agent" / "watchdogs" / "judge"
     directory.mkdir(parents=True)
     (directory / "instructions.md").write_text("Judge the prompt.\n", encoding="utf-8")
     profile = repo / PROFILE_FILENAME
@@ -156,25 +153,13 @@ def test_an_extends_base_inside_the_repository_is_not(repo: Path) -> None:
     assert _outside(repo) == ()
 
 
-def test_a_data_tree_beside_the_repository_is_outside(repo: Path) -> None:
-    data = _data_outside(repo)
+def test_a_facility_symlink_that_resolves_outside_is_outside(repo: Path) -> None:
+    facility = _facility_outside(repo)
 
     outside = _outside(repo)
 
     assert [(found.entry.label, found.entry.path.resolve()) for found in outside] == [
-        ("data", data.resolve())
-    ]
-
-
-def test_a_data_symlink_that_resolves_outside_is_outside(repo: Path) -> None:
-    data = repo.parent / "shared-data"
-    (repo / "data").rename(data)
-    (repo / "data").symlink_to(data, target_is_directory=True)
-
-    outside = _outside(repo)
-
-    assert [(found.entry.label, found.entry.path.resolve()) for found in outside] == [
-        ("data", data.resolve())
+        ("facility", facility.resolve())
     ]
 
 
@@ -183,13 +168,13 @@ def test_a_nested_directory_link_that_resolves_outside_is_refused(repo: Path) ->
 
     elsewhere = repo.parent / "elsewhere"
     elsewhere.mkdir()
-    (repo / "data" / "sub").symlink_to(elsewhere, target_is_directory=True)
+    (repo / FACILITY / "sub").symlink_to(elsewhere, target_is_directory=True)
 
     with pytest.raises(BuildProfileError) as raised:
         load_profile(repo / PROFILE_FILENAME)
 
     assert str(raised.value) == (
-        f"data: data/sub resolves to {elsewhere.resolve().as_posix()}, "
+        f"facility/sub resolves to {elsewhere.resolve().as_posix()}, "
         f"outside the repository. {REMEDY}"
     )
 
@@ -199,13 +184,13 @@ def test_a_nested_file_link_that_resolves_outside_is_refused(repo: Path) -> None
 
     target = repo.parent / "x.yml"
     target.write_text("{}\n", encoding="utf-8")
-    (repo / "data" / "x.yml").symlink_to(target)
+    (repo / FACILITY / "x.yml").symlink_to(target)
 
     with pytest.raises(BuildProfileError) as raised:
         load_profile(repo / PROFILE_FILENAME)
 
     assert str(raised.value) == (
-        f"data: data/x.yml resolves to {target.resolve().as_posix()}, "
+        f"facility/x.yml resolves to {target.resolve().as_posix()}, "
         f"outside the repository. {REMEDY}"
     )
 
@@ -213,7 +198,7 @@ def test_a_nested_file_link_that_resolves_outside_is_refused(repo: Path) -> None
 def test_a_nested_link_inside_the_repository_is_admitted(repo: Path) -> None:
     other = repo / "other"
     other.mkdir()
-    (repo / "data" / "sub").symlink_to(other, target_is_directory=True)
+    (repo / FACILITY / "sub").symlink_to(other, target_is_directory=True)
 
     assert _outside(repo) == ()
 
@@ -228,14 +213,13 @@ def test_a_second_hop_that_resolves_outside_is_refused_at_its_path_under_the_inp
     hop = repo / "hop"
     hop.mkdir()
     (hop / "c").symlink_to(outside, target_is_directory=True)
-    (repo / "data" / "a").symlink_to(hop, target_is_directory=True)
+    (repo / FACILITY / "a").symlink_to(hop, target_is_directory=True)
 
     with pytest.raises(BuildProfileError) as raised:
         load_profile(repo / PROFILE_FILENAME)
 
     assert str(raised.value) == (
-        f"data: data/a/c resolves to {outside.resolve().as_posix()}, "
-        f"outside the repository. {REMEDY}"
+        f"facility/a/c resolves to {outside.resolve().as_posix()}, outside the repository. {REMEDY}"
     )
 
 
@@ -249,41 +233,41 @@ def test_a_two_hop_link_out_of_a_convention_directory_is_refused_by_the_loader(
     hop = repo / "hop"
     hop.mkdir()
     (hop / "c").symlink_to(outside, target_is_directory=True)
-    (repo / "rules").mkdir(exist_ok=True)
-    (repo / "rules" / "a").symlink_to(hop, target_is_directory=True)
+    (repo / "agent" / "rules").mkdir(parents=True, exist_ok=True)
+    (repo / "agent" / "rules" / "a").symlink_to(hop, target_is_directory=True)
 
     with pytest.raises(BuildProfileError) as raised:
         load_profile(repo / PROFILE_FILENAME)
 
     assert str(raised.value) == (
-        f"rules/a/c resolves to {outside.resolve().as_posix()}, outside the repository. {REMEDY}"
+        f"agent/rules/a/c resolves to {outside.resolve().as_posix()}, outside the repository. {REMEDY}"
     )
 
 
 def test_a_directory_link_back_to_its_own_parent_is_refused(repo: Path) -> None:
     from osprey.cli.build_profile_load import load_profile
 
-    (repo / "data" / "loop").symlink_to(repo / "data", target_is_directory=True)
+    (repo / FACILITY / "loop").symlink_to(repo / FACILITY, target_is_directory=True)
 
     with pytest.raises(BuildProfileError) as raised:
         load_profile(repo / PROFILE_FILENAME)
 
     assert str(raised.value) == (
-        f"data: data/loop leads back into its own tree, so the copy would not end. {REMOVE_REMEDY}"
+        f"facility/loop leads back into its own tree, so the copy would not end. {REMOVE_REMEDY}"
     )
 
 
 def test_a_link_above_the_input_is_refused_where_the_descent_comes_back(repo: Path) -> None:
-    (repo / "data" / "up").symlink_to(repo, target_is_directory=True)
+    (repo / FACILITY / "up").symlink_to(repo, target_is_directory=True)
 
-    assert [found.link for found in _outside(repo) if found.loops] == ["up/data"]
+    assert [found.link for found in _outside(repo) if found.loops] == [f"up/{FACILITY}"]
 
 
 def test_two_links_to_one_directory_are_admitted(repo: Path) -> None:
     shared = repo / "shared"
     shared.mkdir()
-    (repo / "data" / "a").symlink_to(shared, target_is_directory=True)
-    (repo / "data" / "b").symlink_to(shared, target_is_directory=True)
+    (repo / FACILITY / "a").symlink_to(shared, target_is_directory=True)
+    (repo / FACILITY / "b").symlink_to(shared, target_is_directory=True)
 
     assert _outside(repo) == ()
 
@@ -291,40 +275,40 @@ def test_two_links_to_one_directory_are_admitted(repo: Path) -> None:
 def test_a_link_to_itself_is_refused(repo: Path) -> None:
     from osprey.cli.build_profile_load import load_profile
 
-    (repo / "data" / "self").symlink_to(repo / "data" / "self")
+    (repo / FACILITY / "self").symlink_to(repo / FACILITY / "self")
 
     with pytest.raises(BuildProfileError) as raised:
         load_profile(repo / PROFILE_FILENAME)
 
     assert str(raised.value) == (
-        f"data: data/self does not resolve, so the copy cannot stage it. {REMOVE_REMEDY}"
+        f"facility/self does not resolve, so the copy cannot stage it. {REMOVE_REMEDY}"
     )
 
 
 def test_a_link_to_a_missing_target_is_refused(repo: Path) -> None:
     from osprey.cli.build_profile_load import load_profile
 
-    (repo / "data" / "gone").symlink_to(repo / "nowhere")
+    (repo / FACILITY / "gone").symlink_to(repo / "nowhere")
 
     with pytest.raises(BuildProfileError) as raised:
         load_profile(repo / PROFILE_FILENAME)
 
     assert str(raised.value) == (
-        f"data: data/gone does not resolve, so the copy cannot stage it. {REMOVE_REMEDY}"
+        f"facility/gone does not resolve, so the copy cannot stage it. {REMOVE_REMEDY}"
     )
 
 
 def test_two_links_to_each_other_are_refused(repo: Path) -> None:
     from osprey.cli.build_profile_load import load_profile
 
-    (repo / "data" / "a").symlink_to(repo / "data" / "b")
-    (repo / "data" / "b").symlink_to(repo / "data" / "a")
+    (repo / FACILITY / "a").symlink_to(repo / FACILITY / "b")
+    (repo / FACILITY / "b").symlink_to(repo / FACILITY / "a")
 
     with pytest.raises(BuildProfileError) as raised:
         load_profile(repo / PROFILE_FILENAME)
 
     assert str(raised.value) == "\n".join(
-        f"data: data/{name} does not resolve, so the copy cannot stage it. {REMOVE_REMEDY}"
+        f"facility/{name} does not resolve, so the copy cannot stage it. {REMOVE_REMEDY}"
         for name in ("a", "b")
     )
 
@@ -334,13 +318,13 @@ def test_a_missing_target_outside_the_repository_is_refused_as_unresolvable(
 ) -> None:
     from osprey.cli.build_profile_load import load_profile
 
-    (repo / "data" / "gone").symlink_to(repo.parent / "nowhere")
+    (repo / FACILITY / "gone").symlink_to(repo.parent / "nowhere")
 
     with pytest.raises(BuildProfileError) as raised:
         load_profile(repo / PROFILE_FILENAME)
 
     assert str(raised.value) == (
-        f"data: data/gone does not resolve, so the copy cannot stage it. {REMOVE_REMEDY}"
+        f"facility/gone does not resolve, so the copy cannot stage it. {REMOVE_REMEDY}"
     )
 
 
@@ -350,7 +334,7 @@ def test_a_second_hop_with_every_target_inside_is_admitted(repo: Path) -> None:
     hop = repo / "hop"
     hop.mkdir()
     (hop / "c").symlink_to(final, target_is_directory=True)
-    (repo / "data" / "a").symlink_to(hop, target_is_directory=True)
+    (repo / FACILITY / "a").symlink_to(hop, target_is_directory=True)
 
     assert _outside(repo) == ()
 
@@ -370,7 +354,7 @@ def test_a_second_hop_in_a_watchdog_tree_is_refused_before_anything_is_copied(
 
     assert result.exit_code != 0
     assert (
-        f"watchdogs/judge/references/c resolves to {outside.resolve().as_posix()}, "
+        f"agent/watchdogs/judge/references/c resolves to {outside.resolve().as_posix()}, "
         f"outside the repository. {REMEDY}"
     ) in caplog.text
     assert not (repo / BUILD_DIR_NAME / "watchdogs").exists()
@@ -415,12 +399,12 @@ def test_reordering_the_watchdogs_block_does_not_move_the_material_hash(repo: Pa
 
 
 def test_a_link_under_the_runtime_subtree_is_not_walked(repo: Path) -> None:
-    from osprey.utils.workspace import RUNTIME_DATA_DIR_NAME
+    from osprey.utils.workspace import RUNTIME_DIR_RELPATH
 
     elsewhere = repo.parent / "elsewhere"
     elsewhere.mkdir()
-    runtime = repo / "data" / RUNTIME_DATA_DIR_NAME
-    runtime.mkdir(exist_ok=True)
+    runtime = repo / RUNTIME_DIR_RELPATH
+    runtime.mkdir(parents=True, exist_ok=True)
     (runtime / "k").symlink_to(elsewhere, target_is_directory=True)
 
     assert _outside(repo) == ()
@@ -440,14 +424,14 @@ def test_the_loader_refuses_an_outside_extends_naming_the_key_path_and_remedy(
     assert message == f"extends: {base.resolve().as_posix()} is outside the repository. {REMEDY}"
 
 
-def test_validate_refuses_an_outside_data_tree(repo: Path) -> None:
-    data = _data_outside(repo)
+def test_validate_refuses_an_outside_facility_tree(repo: Path) -> None:
+    facility = _facility_outside(repo)
 
     result = CliRunner().invoke(cli, ["validate", "--repo", str(repo)])
 
     assert result.exit_code != 0, result.output
     assert (
-        f"data: ../data resolves to {data.resolve().as_posix()}, outside the repository. {REMEDY}"
+        f"{FACILITY}/ resolves to {facility.resolve().as_posix()}, outside the repository. {REMEDY}"
     ) in result.output
 
 
@@ -472,7 +456,7 @@ def test_facility_validate_refuses_an_outside_extends(repo: Path) -> None:
     assert base.resolve().as_posix() in result.output
 
 
-@pytest.mark.parametrize("make_outside", [_extends_outside, _data_outside, _template_outside])
+@pytest.mark.parametrize("make_outside", [_extends_outside, _facility_outside, _template_outside])
 def test_build_refuses_an_outside_input_before_the_venv(
     repo: Path,
     monkeypatch: pytest.MonkeyPatch,

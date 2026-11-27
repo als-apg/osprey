@@ -30,7 +30,6 @@ _FACILITY = "site_poller"
 @pytest.fixture(autouse=True)
 def _facility_tree(tmp_path: Path) -> None:
     """The data tree and the facility service template every profile names."""
-    (tmp_path / "data").mkdir(exist_ok=True)
     service_dir = tmp_path / "services" / _FACILITY
     service_dir.mkdir(parents=True, exist_ok=True)
     (service_dir / "docker-compose.yml.j2").write_text("services: {}\n", encoding="utf-8")
@@ -43,7 +42,7 @@ def _bind_errors(profile: BuildProfile, profile_dir: Path) -> list[str]:
 
 def _profile(**raw: Any) -> BuildProfile:
     """Parse a profile from the YAML surface, filling in the required name."""
-    return _parse_profile({"name": "bindaxis", "data": "data", **raw})
+    return _parse_profile({"name": "bindaxis", **raw})
 
 
 def _facility(config: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -201,7 +200,7 @@ def test_a_declaration_on_a_bundled_service_is_refused(
 
 
 def test_a_declaration_on_a_claimed_bundled_service_validates(tmp_path: Path) -> None:
-    claimed = tmp_path / "services" / "archive"
+    claimed = tmp_path / "ops" / "services" / "archive"
     claimed.mkdir(parents=True)
     (claimed / "docker-compose.yml.j2").write_text("services: {}\n", encoding="utf-8")
     profile = _profile(

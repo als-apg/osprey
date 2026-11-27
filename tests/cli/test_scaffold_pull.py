@@ -75,13 +75,13 @@ def test_app_template_root_resolver_rejects_an_absent_bundle(manager: TemplateMa
 def test_preset_data_composes_the_app_template_and_its_facility(
     manager: TemplateManager,
 ) -> None:
-    """The packaged data is the app template's ``data/`` plus the named facility."""
+    """The packaged data is the app template's ``web/`` plus the named facility."""
     composed = _preset_data(manager, "demo")
 
     assert composed.app_root == _app_template_root(manager, "demo")
-    assert composed.app_data == composed.app_root / "data"
+    assert composed.app_web == composed.app_root / "web"
     assert composed.facility_root == Path(manager.template_root) / "facilities" / "example"
-    assert not (composed.app_data / "facility").exists()
+    assert not (composed.app_web / "facility").exists()
     assert composed.placed_files()["facility/identity.yaml"] == (
         composed.facility_root / "identity.yaml"
     )
@@ -90,14 +90,14 @@ def test_preset_data_composes_the_app_template_and_its_facility(
 def test_preset_data_composes_an_app_template_with_no_data_of_its_own(
     manager: TemplateManager,
 ) -> None:
-    """hello-world's app template ships no ``data/``; its facility and the starter are all of it."""
+    """hello-world's app template ships no ``web/``; its facility and the starter are all of it."""
     composed = _preset_data(manager, "hello-world")
 
-    assert not composed.app_data.exists()
+    assert not composed.app_web.exists()
     assert composed.facility_root == Path(manager.template_root) / "facilities" / "hello_world"
     assert {
         relative for relative in composed.placed_files() if not relative.startswith("facility/")
-    } == {"code_review/reviewer.md"}
+    } == {"agent/code_review/reviewer.md"}
 
 
 # ---------------------------------------------------------------------------
@@ -150,129 +150,131 @@ def test_resolve_preset_bundle_rejects_an_unknown_preset() -> None:
 #: operator can pull — a bundle gaining or losing content, or the exclusions
 #: drifting — and is meant to be read before it is accepted.
 DEMO_PULLABLE = [
-    "data/",
-    "data/canopy/",
-    "data/canopy/collections/",
-    "data/canopy/library/",
-    "data/canopy/library/screens/",
-    "data/canopy/library/screens/br/",
-    "data/canopy/library/screens/bts/",
-    "data/canopy/library/screens/common/",
-    "data/canopy/library/screens/common/embedded/",
-    "data/canopy/library/screens/common/images/",
-    "data/canopy/library/screens/facility/",
-    "data/canopy/library/screens/gtl/",
-    "data/canopy/library/screens/sr/",
-    "data/canopy/theme/",
-    "data/code_review/",
-    "data/facility/",
-    "data/facility/ariel/",
-    "data/facility/benchmarks/",
-    "data/facility/benchmarks/cross_paradigm/",
-    "data/facility/benchmarks/cross_paradigm/queries/",
-    "data/facility/decks/",
-    "data/facility/knowledge/",
-    "data/facility/knowledge/devices/",
-    "data/facility/knowledge/devices/figures/",
-    "data/facility/knowledge/physics/",
-    "data/facility/knowledge/procedures/",
-    "data/facility/knowledge/references/",
-    "data/facility/knowledge/subsystems/",
-    "data/facility/measurement/",
-    "data/facility/records/",
-    "data/facility/scenarios/",
-    "data/facility/scenarios/bpm-polarity/",
-    "data/facility/scenarios/bpm-polarity/plots/",
-    "data/facility/scenarios/nominal/",
-    "data/facility/scenarios/nominal/plots/",
-    "data/facility/scenarios/rf-thermal/",
-    "data/facility/scenarios/rf-thermal/plots/",
-    "data/landing/",
-    "web-terminal-context/",
-    "data/README.md",
-    "data/canopy/collections/demo.json",
-    "data/canopy/library/LIBRARY-REPORT.json",
-    "data/canopy/library/LIBRARY-REPORT.md",
-    "data/canopy/library/screens/br/overview.screen.json",
-    "data/canopy/library/screens/bts/BTS.screen.json",
-    "data/canopy/library/screens/common/embedded/_KnobDevice.screen.json",
-    "data/canopy/library/screens/common/embedded/_bpm.screen.json",
-    "data/canopy/library/screens/common/embedded/_tv.screen.json",
-    "data/canopy/library/screens/common/images/Light off.jpg",
-    "data/canopy/library/screens/common/images/Light on.jpg",
-    "data/canopy/library/screens/common/images/Paddle in.jpg",
-    "data/canopy/library/screens/common/images/Paddle out.jpg",
-    "data/canopy/library/screens/common/images/TV off.jpg",
-    "data/canopy/library/screens/common/images/TV on.jpg",
-    "data/canopy/library/screens/facility/overview.screen.json",
-    "data/canopy/library/screens/gtl/GTL.screen.json",
-    *(f"data/canopy/library/screens/sr/_absorbers-{n:02d}.screen.json" for n in (2, *range(4, 13))),
-    *(f"data/canopy/library/screens/sr/_vacuum-{n:02d}.screen.json" for n in range(1, 13)),
-    "data/canopy/library/screens/sr/orbit-feedback.screen.json",
-    *(f"data/canopy/library/screens/sr/sector-{n:02d}.screen.json" for n in range(1, 13)),
-    "data/canopy/theme/osprey.json",
-    "data/code_review/reviewer.md",
-    "data/facility/ariel/README.md",
-    "data/facility/ariel/vocabulary.yml",
-    "data/facility/benchmarks/cross_paradigm/queries/in_context_queries.json",
-    "data/facility/benchmarks/cross_paradigm/queries/tree_queries.json",
-    "data/facility/classes.yaml",
-    "data/facility/decks/BR.json",
-    "data/facility/decks/BTS.json",
-    "data/facility/decks/LTB.json",
-    "data/facility/decks/SR.json",
-    "data/facility/documents.yaml",
-    "data/facility/identity.yaml",
-    "data/facility/knowledge/devices/bpm.md",
-    "data/facility/knowledge/devices/figures/bpm-button-pickups.png",
-    "data/facility/knowledge/devices/index.md",
-    "data/facility/knowledge/devices/ion-pump.md",
-    "data/facility/knowledge/index.md",
-    "data/facility/knowledge/physics/beam-current-calibration.md",
-    "data/facility/knowledge/physics/index.md",
-    "data/facility/knowledge/physics/quadrupole-scan.md",
-    "data/facility/knowledge/procedures/index.md",
-    "data/facility/knowledge/procedures/orbit-correction.md",
-    "data/facility/knowledge/procedures/ps-startup.md",
-    "data/facility/knowledge/procedures/pss-reset.md",
-    "data/facility/knowledge/procedures/sample-scan.md",
-    "data/facility/knowledge/procedures/vacuum-recovery.md",
-    "data/facility/knowledge/references/epics-channel-access.md",
-    "data/facility/knowledge/references/index.md",
-    "data/facility/knowledge/references/safety-rules.md",
-    "data/facility/knowledge/subsystems/experimental-stations.md",
-    "data/facility/knowledge/subsystems/index.md",
-    "data/facility/knowledge/subsystems/primary-source.md",
-    "data/facility/knowledge/subsystems/pss.md",
-    "data/facility/knowledge/subsystems/timing.md",
-    "data/facility/knowledge/subsystems/transport-delivery.md",
-    "data/facility/knowledge/subsystems/vacuum.md",
-    "data/facility/limits.yaml",
-    "data/facility/measurement/BR.yaml",
-    "data/facility/measurement/BTS.yaml",
-    "data/facility/measurement/LTB.yaml",
-    "data/facility/measurement/SR.yaml",
-    "data/facility/models.yaml",
-    "data/facility/policy.yaml",
-    "data/facility/records/channels.yaml",
-    "data/facility/records/devices.yaml",
-    "data/facility/records/groups.yaml",
-    "data/facility/records/places.yaml",
-    "data/facility/records/relations.yaml",
-    "data/facility/scenarios/bpm-polarity.yaml",
-    "data/facility/scenarios/bpm-polarity/plots/corrector_bump_test.png",
-    "data/facility/scenarios/bts-server-stopped.yaml",
-    "data/facility/scenarios/demo-history.yaml",
-    "data/facility/scenarios/nominal.yaml",
-    "data/facility/scenarios/nominal/plots/orbit_rms.json",
-    "data/facility/scenarios/orm-dual-fault.yaml",
-    "data/facility/scenarios/rf-thermal-live.yaml",
-    "data/facility/scenarios/rf-thermal.yaml",
-    "data/facility/scenarios/rf-thermal/plots/cavity_temperatures.json",
-    "data/facility/scenarios/vacuum-burst.yaml",
-    "data/facility/seeds.yaml",
-    "data/landing/working-safely.md",
-    "web-terminal-context/base.md",
+    "agent/",
+    "agent/code_review/",
+    "agent/context/",
+    "facility/",
+    "facility/ariel/",
+    "facility/benchmarks/",
+    "facility/benchmarks/channel_finder/",
+    "facility/knowledge/",
+    "facility/knowledge/devices/",
+    "facility/knowledge/devices/figures/",
+    "facility/knowledge/physics/",
+    "facility/knowledge/procedures/",
+    "facility/knowledge/references/",
+    "facility/knowledge/subsystems/",
+    "facility/provenance/",
+    "facility/records/",
+    "facility/simulation/",
+    "facility/simulation/decks/",
+    "facility/simulation/measurement/",
+    "facility/simulation/scenarios/",
+    "facility/simulation/scenarios/bpm-polarity/",
+    "facility/simulation/scenarios/bpm-polarity/plots/",
+    "facility/simulation/scenarios/nominal/",
+    "facility/simulation/scenarios/nominal/plots/",
+    "facility/simulation/scenarios/rf-thermal/",
+    "facility/simulation/scenarios/rf-thermal/plots/",
+    "facility/vocabulary/",
+    "web/",
+    "web/canopy/",
+    "web/canopy/collections/",
+    "web/canopy/library/",
+    "web/canopy/library/screens/",
+    "web/canopy/library/screens/br/",
+    "web/canopy/library/screens/bts/",
+    "web/canopy/library/screens/common/",
+    "web/canopy/library/screens/common/embedded/",
+    "web/canopy/library/screens/common/images/",
+    "web/canopy/library/screens/facility/",
+    "web/canopy/library/screens/gtl/",
+    "web/canopy/library/screens/sr/",
+    "web/canopy/theme/",
+    "web/landing/",
+    "agent/code_review/reviewer.md",
+    "agent/context/base.md",
+    "facility/ariel/README.md",
+    "facility/ariel/vocabulary.yml",
+    "facility/benchmarks/channel_finder/in_context_queries.json",
+    "facility/benchmarks/channel_finder/tree_queries.json",
+    "facility/identity.yaml",
+    "facility/knowledge/devices/bpm.md",
+    "facility/knowledge/devices/figures/bpm-button-pickups.png",
+    "facility/knowledge/devices/index.md",
+    "facility/knowledge/devices/ion-pump.md",
+    "facility/knowledge/index.md",
+    "facility/knowledge/physics/beam-current-calibration.md",
+    "facility/knowledge/physics/index.md",
+    "facility/knowledge/physics/quadrupole-scan.md",
+    "facility/knowledge/procedures/index.md",
+    "facility/knowledge/procedures/orbit-correction.md",
+    "facility/knowledge/procedures/ps-startup.md",
+    "facility/knowledge/procedures/pss-reset.md",
+    "facility/knowledge/procedures/sample-scan.md",
+    "facility/knowledge/procedures/vacuum-recovery.md",
+    "facility/knowledge/references/epics-channel-access.md",
+    "facility/knowledge/references/index.md",
+    "facility/knowledge/references/safety-rules.md",
+    "facility/knowledge/subsystems/experimental-stations.md",
+    "facility/knowledge/subsystems/index.md",
+    "facility/knowledge/subsystems/primary-source.md",
+    "facility/knowledge/subsystems/pss.md",
+    "facility/knowledge/subsystems/timing.md",
+    "facility/knowledge/subsystems/transport-delivery.md",
+    "facility/knowledge/subsystems/vacuum.md",
+    "facility/limits.yaml",
+    "facility/provenance/documents.yaml",
+    "facility/provenance/policy.yaml",
+    "facility/records/channels.yaml",
+    "facility/records/devices.yaml",
+    "facility/records/groups.yaml",
+    "facility/records/places.yaml",
+    "facility/records/relations.yaml",
+    "facility/simulation/decks/BR.json",
+    "facility/simulation/decks/BTS.json",
+    "facility/simulation/decks/LTB.json",
+    "facility/simulation/decks/SR.json",
+    "facility/simulation/measurement/BR.yaml",
+    "facility/simulation/measurement/BTS.yaml",
+    "facility/simulation/measurement/LTB.yaml",
+    "facility/simulation/measurement/SR.yaml",
+    "facility/simulation/models.yaml",
+    "facility/simulation/scenarios/bpm-polarity.yaml",
+    "facility/simulation/scenarios/bpm-polarity/plots/corrector_bump_test.png",
+    "facility/simulation/scenarios/bts-server-stopped.yaml",
+    "facility/simulation/scenarios/demo-history.yaml",
+    "facility/simulation/scenarios/nominal.yaml",
+    "facility/simulation/scenarios/nominal/plots/orbit_rms.json",
+    "facility/simulation/scenarios/orm-dual-fault.yaml",
+    "facility/simulation/scenarios/rf-thermal-live.yaml",
+    "facility/simulation/scenarios/rf-thermal.yaml",
+    "facility/simulation/scenarios/rf-thermal/plots/cavity_temperatures.json",
+    "facility/simulation/scenarios/vacuum-burst.yaml",
+    "facility/simulation/seeds.yaml",
+    "facility/vocabulary/classes.yaml",
+    "web/canopy/collections/demo.json",
+    "web/canopy/library/LIBRARY-REPORT.json",
+    "web/canopy/library/LIBRARY-REPORT.md",
+    "web/canopy/library/screens/br/overview.screen.json",
+    "web/canopy/library/screens/bts/BTS.screen.json",
+    "web/canopy/library/screens/common/embedded/_KnobDevice.screen.json",
+    "web/canopy/library/screens/common/embedded/_bpm.screen.json",
+    "web/canopy/library/screens/common/embedded/_tv.screen.json",
+    "web/canopy/library/screens/common/images/Light off.jpg",
+    "web/canopy/library/screens/common/images/Light on.jpg",
+    "web/canopy/library/screens/common/images/Paddle in.jpg",
+    "web/canopy/library/screens/common/images/Paddle out.jpg",
+    "web/canopy/library/screens/common/images/TV off.jpg",
+    "web/canopy/library/screens/common/images/TV on.jpg",
+    "web/canopy/library/screens/facility/overview.screen.json",
+    "web/canopy/library/screens/gtl/GTL.screen.json",
+    *(f"web/canopy/library/screens/sr/_absorbers-{n:02d}.screen.json" for n in (2, *range(4, 13))),
+    *(f"web/canopy/library/screens/sr/_vacuum-{n:02d}.screen.json" for n in range(1, 13)),
+    "web/canopy/library/screens/sr/orbit-feedback.screen.json",
+    *(f"web/canopy/library/screens/sr/sector-{n:02d}.screen.json" for n in range(1, 13)),
+    "web/canopy/theme/osprey.json",
+    "web/landing/working-safely.md",
 ]
 
 
@@ -285,11 +287,11 @@ def demo(manager: TemplateManager) -> PresetData:
 def packaged(source: PresetData, relative: str | Path) -> Path:
     """Where the template-relative *relative* is read from in the installation."""
     parts = PurePosixPath(Path(relative).as_posix()).parts
-    placed = source.placed_files().get("/".join(parts[1:])) if parts[0] == "data" else None
+    placed = source.placed_files().get("/".join(parts))
     if placed is not None:
         return placed
-    if source.facility_root is not None and parts[:2] == ("data", "facility"):
-        return source.facility_root.joinpath(*parts[2:])
+    if source.facility_root is not None and parts[:1] == ("facility",):
+        return source.facility_root.joinpath(*parts[1:])
     return source.app_root.joinpath(*parts)
 
 
@@ -314,8 +316,8 @@ def test_list_pullable_paths_offers_the_content_an_operator_edits(
     """The two trees a facility rewrites first are both named, machinery is not."""
     listed = list_pullable_paths(demo)
 
-    assert "data/facility/knowledge/" in listed
-    assert "web-terminal-context/" in listed
+    assert "facility/knowledge/" in listed
+    assert "agent/context/" in listed
     assert [entry for entry in listed if entry.endswith(".j2")] == []
     assert "__init__.py" not in listed
 
@@ -324,39 +326,8 @@ def test_list_pullable_paths_keeps_a_nested_package_marker(manager: TemplateMana
     """A bundled MCP server is content, so its own ``__init__.py`` survives."""
     listed = list_pullable_paths(_preset_data(manager, "hello-world"))
 
-    assert "mcp_servers/example_server/__init__.py" in listed
+    assert "agent/mcp_servers/example_server/__init__.py" in listed
     assert "__init__.py" not in listed
-
-
-def test_list_pullable_paths_drops_what_the_packaged_data_copy_drops(tmp_path: Path) -> None:
-    """Build exhaust a checkout holds but a wheel never ships stays out of the listing."""
-    root = tmp_path / "app_template"
-    _stage_template(
-        root,
-        [
-            "__init__.py",
-            "config.yml.j2",
-            "data/benchmarks/results/x.json",
-            "data/benchmarks/cross_paradigm/queries/q.json",
-            "data/results/kept.json",
-        ],
-    )
-
-    listed = list_pullable_paths(PresetData(root))
-
-    assert "data/benchmarks/results/" not in listed
-    assert "data/benchmarks/results/x.json" not in listed
-    # Positional, not by name: a ``results/`` elsewhere in the tree is content.
-    assert "data/results/kept.json" in listed
-    assert listed == [
-        "data/",
-        "data/benchmarks/",
-        "data/benchmarks/cross_paradigm/",
-        "data/benchmarks/cross_paradigm/queries/",
-        "data/results/",
-        "data/benchmarks/cross_paradigm/queries/q.json",
-        "data/results/kept.json",
-    ]
 
 
 def test_list_pullable_paths_never_lists_a_bytecode_cache(tmp_path: Path) -> None:
@@ -367,43 +338,43 @@ def test_list_pullable_paths_never_lists_a_bytecode_cache(tmp_path: Path) -> Non
         [
             "__init__.py",
             "__pycache__/__init__.cpython-313.pyc",
-            "data/README.md",
-            "data/tools/__pycache__/x.cpython-313.pyc",
-            "data/tools/x.py",
+            "web/README.md",
+            "web/tools/__pycache__/x.cpython-313.pyc",
+            "web/tools/x.py",
         ],
     )
 
     listed = list_pullable_paths(PresetData(root))
 
-    assert listed == ["data/", "data/tools/", "data/README.md", "data/tools/x.py"]
+    assert listed == ["web/", "web/tools/", "web/README.md", "web/tools/x.py"]
 
 
 def test_list_pullable_paths_restricts_to_a_subtree(demo: PresetData) -> None:
     """A directory subtree yields itself and everything below it, and nothing else."""
-    listed = list_pullable_paths(demo, "data/facility/knowledge")
+    listed = list_pullable_paths(demo, "facility/knowledge")
 
-    assert "data/facility/knowledge/" in listed
-    assert "data/facility/knowledge/procedures/orbit-correction.md" in listed
-    assert all(entry.startswith("data/facility/knowledge/") for entry in listed)
-    assert listed == [
-        entry for entry in DEMO_PULLABLE if entry.startswith("data/facility/knowledge/")
-    ]
+    assert "facility/knowledge/" in listed
+    assert "facility/knowledge/procedures/orbit-correction.md" in listed
+    assert all(entry.startswith("facility/knowledge/") for entry in listed)
+    assert listed == [entry for entry in DEMO_PULLABLE if entry.startswith("facility/knowledge/")]
 
 
 def test_list_pullable_paths_restricts_to_a_single_file(demo: PresetData) -> None:
     """A file subtree is just that file."""
-    assert list_pullable_paths(demo, "data/README.md") == ["data/README.md"]
+    assert list_pullable_paths(demo, "web/canopy/theme/osprey.json") == [
+        "web/canopy/theme/osprey.json"
+    ]
 
 
 def test_list_pullable_paths_rejects_an_unknown_subtree(demo: PresetData) -> None:
     """A miss names the top-level entries, which is what corrects the path."""
     with pytest.raises(ValueError) as excinfo:
-        list_pullable_paths(demo, "data/facility_knowlege")
+        list_pullable_paths(demo, "facility_knowlege")
 
     message = str(excinfo.value)
-    assert "data/facility_knowlege" in message
-    assert "data/" in message
-    assert "web-terminal-context/" in message
+    assert "facility_knowlege" in message
+    assert "facility/" in message
+    assert "agent/" in message
     assert ".j2" not in message
 
 
@@ -434,7 +405,7 @@ def test_plan_pull_counts_match_the_packaged_knowledge_base(
     demo: PresetData,
 ) -> None:
     """The pinned totals above are what the template actually ships."""
-    listed = list_pullable_paths(demo, "data/facility/knowledge")
+    listed = list_pullable_paths(demo, "facility/knowledge")
     markdown = [entry for entry in listed if entry.endswith(".md")]
 
     assert len(markdown) == KNOWLEDGE_MARKDOWN_FILES
@@ -456,7 +427,7 @@ def test_plan_pull_of_the_knowledge_base_writes_only_the_indexes(
     plan = plan_pull(
         demo,
         tmp_path,
-        "data/facility/knowledge",
+        "facility/knowledge",
         force=False,
         with_content=False,
     )
@@ -478,7 +449,7 @@ def test_plan_pull_with_content_writes_every_knowledge_document(
     plan = plan_pull(
         demo,
         tmp_path,
-        "data/facility/knowledge",
+        "facility/knowledge",
         force=False,
         with_content=True,
     )
@@ -496,15 +467,13 @@ def test_plan_pull_mirrors_the_template_relative_path_under_the_repo(
     plan = plan_pull(
         demo,
         tmp_path,
-        "data/facility/knowledge/index.md",
+        "facility/knowledge/index.md",
         force=False,
         with_content=False,
     )
 
-    assert [action.target for action in plan] == [
-        tmp_path / "data" / "facility" / "knowledge" / "index.md"
-    ]
-    assert plan[0].source == packaged(demo, "data/facility/knowledge/index.md")
+    assert [action.target for action in plan] == [tmp_path / "facility" / "knowledge" / "index.md"]
+    assert plan[0].source == packaged(demo, "facility/knowledge/index.md")
 
 
 def test_plan_pull_refuses_a_single_filtered_knowledge_file(
@@ -514,7 +483,7 @@ def test_plan_pull_refuses_a_single_filtered_knowledge_file(
     plan = plan_pull(
         demo,
         tmp_path,
-        "data/facility/knowledge/devices/bpm.md",
+        "facility/knowledge/devices/bpm.md",
         force=False,
         with_content=False,
     )
@@ -526,19 +495,19 @@ def test_plan_pull_refuses_a_single_filtered_knowledge_file(
 
 def test_plan_pull_refuses_an_existing_destination(demo: PresetData, tmp_path: Path) -> None:
     """A file already in the repo stops the pull and the reason names the flag."""
-    _stage_template(tmp_path, ["data/facility/knowledge/index.md"])
+    _stage_template(tmp_path, ["facility/knowledge/index.md"])
 
     plan = plan_pull(
         demo,
         tmp_path,
-        "data/facility/knowledge",
+        "facility/knowledge",
         force=False,
         with_content=False,
     )
 
     refused = _by_action(plan)["refused"]
     assert [action.target for action in refused] == [
-        tmp_path / "data" / "facility" / "knowledge" / "index.md"
+        tmp_path / "facility" / "knowledge" / "index.md"
     ]
     assert "--force" in refused[0].reason
 
@@ -547,12 +516,12 @@ def test_plan_pull_updates_an_existing_destination_under_force(
     demo: PresetData, tmp_path: Path
 ) -> None:
     """With the flag, a differing file is an update rather than a refusal."""
-    _stage_template(tmp_path, ["data/facility/knowledge/index.md"])
+    _stage_template(tmp_path, ["facility/knowledge/index.md"])
 
     plan = plan_pull(
         demo,
         tmp_path,
-        "data/facility/knowledge",
+        "facility/knowledge",
         force=True,
         with_content=False,
     )
@@ -560,7 +529,7 @@ def test_plan_pull_updates_an_existing_destination_under_force(
     grouped = _by_action(plan)
     assert "refused" not in grouped
     assert [action.target for action in grouped["updated"]] == [
-        tmp_path / "data" / "facility" / "knowledge" / "index.md"
+        tmp_path / "facility" / "knowledge" / "index.md"
     ]
     assert len(grouped["written"]) == KNOWLEDGE_INDEX_FILES - 1
 
@@ -569,15 +538,15 @@ def test_plan_pull_reports_an_identical_destination_as_unchanged(
     demo: PresetData, tmp_path: Path
 ) -> None:
     """Re-pulling what is already there is a no-op, reported as one."""
-    source = packaged(demo, "data/facility/knowledge/index.md")
-    target = tmp_path / "data" / "facility" / "knowledge" / "index.md"
+    source = packaged(demo, "facility/knowledge/index.md")
+    target = tmp_path / "facility" / "knowledge" / "index.md"
     target.parent.mkdir(parents=True)
     target.write_bytes(source.read_bytes())
 
     plan = plan_pull(
         demo,
         tmp_path,
-        "data/facility/knowledge/index.md",
+        "facility/knowledge/index.md",
         force=True,
         with_content=False,
     )
@@ -590,13 +559,13 @@ def test_plan_pull_refuses_a_symlinked_target_directory(demo: PresetData, tmp_pa
     elsewhere = tmp_path / "elsewhere"
     elsewhere.mkdir()
     repo_root = tmp_path / "repo"
-    (repo_root / "data" / "facility").mkdir(parents=True)
-    (repo_root / "data" / "facility" / "knowledge").symlink_to(elsewhere, target_is_directory=True)
+    (repo_root / "facility").mkdir(parents=True)
+    (repo_root / "facility" / "knowledge").symlink_to(elsewhere, target_is_directory=True)
 
     plan = plan_pull(
         demo,
         repo_root,
-        "data/facility/knowledge",
+        "facility/knowledge",
         force=True,
         with_content=True,
     )
@@ -612,12 +581,12 @@ def test_plan_pull_refuses_a_directory_where_the_file_goes(
     demo: PresetData, tmp_path: Path
 ) -> None:
     """A kind mismatch is never resolved on the facility's behalf."""
-    (tmp_path / "data" / "facility" / "knowledge" / "index.md").mkdir(parents=True)
+    (tmp_path / "facility" / "knowledge" / "index.md").mkdir(parents=True)
 
     plan = plan_pull(
         demo,
         tmp_path,
-        "data/facility/knowledge/index.md",
+        "facility/knowledge/index.md",
         force=True,
         with_content=False,
     )
@@ -630,18 +599,18 @@ def test_plan_pull_refuses_a_file_where_a_directory_is_needed(
     demo: PresetData, tmp_path: Path
 ) -> None:
     """The mismatch counts anywhere between the repo root and the target."""
-    _stage_template(tmp_path, ["data/facility/knowledge/devices"])
+    _stage_template(tmp_path, ["facility/knowledge/devices"])
 
     plan = plan_pull(
         demo,
         tmp_path,
-        "data/facility/knowledge/devices/bpm.md",
+        "facility/knowledge/devices/bpm.md",
         force=True,
         with_content=True,
     )
 
     assert plan[0].action == "refused"
-    assert "data/facility/knowledge/devices" in plan[0].reason
+    assert "facility/knowledge/devices" in plan[0].reason
 
 
 def test_plan_pull_keeps_a_nested_package_marker(manager: TemplateManager, tmp_path: Path) -> None:
@@ -649,22 +618,22 @@ def test_plan_pull_keeps_a_nested_package_marker(manager: TemplateManager, tmp_p
     plan = plan_pull(
         _preset_data(manager, "hello-world"),
         tmp_path,
-        "mcp_servers/example_server",
+        "agent/mcp_servers/example_server",
         force=False,
         with_content=False,
     )
 
-    marker = tmp_path / "mcp_servers" / "example_server" / "__init__.py"
+    marker = tmp_path / "agent" / "mcp_servers" / "example_server" / "__init__.py"
     assert [action.action for action in plan if action.target == marker] == ["written"]
 
 
 def test_plan_pull_rejects_an_unknown_path(demo: PresetData, tmp_path: Path) -> None:
     """An unknown path fails the same way the listing does, with the same message."""
-    with pytest.raises(ValueError, match="data/facility_knowlege"):
+    with pytest.raises(ValueError, match="facility_knowlege"):
         plan_pull(
             demo,
             tmp_path,
-            "data/facility_knowlege",
+            "facility_knowlege",
             force=False,
             with_content=False,
         )
@@ -713,7 +682,7 @@ def test_apply_pull_of_the_knowledge_base_writes_only_the_indexes(
     plan = plan_pull(
         demo,
         tmp_path,
-        "data/facility/knowledge",
+        "facility/knowledge",
         force=False,
         with_content=False,
     )
@@ -732,20 +701,20 @@ def test_apply_pull_leaves_no_demo_document_title_in_a_pulled_index(
     demo: PresetData, tmp_path: Path
 ) -> None:
     """The rebuilt indexes name what is on disk, so the demo concepts are gone."""
-    knowledge_source = packaged(demo, "data/facility/knowledge")
+    knowledge_source = packaged(demo, "facility/knowledge")
     demo_titles = _packaged_demo_titles(knowledge_source)
     assert "Beam Position Monitor (BPM)" in demo_titles
 
     plan = plan_pull(
         demo,
         tmp_path,
-        "data/facility/knowledge",
+        "facility/knowledge",
         force=False,
         with_content=False,
     )
     apply_pull(plan, repo_root=tmp_path, with_content=False)
 
-    knowledge_target = tmp_path / "data" / "facility" / "knowledge"
+    knowledge_target = tmp_path / "facility" / "knowledge"
     pulled = "\n".join(
         index.read_text(encoding="utf-8") for index in knowledge_target.rglob(_INDEX_NAME)
     )
@@ -764,13 +733,13 @@ def test_a_skeleton_pull_leaves_indexes_that_validate(demo: PresetData, tmp_path
     plan = plan_pull(
         demo,
         tmp_path,
-        "data/facility/knowledge",
+        "facility/knowledge",
         force=False,
         with_content=False,
     )
     apply_pull(plan, repo_root=tmp_path, with_content=False)
 
-    knowledge_target = tmp_path / "data" / "facility" / "knowledge"
+    knowledge_target = tmp_path / "facility" / "knowledge"
     assert check_indexes(knowledge_target) == []
 
 
@@ -781,7 +750,7 @@ def test_apply_pull_with_content_writes_the_packaged_knowledge_base_verbatim(
     plan = plan_pull(
         demo,
         tmp_path,
-        "data/facility/knowledge",
+        "facility/knowledge",
         force=False,
         with_content=True,
     )
@@ -795,20 +764,20 @@ def test_apply_pull_with_content_writes_the_packaged_knowledge_base_verbatim(
     for path in written:
         relative = path.relative_to(tmp_path)
         assert path.read_bytes() == packaged(demo, relative).read_bytes()
-    assert check_indexes(tmp_path / "data" / "facility" / "knowledge") == []
+    assert check_indexes(tmp_path / "facility" / "knowledge") == []
 
 
 def test_apply_pull_writes_nothing_when_the_plan_holds_a_refusal(
     demo: PresetData, tmp_path: Path
 ) -> None:
     """One refusal stops the whole pull, so there is no half-applied copy to undo."""
-    _stage_template(tmp_path, ["data/facility/knowledge/index.md"])
+    _stage_template(tmp_path, ["facility/knowledge/index.md"])
     before = _tree(tmp_path)
 
     plan = plan_pull(
         demo,
         tmp_path,
-        "data/facility/knowledge",
+        "facility/knowledge",
         force=False,
         with_content=False,
     )
@@ -826,21 +795,21 @@ def test_apply_pull_overwrites_under_force_and_keeps_a_file_the_template_lacks(
     """A pull replaces what it names and removes nothing it does not."""
     _stage_template(
         tmp_path,
-        ["data/facility/knowledge/index.md", "data/facility/knowledge/devices/local-note.md"],
+        ["facility/knowledge/index.md", "facility/knowledge/devices/local-note.md"],
     )
 
     plan = plan_pull(
         demo,
         tmp_path,
-        "data/facility/knowledge",
+        "facility/knowledge",
         force=True,
         with_content=True,
     )
     apply_pull(plan, repo_root=tmp_path, with_content=True)
 
-    target = tmp_path / "data" / "facility" / "knowledge" / "index.md"
-    assert target.read_bytes() == (packaged(demo, "data/facility/knowledge/index.md")).read_bytes()
-    assert (tmp_path / "data" / "facility" / "knowledge" / "devices" / "local-note.md").is_file()
+    target = tmp_path / "facility" / "knowledge" / "index.md"
+    assert target.read_bytes() == (packaged(demo, "facility/knowledge/index.md")).read_bytes()
+    assert (tmp_path / "facility" / "knowledge" / "devices" / "local-note.md").is_file()
 
 
 def test_apply_pull_writes_a_nested_package_marker(
@@ -850,15 +819,15 @@ def test_apply_pull_writes_a_nested_package_marker(
     source = _preset_data(manager, "hello-world")
 
     plan = plan_pull(
-        source, tmp_path, "mcp_servers/example_server", force=False, with_content=False
+        source, tmp_path, "agent/mcp_servers/example_server", force=False, with_content=False
     )
     apply_pull(plan, repo_root=tmp_path, with_content=False)
 
-    marker = tmp_path / "mcp_servers" / "example_server" / "__init__.py"
+    marker = tmp_path / "agent" / "mcp_servers" / "example_server" / "__init__.py"
     assert marker.is_file()
     assert (
         marker.read_bytes()
-        == (source.app_root / "mcp_servers/example_server/__init__.py").read_bytes()
+        == (source.app_root / "agent/mcp_servers/example_server/__init__.py").read_bytes()
     )
 
 
@@ -867,7 +836,7 @@ def test_apply_pull_returns_the_actions_it_applied(demo: PresetData, tmp_path: P
     plan = plan_pull(
         demo,
         tmp_path,
-        "data/facility/knowledge",
+        "facility/knowledge",
         force=False,
         with_content=False,
     )
@@ -881,15 +850,15 @@ def test_apply_pull_returns_the_actions_it_applied(demo: PresetData, tmp_path: P
 
 def test_apply_pull_leaves_an_unchanged_target_alone(demo: PresetData, tmp_path: Path) -> None:
     """Re-pulling an identical file writes nothing and rebuilds nothing."""
-    source = packaged(demo, "data/facility/knowledge/index.md")
-    target = tmp_path / "data" / "facility" / "knowledge" / "index.md"
+    source = packaged(demo, "facility/knowledge/index.md")
+    target = tmp_path / "facility" / "knowledge" / "index.md"
     target.parent.mkdir(parents=True)
     target.write_bytes(source.read_bytes())
 
     plan = plan_pull(
         demo,
         tmp_path,
-        "data/facility/knowledge/index.md",
+        "facility/knowledge/index.md",
         force=True,
         with_content=False,
     )
@@ -940,8 +909,8 @@ def test_the_listing_names_the_content_and_not_the_machinery(runner: CliRunner, 
     """The two trees a facility rewrites are named; the build machinery is not."""
     listed = run(runner, repo, "demo", "--list").stdout.splitlines()
 
-    assert "data/facility/knowledge/" in listed
-    assert "web-terminal-context/" in listed
+    assert "facility/knowledge/" in listed
+    assert "agent/context/" in listed
     assert [entry for entry in listed if entry.endswith(".j2")] == []
     assert "__init__.py" not in listed
 
@@ -950,18 +919,18 @@ def test_the_listing_restricts_to_a_subtree_and_writes_nothing(
     runner: CliRunner, repo: Path
 ) -> None:
     """A path after the colon narrows the listing, and listing is read-only."""
-    result = run(runner, repo, "demo:data/facility/knowledge", "--list")
+    result = run(runner, repo, "demo:facility/knowledge", "--list")
 
     assert result.exit_code == 0, result.output
     assert result.stdout.splitlines() == [
-        entry for entry in DEMO_PULLABLE if entry.startswith("data/facility/knowledge/")
+        entry for entry in DEMO_PULLABLE if entry.startswith("facility/knowledge/")
     ]
     assert [path.name for path in repo.iterdir()] == ["profile.yml"]
 
 
 def test_pulling_the_knowledge_base_writes_only_the_indexes(runner: CliRunner, repo: Path) -> None:
     """A plain pull lands the structure, says what it left, and rebuilds the indexes."""
-    result = run(runner, repo, "demo:data/facility/knowledge")
+    result = run(runner, repo, "demo:facility/knowledge")
 
     assert result.exit_code == 0, result.output
     written = _markdown(repo)
@@ -978,12 +947,12 @@ def test_pulling_the_knowledge_base_with_content_writes_every_document(
     runner: CliRunner, repo: Path
 ) -> None:
     """The flag turns the skeleton into the whole worked example."""
-    result = run(runner, repo, "demo:data/facility/knowledge", "--with-content")
+    result = run(runner, repo, "demo:facility/knowledge", "--with-content")
 
     assert result.exit_code == 0, result.output
     assert len(_markdown(repo)) == KNOWLEDGE_MARKDOWN_FILES
     figures = sorted(path.relative_to(repo).as_posix() for path in repo.rglob("*.png"))
-    assert figures == ["data/facility/knowledge/devices/figures/bpm-button-pickups.png"]
+    assert figures == ["facility/knowledge/devices/figures/bpm-button-pickups.png"]
     assert "skipped" not in result.output
 
 
@@ -991,7 +960,7 @@ def test_pulling_one_knowledge_document_names_the_flag_that_brings_it(
     runner: CliRunner, repo: Path
 ) -> None:
     """Asking for a single filtered document is a refusal, not a silent no-op."""
-    result = run(runner, repo, "demo:data/facility/knowledge/devices/bpm.md")
+    result = run(runner, repo, "demo:facility/knowledge/devices/bpm.md")
 
     assert result.exit_code == 1
     assert "--with-content" in result.output
@@ -1000,23 +969,23 @@ def test_pulling_one_knowledge_document_names_the_flag_that_brings_it(
 
 def test_pulling_a_bundled_server_keeps_its_package_marker(runner: CliRunner, repo: Path) -> None:
     """A bundled MCP server lands importable, marker and all."""
-    result = run(runner, repo, "hello-world:mcp_servers/example_server")
+    result = run(runner, repo, "hello-world:agent/mcp_servers/example_server")
 
     assert result.exit_code == 0, result.output
-    assert (repo / "mcp_servers" / "example_server" / "__init__.py").is_file()
+    assert (repo / "agent" / "mcp_servers" / "example_server" / "__init__.py").is_file()
 
 
 def test_an_existing_destination_stops_the_whole_pull(runner: CliRunner, repo: Path) -> None:
     """One file already here refuses the pull, and nothing else is written."""
-    target = repo / "data" / "facility" / "knowledge" / _INDEX_NAME
+    target = repo / "facility" / "knowledge" / _INDEX_NAME
     target.parent.mkdir(parents=True)
     target.write_text("ours", encoding="utf-8")
 
-    result = run(runner, repo, "demo:data/facility/knowledge")
+    result = run(runner, repo, "demo:facility/knowledge")
 
     assert result.exit_code == 1
     assert "--force" in result.output
-    assert _markdown(repo) == ["data/facility/knowledge/index.md"]
+    assert _markdown(repo) == ["facility/knowledge/index.md"]
     assert target.read_text(encoding="utf-8") == "ours"
 
 
@@ -1024,17 +993,17 @@ def test_force_overwrites_and_keeps_a_file_the_template_lacks(
     runner: CliRunner, repo: Path, demo: PresetData
 ) -> None:
     """A pull replaces what it names and removes nothing it does not."""
-    knowledge = repo / "data" / "facility" / "knowledge"
+    knowledge = repo / "facility" / "knowledge"
     (knowledge / "devices").mkdir(parents=True)
     (knowledge / _INDEX_NAME).write_text("ours", encoding="utf-8")
     (knowledge / "devices" / "local-note.md").write_text("kept", encoding="utf-8")
 
-    result = run(runner, repo, "demo:data/facility/knowledge", "--force", "--with-content")
+    result = run(runner, repo, "demo:facility/knowledge", "--force", "--with-content")
 
     assert result.exit_code == 0, result.output
     assert "(updated)" in result.output
     assert (knowledge / _INDEX_NAME).read_bytes() == (
-        packaged(demo, "data/facility/knowledge/index.md")
+        packaged(demo, "facility/knowledge/index.md")
     ).read_bytes()
     assert (knowledge / "devices" / "local-note.md").read_text(encoding="utf-8") == "kept"
 
@@ -1043,12 +1012,12 @@ def test_an_identical_file_is_reported_as_unchanged(
     runner: CliRunner, repo: Path, demo: PresetData
 ) -> None:
     """Re-pulling what is already there says so rather than claiming a write."""
-    source = packaged(demo, "data/facility/knowledge/index.md")
-    target = repo / "data" / "facility" / "knowledge" / _INDEX_NAME
+    source = packaged(demo, "facility/knowledge/index.md")
+    target = repo / "facility" / "knowledge" / _INDEX_NAME
     target.parent.mkdir(parents=True)
     target.write_bytes(source.read_bytes())
 
-    result = run(runner, repo, "demo:data/facility/knowledge/index.md", "--force")
+    result = run(runner, repo, "demo:facility/knowledge/index.md", "--force")
 
     assert result.exit_code == 0, result.output
     assert "(unchanged)" in result.output
@@ -1059,10 +1028,10 @@ def test_a_symlinked_target_is_refused(runner: CliRunner, repo: Path, tmp_path: 
     """A link on the way to the target would land the copy somewhere else."""
     elsewhere = tmp_path / "elsewhere"
     elsewhere.mkdir()
-    (repo / "data" / "facility").mkdir(parents=True)
-    (repo / "data" / "facility" / "knowledge").symlink_to(elsewhere, target_is_directory=True)
+    (repo / "facility").mkdir(parents=True)
+    (repo / "facility" / "knowledge").symlink_to(elsewhere, target_is_directory=True)
 
-    result = run(runner, repo, "demo:data/facility/knowledge", "--force")
+    result = run(runner, repo, "demo:facility/knowledge", "--force")
 
     assert result.exit_code == 1
     assert "symlink" in result.output
@@ -1071,7 +1040,7 @@ def test_a_symlinked_target_is_refused(runner: CliRunner, repo: Path, tmp_path: 
 
 def test_an_unknown_preset_lists_the_presets_that_exist(runner: CliRunner, repo: Path) -> None:
     """The correction is the list of names, so the message carries it."""
-    result = run(runner, repo, "not-a-preset:data", "--list")
+    result = run(runner, repo, "not-a-preset:facility", "--list")
 
     assert result.exit_code != 0
     presets = list_presets()
@@ -1082,11 +1051,11 @@ def test_an_unknown_preset_lists_the_presets_that_exist(runner: CliRunner, repo:
 
 def test_an_unknown_path_lists_the_top_level_entries(runner: CliRunner, repo: Path) -> None:
     """A mistyped path is a usage error naming where to look instead."""
-    result = run(runner, repo, "demo:data/facility_knowlege")
+    result = run(runner, repo, "demo:facility_knowlege")
 
     assert result.exit_code != 0
-    assert "data/" in result.output
-    assert "web-terminal-context/" in result.output
+    assert "facility/" in result.output
+    assert "agent/" in result.output
     assert _markdown(repo) == []
 
 

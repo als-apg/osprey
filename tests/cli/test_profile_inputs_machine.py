@@ -67,7 +67,9 @@ def _machine_tree(root: Path) -> Path:
 
 
 def _mount(repo: Path, top: str = "vendor/x", *, versioned: bool = True) -> Path:
-    """A machine repository at ``repo/<top>`` with its facility at ``data/facility``.
+    """A machine repository at ``repo/<top>`` on an earlier release.
+
+    Its facility sits at ``data/facility``, the facility row's former location.
 
     It carries its own repository files: a profile, ``build/``, ``var/``,
     ``.claude/``, ``.env`` and a sibling data directory, as a clone would.
@@ -156,7 +158,7 @@ def test_a_new_machine_file_moves_the_profile_hash(repo: Path) -> None:
     machine = _mount(repo)
     before = _hash(repo)
 
-    _write(machine / "decks" / "lattice.yaml")
+    _write(machine / "simulation" / "decks" / "lattice.yaml")
 
     assert _hash(repo) != before
 
@@ -298,13 +300,13 @@ def test_staging_a_top_level_submodule_mount(repo: Path, tmp_path: Path) -> None
 def test_staging_a_machine_root_that_is_its_own_mount_top(repo: Path, tmp_path: Path) -> None:
     machine = _machine_tree(repo / "facility-repo")
     _git_init(machine)
-    _write(machine / "decks" / "lattice.yaml")
+    _write(machine / "simulation" / "decks" / "lattice.yaml")
     _set_machine(repo, "facility-repo")
 
     staged = _staged(_stage(repo, tmp_path))
 
     assert "facility-repo/identity.yaml" in staged
-    assert "facility-repo/decks/lattice.yaml" in staged
+    assert "facility-repo/simulation/decks/lattice.yaml" in staged
     assert "facility-repo/.git" not in staged
 
 
@@ -321,12 +323,12 @@ def test_an_unversioned_machine_directory_keeps_its_siblings(repo: Path, tmp_pat
 
 
 def test_staging_skips_nested_vcs_metadata_without_a_machine(repo: Path, tmp_path: Path) -> None:
-    _write(repo / "data" / "vendored" / ".git" / "config")
-    _write(repo / "data" / "vendored" / "keep.yaml")
+    _write(repo / "facility" / "vendored" / ".git" / "config")
+    _write(repo / "facility" / "vendored" / "keep.yaml")
 
     staged = _staged(_stage(repo, tmp_path))
 
-    assert "data/vendored/keep.yaml" in staged
-    assert "data/vendored/.git" not in staged
+    assert "facility/vendored/keep.yaml" in staged
+    assert "facility/vendored/.git" not in staged
     assert PROFILE_FILENAME in staged
     assert ".git" not in staged

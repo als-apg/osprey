@@ -75,6 +75,7 @@ from pathlib import Path
 import pytest
 import yaml
 
+from osprey import repo_layout
 from osprey.agent_record.identities import host_identity
 from osprey.cli.build_profile_updates import PRESET_BASE_DIR
 from osprey.deployment.compose_generator import (
@@ -275,7 +276,9 @@ def _append_probe_triggers(repo: Path, scratch: Path) -> tuple[str, float]:
     repo's own facility tree rendered into ``scratch``; returns
     ``(channel, value)``.
     """
-    channel, value = bounded_setpoint(facility_view(repo / "data" / "facility", scratch))
+    channel, value = bounded_setpoint(
+        facility_view(repo / repo_layout.entry("facility").path, scratch)
+    )
     triggers_file = _repo_triggers_file(repo)
     text = triggers_file.read_text(encoding="utf-8")
     assert "hello-dispatch" in text, (

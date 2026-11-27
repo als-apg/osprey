@@ -1,4 +1,4 @@
-"""The demo's committed ``limits.yaml`` and ``measurement/SR.yaml``.
+"""The demo's committed ``limits.yaml`` and ``simulation/measurement/SR.yaml``.
 
 The demo's first three records each teach one shape; one record per corrector
 setpoint follows, and every other channel is left to the deployment's limits
@@ -132,8 +132,8 @@ def wired_devices(view: Path, facility: dict[str, Any]) -> frozenset[str]:
 
 
 def measurement() -> dict[str, Any]:
-    """``measurement/SR.yaml`` as the loader parses it."""
-    document: dict[str, Any] = committed("measurement/SR.yaml")
+    """``simulation/measurement/SR.yaml`` as the loader parses it."""
+    document: dict[str, Any] = committed("simulation/measurement/SR.yaml")
     return document
 
 
@@ -168,7 +168,7 @@ def test_every_corrector_setpoint_has_one_record() -> None:
 
 def test_a_corrector_band_is_its_readback_clamp_where_the_seeds_declare_one() -> None:
     channels = records_by_id("channel")
-    seeds = committed("seeds.yaml")
+    seeds = committed("simulation/seeds.yaml")
     for record in committed("limits.yaml")["records"]:
         clamp = (seeds.get(channels[record["address"]].get("pair")) or {}).get("clamp")
         if clamp is not None and None not in clamp:
@@ -177,7 +177,7 @@ def test_a_corrector_band_is_its_readback_clamp_where_the_seeds_declare_one() ->
 
 def test_every_value_a_corrector_band_permits_its_readback_can_reach() -> None:
     channels = records_by_id("channel")
-    seeds = committed("seeds.yaml")
+    seeds = committed("simulation/seeds.yaml")
     for record in committed("limits.yaml")["records"]:
         if "min_value" not in record:
             continue
@@ -305,4 +305,4 @@ def test_measurement_carries_every_pyaml_step_and_settle_key() -> None:
 
 
 def test_the_tree_commits_both_files() -> None:
-    assert {"limits.yaml", "measurement/SR.yaml"} <= set(committed_files())
+    assert {"limits.yaml", "simulation/measurement/SR.yaml"} <= set(committed_files())

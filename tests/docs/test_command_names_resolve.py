@@ -31,9 +31,10 @@ start of the line, so prose and output lines do not match.
   ``osprey`` (or of ``.``) → the name is one of the repository's
   distributions and each ``[extra]`` is one it declares.
 * **Paths.** Path arguments of ``pytest`` and ``ruff``, the script of
-  ``python <script>``, and a line that runs ``scripts/...`` → the path exists
-  under the repository root. A path ``osprey`` scaffolding writes into a
-  project (``scripts/verify.sh``) resolves to its template instead.
+  ``python <script>``, and a line that runs ``scripts/...`` or
+  ``ops/scripts/...`` → the path exists under the repository root. A path
+  ``osprey`` scaffolding writes into a project (``ops/scripts/verify.sh``)
+  resolves to its template instead.
 * **npm.** ``npm run S`` → ``S`` is in ``package.json`` ``scripts``.
   ``npm ci`` and ``npm install`` pass; ``npm install -g
   @anthropic-ai/claude-code@V`` → ``V`` is the pinned Claude Code version.
@@ -308,7 +309,9 @@ def _command_names(text: str, *, inline: bool = False) -> list[tuple[str, str]]:
             found.append(("module", args[1]))
         elif args and not args[0].startswith("-"):
             found.append(("path", args[0]))
-    elif not inline and head.startswith(("scripts/", "./scripts/")):
+    elif not inline and head.startswith(
+        ("scripts/", "./scripts/", "ops/scripts/", "./ops/scripts/")
+    ):
         found.append(("path", head))
     elif head == "npm" and args[:1] == ["run"] and len(args) > 1:
         found.append(("npm", args[1]))
@@ -577,14 +580,14 @@ def test_positive_controls_resolve() -> None:
 .. code-block:: console
 
    $ uv run --frozen python -m osprey.dispatch
-   $ ./scripts/verify.sh --strict
+   $ ./ops/scripts/verify.sh --strict
    $ npm run test:js
    $ pip install "osprey-connectors"
 """
     names = _names("synthetic.rst", page)
     assert {(n.kind, n.value) for n in names} == {
         ("module", "osprey.dispatch"),
-        ("path", "./scripts/verify.sh"),
+        ("path", "./ops/scripts/verify.sh"),
         ("npm", "test:js"),
         ("distribution", "osprey-connectors"),
     }

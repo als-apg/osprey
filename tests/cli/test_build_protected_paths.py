@@ -1,6 +1,6 @@
 """The protected-path emitter, on real profile loads of temp deployments.
 
-Every case writes a deployment — ``profile.yml``, its ``data/`` tree, login
+Every case writes a deployment — ``profile.yml``, its declared sources, login
 files, host variants — resolves it the way ``osprey build`` does and reads the
 entries the emitter computes. Where the product has a resolver for a key, the
 emitted entry is compared with that resolver's answer rather than a literal.
@@ -35,6 +35,7 @@ from osprey.cli.build_protected_paths import (
     is_path_shaped,
 )
 from osprey.registry.manager import resolve_registry_path
+from osprey.repo_layout import display_path, rendered_sources
 from osprey.services.channel_directory.demo import resolve_replay_file
 from osprey.utils.config_paths import resolve_config_relative_path, resolve_render_relative_path
 from osprey_connectors.errors import BuildProfileError
@@ -51,9 +52,8 @@ def _write_yaml(path: Path, body: dict[str, Any]) -> Path:
 
 def _deployment(root: Path, **body: Any) -> Path:
     """A deployment at *root* whose ``profile.yml`` states *body*."""
-    profile: dict[str, Any] = {"name": "Facility", "data": "data"}
+    profile: dict[str, Any] = {"name": "Facility"}
     profile.update(body)
-    (root / str(profile["data"])).mkdir(parents=True, exist_ok=True)
     return _write_yaml(root / "profile.yml", profile)
 
 
@@ -118,13 +118,14 @@ def _enumerated(loaded: LoadedProfile) -> set[str]:
 
 
 def test_every_enumerated_input_is_emitted(tmp_path: Path) -> None:
-    (tmp_path / "hooks").mkdir()
+    hooks = display_path("hooks")
+    (tmp_path / hooks).mkdir(parents=True)
     loaded = _load(_deployment(tmp_path))
 
     entries = set(_emit(tmp_path, loaded).entries)
 
     assert _enumerated(loaded) <= entries
-    assert {"profile.yml", "data", "hooks"} <= entries
+    assert {"profile.yml", hooks} <= entries
 
 
 def test_an_extends_parent_is_emitted_and_its_values_are_read(tmp_path: Path) -> None:
@@ -140,8 +141,13 @@ def test_an_extends_parent_is_emitted_and_its_values_are_read(tmp_path: Path) ->
     assert "/etc/parent-ca.pem" in entries
 
 
-def test_a_renamed_data_tree_is_emitted(tmp_path: Path) -> None:
-    assert "facility-data" in _entries(tmp_path, data="facility-data")
+def test_every_rendered_source_is_emitted(tmp_path: Path) -> None:
+    sources = [source.source_rel for source in rendered_sources()]
+    assert sources
+    for source in sources:
+        (tmp_path / source).mkdir(parents=True)
+
+    assert set(sources) <= set(_entries(tmp_path))
 
 
 def test_a_machine_root_is_emitted(tmp_path: Path) -> None:

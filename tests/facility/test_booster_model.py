@@ -29,6 +29,7 @@ import pytest
 
 from osprey.facility.views.simulator import simulator_wiring
 from osprey_connectors.simulation.engines import curve_from_record, to_hardware, to_physics
+from osprey_facility import source_tree
 from osprey_facility.build import build_facility
 from osprey_facility.records import FacilityRecords
 from osprey_facility.sources import read_yaml
@@ -38,6 +39,10 @@ from tests.facility.conftest import BuiltProject
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SOURCES = REPO_ROOT / "scripts/facility_demo"
 EXAMPLE = REPO_ROOT / "src/osprey/templates/facilities/example"
+MODELS = source_tree.path("models")
+SEEDS = source_tree.path("seeds")
+DECKS = source_tree.path("decks")
+MEASUREMENT = source_tree.keyed_file("measurement", "BR")
 EXCERPT = Path(__file__).resolve().parent / "fixtures/mml/boosterlattice_excerpt.m"
 
 #: MML's booster families: the devices of each (``Booster/boosterinit.m``).
@@ -117,13 +122,13 @@ def _committed(rel: str) -> Any:
 
 
 def _model() -> dict[str, Any]:
-    (model,) = [model for model in _committed("models.yaml") if model["name"] == "BR"]
+    (model,) = [model for model in _committed(MODELS) if model["name"] == "BR"]
     return model
 
 
 @cache
 def _deck() -> dict[str, Any]:
-    return json.loads((EXAMPLE / "decks" / "BR.json").read_text(encoding="utf-8"))
+    return json.loads((EXAMPLE / DECKS / "BR.json").read_text(encoding="utf-8"))
 
 
 def _deck_elements() -> list[dict[str, Any]]:
@@ -158,7 +163,7 @@ def _positions(axes: str = "XY") -> list[str]:
 
 def _ring() -> Any:
     at = pytest.importorskip("at")
-    return at.load_lattice(str(EXAMPLE / "decks" / "BR.json"))
+    return at.load_lattice(str(EXAMPLE / DECKS / "BR.json"))
 
 
 def _ring4() -> Any:
@@ -176,7 +181,7 @@ def built() -> dict[str, Any]:
 
 
 def test_the_committed_deck_and_model_are_the_generated_ones() -> None:
-    assert (EXAMPLE / "decks" / "BR.json").read_text(encoding="utf-8") == booster().deck_text(
+    assert (EXAMPLE / DECKS / "BR.json").read_text(encoding="utf-8") == booster().deck_text(
         _section()
     )
     assert _model() == booster().model(_deck())
@@ -246,7 +251,7 @@ def test_the_cavity_is_mmls_at_the_demo_energy() -> None:
 def test_the_model_is_a_periodic_pyat_ring_at_one_energy() -> None:
     model = _model()
     assert model["engine"] == "pyat"
-    assert model["deck"] == "decks/BR.json"
+    assert model["deck"] == f"{DECKS}/BR.json"
     assert model["settings"] == {"pyat": {"solve": "periodic"}}
     ring = _ring()
     assert ring.energy == 2.0e9
@@ -497,7 +502,7 @@ def test_the_monitors_read_millimetres() -> None:
 
 
 def test_no_wired_channel_carries_a_seed_nominal_and_each_readback_moves() -> None:
-    seeds = _committed("seeds.yaml")
+    seeds = _committed(SEEDS)
     wired = {record["address"] for record in _model()["wiring"]}
     assert sorted(a for a in wired if "nominal" in seeds.get(a, {})) == []
     assert seeds["BR:DIAG:BPM:20:POSITION:X"] == {"noise": {"absolute": 0.005}}
@@ -507,7 +512,7 @@ def test_no_wired_channel_carries_a_seed_nominal_and_each_readback_moves() -> No
 
 
 def test_the_unwired_booster_channels_carry_their_nominals() -> None:
-    seeds = _committed("seeds.yaml")
+    seeds = _committed(SEEDS)
     for address in (
         "BR:MAG:DIPOLE-RAMP:01:GAIN:SP",
         "BR:MAG:HCM:01:STATUS:ON",
@@ -519,10 +524,7 @@ def test_the_unwired_booster_channels_carry_their_nominals() -> None:
 
 def test_no_seed_outlives_a_removed_channel() -> None:
     channels = {record["id"] for record in _committed("records/channels.yaml")}
-    assert (
-        sorted(a for a in _committed("seeds.yaml") if a.startswith("BR:") and a not in channels)
-        == []
-    )
+    assert sorted(a for a in _committed(SEEDS) if a.startswith("BR:") and a not in channels) == []
 
 
 def test_the_booster_place_spans_its_deck() -> None:
@@ -543,7 +545,7 @@ def test_every_lattice_device_takes_its_s_from_the_deck(built: Any) -> None:
 
 
 def test_the_measurement_file_lists_the_orbit_response_alone() -> None:
-    measurement = _committed("measurement/BR.yaml")
+    measurement = _committed(MEASUREMENT)
     assert measurement == booster().measurement()
     assert measurement == {
         "kinds": ["orm"],
@@ -562,14 +564,14 @@ def test_generation_rewrites_the_committed_files(tmp_path: Path) -> None:
     booster().write_deck(tree)
     booster().write_sources(tree)
     for rel in (
-        "decks/BR.json",
-        "models.yaml",
-        "measurement/BR.yaml",
+        f"{DECKS}/BR.json",
+        MODELS,
+        MEASUREMENT,
         "records/places.yaml",
         "records/devices.yaml",
         "records/groups.yaml",
         "limits.yaml",
-        "seeds.yaml",
+        SEEDS,
     ):
         assert (tree / rel).read_bytes() == (EXAMPLE / rel).read_bytes(), rel
     written = read_yaml((tree / "records/channels.yaml").read_text(encoding="utf-8"))
@@ -588,14 +590,14 @@ def test_generation_replaces_the_records_the_booster_had_before(tmp_path: Path) 
         + "- id: BR:MAG:QF:01:STATUS:FAULT\n  on:\n    device: BR/QF01\n",
         encoding="utf-8",
     )
-    seeds = tree / "seeds.yaml"
+    seeds = tree / SEEDS
     seeds.write_text(
         seeds.read_text(encoding="utf-8") + "BR:MAG:QF:01:STATUS:FAULT:\n  nominal: 'FALSE'\n",
         encoding="utf-8",
     )
     booster().write_sources(tree)
     assert "BR:MAG:QF:01:STATUS:FAULT" not in channels.read_text(encoding="utf-8")
-    assert (tree / "seeds.yaml").read_bytes() == (EXAMPLE / "seeds.yaml").read_bytes()
+    assert (tree / SEEDS).read_bytes() == (EXAMPLE / SEEDS).read_bytes()
 
 
 # --- the served ring ---------------------------------------------------------------

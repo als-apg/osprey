@@ -1,6 +1,6 @@
 """The MML fixture trees, imported and built the way the facility tests read them.
 
-A tree's exports are imported into a fresh ``data/facility/`` under the tree's
+A tree's exports are imported into a fresh ``facility/`` under the tree's
 mapping, the limits records its build stops on are widened to the edge the
 stop names, and the facility file is built in memory. :func:`build_tree` is
 that chain as a plain function.
@@ -71,7 +71,7 @@ def load_yaml(path: Path) -> Any:
     return safe_load(path.read_text(encoding="utf-8"))
 
 
-#: The ``data/facility`` directories of the run's shared imports and builds. They
+#: The ``facility`` directories of the run's shared imports and builds. They
 #: are read-only (a test copies before writing), so their files never change.
 _SHARED: set[Path] = set()
 
@@ -93,10 +93,10 @@ def _parse_shared(path: Path) -> Any:
 
 
 def mapped_facility(root: Path, tree: str) -> Path:
-    """A fresh ``root/data/facility`` holding only the tree's mapping."""
+    """A fresh ``root/facility`` holding only the tree's mapping."""
     from osprey_facility.layers.mml.mapping import MAPPING_FILE
 
-    facility = root / "data" / "facility"
+    facility = root / "facility"
     target = facility / MAPPING_FILE
     target.parent.mkdir(parents=True)
     shutil.copyfile(FIXTURES / tree / MAPPING_FILE, target)
@@ -109,7 +109,7 @@ def export_files(tree: str) -> list[Path]:
 
 
 def import_tree(root: Path, tree: str) -> Path:
-    """Import the tree's exports under its mapping into ``root/data/facility``."""
+    """Import the tree's exports under its mapping into ``root/facility``."""
     from osprey_facility.layers.mml.importer import import_mml
 
     facility = mapped_facility(root, tree)
@@ -132,7 +132,7 @@ def build_tree(tree: str, root: Path) -> tuple[dict[str, Any], Path]:
     """Import ``tree`` under ``root``, widen its named bands and build it in memory.
 
     Returns:
-        The facility file ``build_facility`` returned and the ``data/facility``
+        The facility file ``build_facility`` returned and the ``facility``
         directory it was built from.
     """
     return _widened_build(tree, import_tree(root, tree))
@@ -163,7 +163,7 @@ class BuiltModel:
         tree: The fixture tree.
         stem: The export stem the model was imported from.
         document: The tree's facility file.
-        facility: The ``data/facility`` directory it was built from.
+        facility: The ``facility`` directory it was built from.
         record: The model's record in the facility file.
     """
 
@@ -191,11 +191,11 @@ class BuiltModel:
 
 @dataclass(frozen=True)
 class MmlImport:
-    """A tree's exports imported into a fresh ``data/facility``.
+    """A tree's exports imported into a fresh ``facility``.
 
     Attributes:
         tree: The fixture tree.
-        facility: The ``data/facility`` directory the import wrote.
+        facility: The ``facility`` directory the import wrote.
         written: Each file the import returned, in its order.
         printed: What the import printed.
     """
@@ -216,8 +216,8 @@ class MmlImport:
         return read_yaml(self.facility / relative)
 
     def copy(self, root: Path) -> Path:
-        """The imported facility copied to ``root/data/facility``, for a case that changes it."""
-        facility = root / "data" / "facility"
+        """The imported facility copied to ``root/facility``, for a case that changes it."""
+        facility = root / "facility"
         shutil.copytree(self.facility, facility)
         return facility
 

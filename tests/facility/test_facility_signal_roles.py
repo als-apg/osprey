@@ -44,7 +44,7 @@ def _tree(signals: list[dict[str, Any]] | None, signal: str = "fixture_role") ->
         if channel["id"] == "Q1:RB":
             channel["signal"] = signal
     if signals is not None:
-        tree["signals.yaml"] = signals
+        tree["vocabulary/signals.yaml"] = signals
     return tree
 
 
@@ -108,7 +108,7 @@ def test_an_undeclared_role_stops_the_build_naming_signals_yaml(build_project: B
     assert result.exit_code != 0
     assert (
         "class-unknown: channel Q1:RB — signal fixture_role is in neither the vocabulary "
-        "nor signals.yaml" in result.output
+        "nor vocabulary/signals.yaml" in result.output
     )
 
 
@@ -122,7 +122,7 @@ def test_a_role_shadowing_a_vocabulary_role_is_refused_naming_both(build_project
     assert result.exit_code != 0
     assert "source-invalid" in result.output
     assert (
-        "signals.yaml role current_readback shadows the vocabulary signal role current_readback"
+        "vocabulary/signals.yaml role current_readback shadows the vocabulary signal role current_readback"
         in result.output
     )
 
@@ -132,7 +132,8 @@ def test_a_role_declared_twice_is_refused_naming_both(build_project: Build) -> N
 
     assert result.exit_code != 0
     assert (
-        "signals.yaml.1 role fixture_role shadows signals.yaml.0 role fixture_role" in result.output
+        "vocabulary/signals.yaml.1 role fixture_role shadows vocabulary/signals.yaml.0 role fixture_role"
+        in result.output
     )
 
 
@@ -146,7 +147,7 @@ def test_an_unknown_key_in_a_row_is_refused(build_project: Build) -> None:
 def test_facility_signals_reads_the_rows_of_signals_yaml(tmp_path: Path) -> None:
     from osprey_facility.sources import facility_signals
 
-    write_tree(tmp_path, {"signals.yaml": [FIXTURE_ROLE]})
+    write_tree(tmp_path, {"vocabulary/signals.yaml": [FIXTURE_ROLE]})
     assert facility_signals(tmp_path) == [FIXTURE_ROLE]
     assert facility_signals(tmp_path / "absent") == []
 

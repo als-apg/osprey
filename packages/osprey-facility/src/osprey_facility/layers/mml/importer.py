@@ -10,7 +10,7 @@ problem stops the import before anything is written) and writes the layer's
 record files. It writes sources, never a view: the
 build merges them with every other layer.
 
-What is written, relative to ``data/facility/``:
+What is written, relative to ``facility/``:
 
 * ``imported/mml/devices.yaml``: one device per device of a family that
   carries a channel, its id and the slots it stands for resolved by the
@@ -74,8 +74,9 @@ a stop leaves the layer directory as it was.
 The wiring pass's lines are printed once the records are written
 (:mod:`~osprey_facility.layers.mml.wiring` lists them). After the records,
 :func:`import_mml` seeds the authored files that do not
-exist yet (``limits.yaml``, ``seeds.yaml``, ``measurement/<model>.yaml``,
-``classes.yaml`` and ``identity.yaml``; :mod:`~osprey_facility.layers.mml.seed`)
+exist yet (``limits.yaml``, ``simulation/seeds.yaml``,
+``simulation/measurement/<model>.yaml``, ``vocabulary/classes.yaml`` and
+``identity.yaml``; :mod:`~osprey_facility.layers.mml.seed`)
 and prints what the seeding reports.
 
 The export loaders pull numpy and scipy and the deck reader pulls pyAT, so
@@ -92,6 +93,7 @@ from importlib.resources import files
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from osprey_facility import source_tree
 from osprey_facility.errors import FacilityUsageError, ImportStop, MappingProblems
 from osprey_facility.layers.mml.decks import DECKS_DIR, write_deck
 from osprey_facility.layers.mml.identity import (
@@ -375,7 +377,7 @@ def import_mml(
 
     Args:
         paths: The exports' AO files.
-        facility_dir: The ``data/facility`` directory.
+        facility_dir: The ``facility`` directory.
         echo: Receives each progress line (deck checks, tolerance count,
             wiring and seeding notes), in the order the import reaches it.
 
@@ -425,7 +427,7 @@ def write_records(
         exports: What :func:`read_exports` read.
         mapping: The layer's mapping, every slot decided and its check
             against these exports clean.
-        facility_dir: The ``data/facility`` directory.
+        facility_dir: The ``facility`` directory.
         echo: Receives each line the wiring pass reports.
 
     Returns:
@@ -541,14 +543,14 @@ def _write_records(
     layer.mkdir(parents=True, exist_ok=True)
     written = []
     if places.places:
-        written.append(_dump(layer / "places.yaml", places.places))
+        written.append(_dump(_entry(facility_dir, "places"), places.places))
     else:
-        (layer / "places.yaml").unlink(missing_ok=True)
+        _entry(facility_dir, "places").unlink(missing_ok=True)
     written += [
-        _dump(layer / "devices.yaml", _sorted(devices.values(), "id")),
-        _dump(layer / "channels.yaml", _sorted(channels.values(), "id")),
-        _dump(layer / "groups.yaml", _sorted(groups.values(), "id")),
-        _dump(layer / "models.yaml", _sorted(models, "name")),
+        _dump(_entry(facility_dir, "devices"), _sorted(devices.values(), "id")),
+        _dump(_entry(facility_dir, "channels"), _sorted(channels.values(), "id")),
+        _dump(_entry(facility_dir, "groups"), _sorted(groups.values(), "id")),
+        _dump(_entry(facility_dir, "models"), _sorted(models, "name")),
         write_rows(layer, export_rows),
     ]
     decks = [write_deck(deck, facility_dir, name) for name, deck in served]
@@ -924,7 +926,7 @@ def _wire(
     """Wire every imported model and name its deck and wiring on its entry.
 
     Each entry of ``models`` that has a deck gains ``deck``, the path its
-    served deck is written to relative to ``data/facility/``, and ``wiring``,
+    served deck is written to relative to ``facility/``, and ``wiring``,
     in the order ``name, engine, deck, settings, wiring``; its ``settings``
     are left as they are. Nothing is written here.
 
@@ -1018,6 +1020,11 @@ def _copy_responses(exports: Exports, mapping: Mapping, layer: Path) -> list[Pat
 
 def _sorted(rows: Iterable[dict[str, Any]], key: str) -> list[dict[str, Any]]:
     return sorted(rows, key=lambda row: str(row[key]))
+
+
+def _entry(facility_dir: Path, name: str) -> Path:
+    """Slot *name*'s file inside the mml layer."""
+    return facility_dir / source_tree.layer_entry("mml", name)
 
 
 def _dump(path: Path, rows: list[dict[str, Any]]) -> Path:

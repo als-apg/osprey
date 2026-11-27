@@ -129,7 +129,7 @@ dev.write_attribute("Setpoint", 150)  # Refused at runtime: RAW_CLIENT_WRITE
 ### Why This Matters
 
 The `osprey.runtime` API enforces:
-1. **Channel limits** — prevents out-of-range writes (the records of `data/facility/limits.yaml`, which `osprey build` renders into `build/data/channel_limits.json`, the file the connector's reference monitor and the runtime's limits check enforce on every write)
+1. **Channel limits** — prevents out-of-range writes (the records of `facility/limits.yaml`, which `osprey build` renders into `build/data/channel_limits.json`, the file the connector's reference monitor and the runtime's limits check enforce on every write)
 2. **Write confirmation** — re-reads the channel to confirm it holds the value sent
 3. **Human approval** — a person approves each write while the machine is at asked; at allowed the login's switch position approves it, and limits still apply
 4. **Audit logging** — records all operations for traceability

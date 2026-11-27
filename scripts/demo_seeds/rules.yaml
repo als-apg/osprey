@@ -1,6 +1,6 @@
 # The simulated motion of the example facility's float readbacks, one row per
 # signal class. `reseed.py` stamps each row's `noise` and `drift` into
-# src/osprey/templates/facilities/example/seeds.yaml.
+# src/osprey/templates/facilities/example/simulation/seeds.yaml.
 #
 # A row matches a channel by its device's `class` (records/devices.yaml) and the
 # channel's `signal` (records/channels.yaml). An optional `machine` (the first

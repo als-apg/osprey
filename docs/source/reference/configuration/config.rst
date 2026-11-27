@@ -51,7 +51,7 @@ the dotted form; the reason is under "Configuration overrides" in
      - What it does
    * - ``simulation.models``
      - The models the simulator serves, by name from the facility file's
-       ``models.yaml``. ``null`` or absent serves every model; ``[texture]``
+       ``simulation/models.yaml``. ``null`` or absent serves every model; ``[texture]``
        and ``[]`` serve no physics. Every shipped preset sets ``null``.
    * - ``simulation.tick_s``
      - Seconds between the simulator's ticks. Absent means ``1.0``; every

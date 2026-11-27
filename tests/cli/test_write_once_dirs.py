@@ -33,6 +33,7 @@ from osprey.cli.init_cmd import _missing_server_packages, init
 from osprey.cli.profile_cmd import _materialize_profile_directory
 from osprey.cli.profile_conventions import BUILD_OUTPUT_DIR
 from osprey.cli.templates.manager import TemplateManager
+from osprey.repo_layout import display_path
 from osprey_connectors.errors import BuildProfileError
 
 #: The preset materialized by most tests here, and the bundle it names.
@@ -40,7 +41,10 @@ PRESET = "hello-world"
 BUNDLE = "hello_world"
 
 #: What a caller passes: profile-root directory name → bundle-relative source.
-SEED_DIRS = {"mcp_servers": "mcp_servers"}
+SEED_DIRS = {display_path("mcp_servers"): display_path("mcp_servers")}
+
+#: Where the seeded MCP-server tree sits, in the repo and in the bundle.
+SEED = display_path("mcp_servers")
 
 
 def _packaged_template_root() -> Path:
@@ -52,7 +56,7 @@ def _packaged_template_root() -> Path:
 #: rather than a planted one, because what a first ``osprey init`` puts in an
 #: operator's repo IS this package — a synthetic stand-in could not catch a
 #: bundle that stopped shipping it.
-_PACKAGED_SEED = _packaged_template_root() / "apps" / BUNDLE / "mcp_servers"
+_PACKAGED_SEED = _packaged_template_root() / "apps" / BUNDLE / SEED
 
 needs_packaged_seed = pytest.mark.skipif(
     not _PACKAGED_SEED.is_dir(),
@@ -90,7 +94,7 @@ def synthetic_bundle(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
         root / "apps" / BUNDLE,
         ignore=shutil.ignore_patterns("mcp_servers", "__pycache__"),
     )
-    seed = root / "apps" / BUNDLE / "mcp_servers"
+    seed = root / "apps" / BUNDLE / SEED
     (seed / "fake_server").mkdir(parents=True)
     (seed / "fake_server" / "__init__.py").write_text('"""Planted."""\n', encoding="utf-8")
     # Byte-code a source checkout accumulates and a wheel never ships. It must
@@ -135,7 +139,7 @@ def test_failed_first_run_leaves_no_seed(tmp_path: Path, monkeypatch: pytest.Mon
     with pytest.raises(click.UsageError) as refusal:
         _materialize_profile_directory(target, PRESET, seed_dirs=SEED_DIRS)
 
-    assert not (target / "mcp_servers").exists()
+    assert not (target / SEED).exists()
     assert not (target / "profile.yml").exists()
     assert not (target / "data").exists()
     # `_cleanup`'s own verdict: nothing it owns survived, seed included.
@@ -146,8 +150,8 @@ def test_failed_first_run_leaves_no_seed(tmp_path: Path, monkeypatch: pytest.Mon
     monkeypatch.setattr(build_profile_mod, "resolve_build_profile", real_resolve)
     materialized = _materialize_profile_directory(target, PRESET, seed_dirs=SEED_DIRS)
 
-    assert materialized.seeded == ("mcp_servers",)
-    assert (target / "mcp_servers" / "fake_server" / "__init__.py").is_file()
+    assert materialized.seeded == (SEED,)
+    assert (target / SEED / "fake_server" / "__init__.py").is_file()
 
 
 @pytest.mark.usefixtures("synthetic_bundle")
@@ -157,8 +161,8 @@ def test_seed_carries_no_byte_code(tmp_path: Path) -> None:
 
     materialized = _materialize_profile_directory(target, PRESET, seed_dirs=SEED_DIRS)
 
-    seeded = target / "mcp_servers"
-    assert materialized.seeded == ("mcp_servers",)
+    seeded = target / SEED
+    assert materialized.seeded == (SEED,)
     assert (seeded / "fake_server" / "__init__.py").read_text(
         encoding="utf-8"
     ) == '"""Planted."""\n'
@@ -178,7 +182,7 @@ def test_bundle_without_the_tree_seeds_nothing(tmp_path: Path) -> None:
     materialized = _materialize_profile_directory(target, "demo", seed_dirs=SEED_DIRS)
 
     assert materialized.seeded == ()
-    assert not (target / "mcp_servers").exists()
+    assert not (target / SEED).exists()
 
 
 @pytest.mark.usefixtures("synthetic_bundle")
@@ -190,7 +194,7 @@ def test_existing_directory_is_left_alone(tmp_path: Path) -> None:
     the one thing the write-once rule exists to prevent.
     """
     target = tmp_path / "repo"
-    mine = target / "mcp_servers" / "my_server"
+    mine = target / SEED / "my_server"
     mine.mkdir(parents=True)
     (mine / "server.py").write_text("# the operator's own server\n", encoding="utf-8")
 
@@ -198,7 +202,7 @@ def test_existing_directory_is_left_alone(tmp_path: Path) -> None:
 
     assert materialized.seeded == ()
     assert (mine / "server.py").read_text(encoding="utf-8") == "# the operator's own server\n"
-    assert not (target / "mcp_servers" / "fake_server").exists()
+    assert not (target / SEED / "fake_server").exists()
 
 
 @pytest.mark.usefixtures("synthetic_bundle")
@@ -209,7 +213,7 @@ def test_no_seed_dirs_asked_for_seeds_nothing(tmp_path: Path) -> None:
     materialized = _materialize_profile_directory(target, PRESET)
 
     assert materialized.seeded == ()
-    assert not (target / "mcp_servers").exists()
+    assert not (target / SEED).exists()
 
 
 @needs_packaged_seed
@@ -219,10 +223,10 @@ def test_packaged_bundle_seeds_its_servers(tmp_path: Path) -> None:
 
     materialized = _materialize_profile_directory(target, PRESET, seed_dirs=SEED_DIRS)
 
-    assert materialized.seeded == ("mcp_servers",)
-    assert (target / "mcp_servers").is_dir()
-    assert list((target / "mcp_servers").rglob("__pycache__")) == []
-    assert list((target / "mcp_servers").rglob("*.pyc")) == []
+    assert materialized.seeded == (SEED,)
+    assert (target / SEED).is_dir()
+    assert list((target / SEED).rglob("__pycache__")) == []
+    assert list((target / SEED).rglob("*.pyc")) == []
 
 
 # ---------------------------------------------------------------------------
@@ -292,7 +296,7 @@ def test_first_init_seeds_the_shipped_server_package(runner: CliRunner, tmp_path
     result = _init(runner, target)
 
     assert result.exit_code == 0, result.output
-    seeded = target / "mcp_servers" / "example_server"
+    seeded = target / SEED / "example_server"
     for name in ("__init__.py", "server.py", "__main__.py"):
         assert (
             seeded.joinpath(name).read_bytes()
@@ -300,8 +304,8 @@ def test_first_init_seeds_the_shipped_server_package(runner: CliRunner, tmp_path
         ), name
     # A source checkout accumulates byte-code beside the package; a wheel never
     # ships it. Neither may reach the operator's repo.
-    assert list((target / "mcp_servers").rglob("__pycache__")) == []
-    assert list((target / "mcp_servers").rglob("*.py[co]")) == []
+    assert list((target / SEED).rglob("__pycache__")) == []
+    assert list((target / SEED).rglob("*.py[co]")) == []
 
 
 @needs_packaged_seed
@@ -318,7 +322,7 @@ def test_the_zone_row_names_the_directory_only_where_it_was_seeded(
     assert _init(runner, seeding).exit_code == 0
     assert _init(runner, bare, "demo").exit_code == 0
 
-    assert "`mcp_servers/`" in _zone_row(seeding)
+    assert f"`{SEED}/`" in _zone_row(seeding)
     assert "mcp_servers" not in _zone_row(bare)
 
 
@@ -335,7 +339,7 @@ def test_a_file_added_to_the_seed_survives_force_and_reset(
     """
     target = tmp_path / "demo"
     assert _init(runner, target).exit_code == 0
-    mine = target / "mcp_servers" / "example_server" / "sentinel.txt"
+    mine = target / SEED / "example_server" / "sentinel.txt"
     mine.write_text(SENTINEL, encoding="utf-8")
 
     forced = _init(runner, target, PRESET, "--force")
@@ -363,18 +367,18 @@ def test_a_deleted_seed_is_never_put_back(
     """
     target = tmp_path / "demo"
     assert _init(runner, target).exit_code == 0
-    shutil.rmtree(target / "mcp_servers")
+    shutil.rmtree(target / SEED)
 
     forced = _init(runner, target, PRESET, "--force")
 
     assert forced.exit_code == 0, forced.output
-    assert not (target / "mcp_servers").exists()
+    assert not (target / SEED).exists()
 
     _reset_runs_without_a_container_runtime(monkeypatch)
     reset = _init(runner, target, PRESET, "--reset")
 
     assert reset.exit_code == 0, reset.output
-    assert not (target / "mcp_servers").exists()
+    assert not (target / SEED).exists()
 
 
 # ── The pairing warning ──────────────────────────────────────────────────────
@@ -388,9 +392,7 @@ def test_a_deleted_seed_is_never_put_back(
 #: out here rather than imported from the code under test, so a reworded
 #: warning has to be read by someone before it can pass.
 WARNING_TAIL = "is missing; delete the block too, or copy the package back."
-WARNING_SUMMARY = (
-    f"profile.yml declares example_server but mcp_servers/example_server/ {WARNING_TAIL}"
-)
+WARNING_SUMMARY = f"profile.yml declares example_server but {SEED}/example_server/ {WARNING_TAIL}"
 WARNING_DETAIL = "Every session otherwise waits 20 s for a server that cannot start."
 
 
@@ -433,7 +435,7 @@ def test_a_deleted_package_draws_a_warning_on_the_next_forced_run(
     """
     target = tmp_path / "demo"
     assert _init(runner, target).exit_code == 0
-    shutil.rmtree(target / "mcp_servers")
+    shutil.rmtree(target / SEED)
 
     forced = _init(runner, target, PRESET, "--force")
 
@@ -450,7 +452,7 @@ def test_the_warning_reads_only_servers_this_repo_could_pair(tmp_path: Path) -> 
     and a warning about either would be wrong rather than merely noisy.
     """
     target = tmp_path / "repo"
-    (target / "mcp_servers" / "present_server").mkdir(parents=True)
+    (target / SEED / "present_server").mkdir(parents=True)
     build_zone = f"{{project_root}}/{BUILD_OUTPUT_DIR}/_mcp_servers"
     servers = {
         "gone": McpServerDef(

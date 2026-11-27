@@ -77,7 +77,7 @@ def test_a_stop_refuses_the_build_naming_fault_and_remedy(register) -> None:
     (error,) = check_scenario_engines(_document({"M:CMD": 1.0}))
     assert error.kind == "engine-invalid"
     assert (error.record_kind, error.record_id) == ("scenario", "drift")
-    assert error.sources == ("scenarios/drift.yaml",)
+    assert error.sources == ("simulation/scenarios/drift.yaml",)
     assert error.detail == "`faults.M.M:CMD`: a kick on a command record"
     assert error.remedy == "seed the kick on its readback"
 

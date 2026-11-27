@@ -37,7 +37,11 @@ from osprey.cli.build_profile_schema import (
     ServiceDef,
     osprey_declares_binding,
 )
-from osprey.deployment.compose_generator import AGENT_RECORD_TEMPLATE_DIR, TEMPLATE_FILENAME
+from osprey.deployment.compose_generator import (
+    AGENT_RECORD_TEMPLATE_DIR,
+    SERVICES_DIR,
+    TEMPLATE_FILENAME,
+)
 from osprey.deployment.graphdb_service import (
     DEFAULT_TTL_PATH,
     GRAPHDB_SERVICE_NAME,
@@ -50,6 +54,7 @@ from osprey.deployment.host_binding import (
     osprey_owns_binding,
 )
 from osprey.optimizer_connection import OPTIMIZER_PANEL_READ_TIMEOUT_S
+from osprey.repo_layout import entry as root_entry
 from osprey.utils.config_writer import (
     anchored_append,
     anchored_put,
@@ -397,7 +402,7 @@ def _copy_service_templates(project_path: Path) -> int:
         logger.warning("Service templates directory not found. Skipping the service copy.")
         return 0
 
-    dest_services_root = project_path / "services"
+    dest_services_root = project_path / SERVICES_DIR
     dest_services_root.mkdir(exist_ok=True)
     _copy_shared_service_partials(dest_services_root)
 
@@ -517,7 +522,7 @@ def _inject_profile_services(
 
     config = load_config_document(config_path)
 
-    dest_services_root = project_path / "services"
+    dest_services_root = project_path / SERVICES_DIR
     dest_services_root.mkdir(exist_ok=True)
     _copy_shared_service_partials(dest_services_root)
     owned = _user_owned_services(project_path)
@@ -620,7 +625,7 @@ def write_app_configs(
         services: The projected entries, each naming its application.
     """
     for key, service in services.items():
-        target = project_path / "services" / key / APP_CONFIG_FILE
+        target = project_path / SERVICES_DIR / key / APP_CONFIG_FILE
         target.parent.mkdir(parents=True, exist_ok=True)
         settings = build_profile.apps[service.config["app"]].config
         target.write_text(yaml.safe_dump(settings, sort_keys=False), encoding="utf-8")
@@ -711,7 +716,7 @@ def _declare_bundled_host_bindings(
             owned = osprey_owns_binding(
                 bundled,
                 template=service.template,
-                claimed=(profile_dir / "services" / str(key)).is_dir(),
+                claimed=(profile_dir / root_entry("services").path / str(key)).is_dir(),
             )
         entry = BUNDLED_HOST_BINDINGS.get(bundled)
         if entry is None or not owned:
@@ -848,7 +853,7 @@ def _inject_dispatch(
     # 2. Copy bundled compose templates (located the same way as service templates).
     pkg_services = bundled_services_dir()
 
-    dest_services_root = project_path / "services"
+    dest_services_root = project_path / SERVICES_DIR
     dest_services_root.mkdir(exist_ok=True)
     _copy_shared_service_partials(dest_services_root)
     owned = _user_owned_services(project_path)
@@ -1399,7 +1404,7 @@ def _inject_bluesky(
         logger.warning("No package template for bluesky service at %s", src_dir)
         return
 
-    dest_services_root = project_path / "services"
+    dest_services_root = project_path / SERVICES_DIR
     dest_services_root.mkdir(exist_ok=True)
     _copy_shared_service_partials(dest_services_root)
     # ONE template directory serves every lane: the lanes differ in their config
@@ -1693,7 +1698,7 @@ def _inject_va(va: VAConfig, project_path: Path) -> None:
         logger.warning("No package template for virtual_accelerator service at %s", src_dir)
         return
 
-    dest_services_root = project_path / "services"
+    dest_services_root = project_path / SERVICES_DIR
     dest_services_root.mkdir(exist_ok=True)
     _copy_shared_service_partials(dest_services_root)
     dest_dir = dest_services_root / "virtual_accelerator"
@@ -1790,7 +1795,8 @@ def _inject_va(va: VAConfig, project_path: Path) -> None:
         )
     logger.debug(
         "    Data:       requires <project>/data/simulator/addresses.json "
-        "(the build writes it from data/facility/; without it the IOC exits)."
+        f"(the build writes it from {root_entry('facility').path}/; "
+        "without it the IOC exits)."
     )
     logger.debug(
         "    Images:     `osprey up` builds the virtual-accelerator image "
@@ -1855,7 +1861,7 @@ def _inject_bluesky_web(bluesky_web: BlueskyWebConfig, project_path: Path) -> No
         logger.warning("No package template for bluesky_web service at %s", src_dir)
         return
 
-    dest_services_root = project_path / "services"
+    dest_services_root = project_path / SERVICES_DIR
     dest_services_root.mkdir(exist_ok=True)
     _copy_shared_service_partials(dest_services_root)
     dest_dir = dest_services_root / "bluesky_web"
@@ -1950,7 +1956,7 @@ def _inject_optimizer_web(optimizer_web: OptimizerWebConfig, project_path: Path)
         logger.warning("No package template for the optimizer_web service at %s", src_dir)
         return
 
-    dest_services_root = project_path / "services"
+    dest_services_root = project_path / SERVICES_DIR
     dest_services_root.mkdir(exist_ok=True)
     _copy_shared_service_partials(dest_services_root)
     _refresh_service_dir(
@@ -2055,7 +2061,7 @@ def _inject_nextcloud_bridge(
         logger.warning("No package template for nextcloud_bridge service at %s", src_dir)
         return
 
-    dest_services_root = project_path / "services"
+    dest_services_root = project_path / SERVICES_DIR
     dest_services_root.mkdir(exist_ok=True)
     _copy_shared_service_partials(dest_services_root)
     dest_dir = dest_services_root / "nextcloud_bridge"
@@ -2155,7 +2161,7 @@ def _inject_gchat_bridge(gchat_bridge: GChatBridgeProfileConfig, project_path: P
         logger.warning("No package template for gchat_bridge service at %s", src_dir)
         return
 
-    dest_services_root = project_path / "services"
+    dest_services_root = project_path / SERVICES_DIR
     dest_services_root.mkdir(exist_ok=True)
     _copy_shared_service_partials(dest_services_root)
     dest_dir = dest_services_root / "gchat_bridge"
@@ -2258,7 +2264,7 @@ def _inject_teams_bridge(teams_bridge: TeamsBridgeProfileConfig, project_path: P
         logger.warning("No package template for teams_bridge service at %s", src_dir)
         return
 
-    dest_services_root = project_path / "services"
+    dest_services_root = project_path / SERVICES_DIR
     dest_services_root.mkdir(exist_ok=True)
     _copy_shared_service_partials(dest_services_root)
     dest_dir = dest_services_root / "teams_bridge"
@@ -2368,7 +2374,7 @@ def _inject_slack_bridge(slack_bridge: SlackBridgeProfileConfig, project_path: P
         logger.warning("No package template for slack_bridge service at %s", src_dir)
         return
 
-    dest_services_root = project_path / "services"
+    dest_services_root = project_path / SERVICES_DIR
     dest_services_root.mkdir(exist_ok=True)
     _copy_shared_service_partials(dest_services_root)
     dest_dir = dest_services_root / "slack_bridge"
@@ -2470,7 +2476,7 @@ def _inject_va_archiver(va_archiver: VAArchiverConfig, project_path: Path) -> No
     #    with a different command — so there is nothing to build here either.
     pkg_services = bundled_services_dir()
 
-    dest_services_root = project_path / "services"
+    dest_services_root = project_path / SERVICES_DIR
     dest_services_root.mkdir(exist_ok=True)
     _copy_shared_service_partials(dest_services_root)
     owned = _user_owned_services(project_path)
@@ -2608,7 +2614,7 @@ def _inject_optimizer(optimizer: OptimizerConfig, project_path: Path) -> None:
         logger.warning("No package template for the optimizer service at %s", src_dir)
         return
 
-    dest_services_root = project_path / "services"
+    dest_services_root = project_path / SERVICES_DIR
     dest_services_root.mkdir(exist_ok=True)
     _copy_shared_service_partials(dest_services_root)
     _refresh_service_dir(
@@ -2704,7 +2710,7 @@ def _inject_server_fleet(project_path: Path) -> bool:
     if not src_dir.is_dir():
         logger.warning("No package template for the server fleet service at %s", src_dir)
         return False
-    dest_services_root = project_path / "services"
+    dest_services_root = project_path / SERVICES_DIR
     dest_services_root.mkdir(exist_ok=True)
     _copy_shared_service_partials(dest_services_root)
     _refresh_service_dir(

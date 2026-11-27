@@ -24,7 +24,7 @@ from osprey.services.code_review.review import ACTION_PROCEED, ACTION_REFUSE, de
 from .conftest import bare_route_app
 
 RULES = "# Code reviewer\n\n## Rules\n\n- Read `SR:BEAM:USER_MODE` first.\n"
-PROMPT = "data/code_review/reviewer.md"
+PROMPT = "agent/code_review/reviewer.md"
 
 
 def _project(tmp_path: Path, section: str, rules: str | None = RULES) -> Path:
@@ -83,7 +83,7 @@ def test_every_tier_reads_it_and_only_the_admin_tier_is_told_it_may_change(tmp_p
 
 @pytest.mark.parametrize(
     "prompt",
-    ["data/code_review/missing.md", "../outside.md", "build/config.yml"],
+    ["agent/code_review/missing.md", "../outside.md", "build/config.yml"],
     ids=["missing", "climbs-out", "build-zone"],
 )
 def test_unusable_rules_under_block_say_code_is_blocked(tmp_path, prompt):

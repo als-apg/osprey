@@ -1,10 +1,10 @@
 """The two facility roots of a deployment and the predicates that walk them.
 
-A deployment's facility facts live in one tree, ``<data>/facility``, unless its
+A deployment's facility facts live in one tree, ``facility/``, unless its
 profile names a **machine root** (the ``machine:`` key). Then the machine facts
 (identity, classes, records, imported layers, models, decks, seeds, limits,
 scenarios, measurement, fixes) are read from the machine root, and the
-deployment's own content is read from the **content root**, ``<data>/facility``.
+deployment's own content is read from the **content root**, ``facility/``.
 Without the key the one tree plays both roles: :meth:`FacilityRoots.single`.
 
 Everything here is path arithmetic on relative paths; nothing touches the disk.
@@ -18,6 +18,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path, PurePath
 
+from osprey_facility import source_tree
+
 __all__ = [
     "DEPLOYMENT_CONTENT_DIRS",
     "FacilityRoots",
@@ -25,17 +27,23 @@ __all__ = [
     "is_vcs_metadata",
 ]
 
-DEPLOYMENT_CONTENT_DIRS: tuple[str, ...] = ("knowledge", "ariel", "benchmarks")
+DEPLOYMENT_CONTENT_DIRS: tuple[str, ...] = tuple(
+    dict.fromkeys(
+        source_tree.path(row.name).split("/", 1)[0] for row in source_tree.slots() if row.content
+    )
+)
 """The top-level directories of a facility tree that belong to the deployment.
 
-Exactly these three, because they are what a deployment writes about its own
-use of the machine rather than what the machine is (ruling 2026-11-07):
-``knowledge/`` is the operators' notes the agent reads, ``ariel/`` the logbook
-vocabulary of the deployment's ARIEL service, and ``benchmarks/`` the query
-datasets the deployment scores its agent against. Two deployments mounting the
-same machine differ in all three and agree on everything else, so everything
-else is a machine fact. While mounted they are read from the content root only,
-and the same names inside the machine root are skipped.
+The first path segment of each content slot of the tree's layout declaration,
+once each, in declaration order: ``knowledge/``, ``ariel/`` and ``benchmarks/``.
+They are what a deployment writes about its own use of the machine rather than
+what the machine is: ``knowledge/`` is the operators' notes the agent reads,
+``ariel/`` the logbook vocabulary of the deployment's ARIEL service, and
+``benchmarks/`` the query datasets the deployment scores its agent against. Two
+deployments mounting the same machine differ in all three and agree on
+everything else, so everything else is a machine fact. While mounted they are
+read from the content root only, and the same names inside the machine root
+are skipped.
 """
 
 _VCS_METADATA = ".git"

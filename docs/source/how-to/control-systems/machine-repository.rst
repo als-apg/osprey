@@ -16,15 +16,14 @@ What goes where
 
    example-machine/              the machine repository
      profile.yml                 its VA-only setup
-     data/facility/              the machine facts
-       identity.yaml  records/  classes.yaml  models.yaml  decks/
-       limits.yaml  seeds.yaml  measurement/  scenarios/  fixes.yaml
-       imported/<layer>/
+     facility/                   the machine facts
+       identity.yaml  records/  limits.yaml  imported/<layer>/
+       vocabulary/  provenance/  simulation/
 
    my-deployment/                a deployment
-     profile.yml                 states machine: vendor/example-machine/data/facility
+     profile.yml                 states machine: vendor/example-machine/facility
      vendor/example-machine/     the machine repository, mounted
-     data/facility/
+     facility/
        knowledge/  ariel/  benchmarks/
 
 The machine repository holds every machine fact, including its start set: the
@@ -59,10 +58,11 @@ same) and name its facility directory in the root ``profile.yml``:
 
 .. code-block:: yaml
 
-   machine: vendor/example-machine/data/facility
+   machine: vendor/example-machine/facility
 
-``machine:`` resolves and is folded into the profile hash like ``data:``
-(:doc:`/how-to/build-profiles`), so a new machine commit reports the build out of date.
+``machine:`` resolves against the repository root, and the tree it names is
+folded into the profile hash like ``facility/`` (:doc:`/how-to/build-profiles`),
+so a new machine commit reports the build out of date.
 Only the root ``profile.yml`` states it; every login drives the same
 machine. A machine builds to the same facility file standalone and mounted,
 except for a measurement kind only the mounting deployment's package registers:
@@ -71,7 +71,7 @@ deployment judges its block (:doc:`/how-to/pyaml/register-a-measurement-kind`).
 
 With ``machine:`` set, ``osprey facility import`` writes into the machine root,
 except the knowledge index, which goes under the deployment's
-``data/facility/knowledge/``. Commit the change in the machine repository, then
+``facility/knowledge/``. Commit the change in the machine repository, then
 the new submodule commit in the deployment.
 
 Stops
@@ -83,13 +83,31 @@ fix, on:
 ``machine-missing``
    The machine root holds no ``identity.yaml``: the submodule is not
    initialised (``git submodule update --init``), or ``machine:`` names the
-   repository top instead of its ``data/facility``.
+   repository top instead of its ``facility``.
 ``machine-restated``
-   The deployment's ``data/facility/`` holds a file outside ``knowledge/``,
+   The deployment's ``facility/`` holds a file outside ``knowledge/``,
    ``ariel/`` and ``benchmarks/``. Edit the fact in the machine repository and
    remove the deployment's copy.
 ``profile-invalid``
-   ``machine:`` and ``data:`` overlap; a login file states ``machine:``; or the
+   ``machine:`` and ``facility/`` overlap; a login file states ``machine:``; or the
    profile states ``simulation.default_scenarios`` beside ``start: true`` or
    ``start_on`` marks or a mounted machine. ``simulation.default_scenarios: null`` cancels a
    preset's value.
+
+.. _machine-repository-upgrade:
+
+Upgrade
+=======
+
+When an upgrade moves a facility path, upgrade OSPREY in
+every deployment that mounts the machine repository before the machine
+repository changes: an older OSPREY reads a moved machine without the moved
+files, and says nothing.
+
+#. In each mounting deployment, upgrade OSPREY and run
+   ``osprey init --revalidate``. It leaves the machine as it is and prints the
+   commands that move it under "Left for you to do by hand"; its builds refuse
+   the machine until it moves (:ref:`profile-root-migration`).
+#. In the machine repository, upgrade OSPREY, run
+   ``osprey init --revalidate`` (or the printed commands) and commit.
+#. In each deployment, commit the new submodule commit.

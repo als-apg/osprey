@@ -214,17 +214,6 @@ def empty_ledger() -> Iterator[None]:
 
 
 @pytest.fixture
-def facility_data_tree(tmp_path: Path) -> None:
-    """The tree every profile's ``data:`` key names, beside the profile.
-
-    ``data:`` is required of every repo profile and must resolve to a real
-    directory, so without this each profile a test writes into ``tmp_path``
-    would report one extra failure about a key none of these tests is about.
-    """
-    (tmp_path / "data").mkdir(exist_ok=True)
-
-
-@pytest.fixture
 def container_runtime_is_up(monkeypatch: pytest.MonkeyPatch) -> None:
     """Answer the container-runtime preflight without consulting the host.
 

@@ -39,7 +39,7 @@ def _write_yaml(path: Path, body: dict[str, Any]) -> Path:
     only for files written outside the preset directory.
     """
     if path.parent.name != "presets":
-        body = {**body, "data": "data"}
+        body = {**body}
         (path.parent / "data").mkdir(exist_ok=True)
     path.write_text(yaml.safe_dump(body, sort_keys=False), encoding="utf-8")
     return path
@@ -192,8 +192,8 @@ def test_a_cyclic_extends_chain_terminates(fake_presets: Path) -> None:
 def test_every_bundled_preset_names_a_packaged_bundle() -> None:
     """The shipped presets must resolve to packaged data that exists on disk.
 
-    The app template's ``data/`` and the facility together are the data tree:
-    an app template with no ``data/`` of its own ships its data as a facility.
+    The app template's ``web/`` and the facility together are the packaged
+    content: an app template with no ``web/`` of its own ships a facility.
     """
     from osprey.cli.build_profile import list_presets
     from osprey.cli.profile_cmd import _preset_data
@@ -202,7 +202,7 @@ def test_every_bundled_preset_names_a_packaged_bundle() -> None:
     manager = TemplateManager()
     for name in build_profile_presets.list_presets():
         composed = _preset_data(manager, name)
-        assert composed.app_data.is_dir() or composed.facility_root is not None, name
+        assert composed.app_web.is_dir() or composed.facility_root is not None, name
     assert list_presets()
 
 

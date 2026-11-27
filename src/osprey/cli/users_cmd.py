@@ -509,11 +509,17 @@ def _users_session(repo: Path | None, *, announce: bool = True) -> Iterator[_Rep
 
     Raises:
         click.ClickException: If no deployment repo encloses the search start.
+        RetiredRootRefused: If the repo holds something at a retired path.
         click.Abort: If the repo has no build, or the verb failed.
     """
+    from osprey.repo_retired import deployment_root
+
     action = click.get_current_context().info_name or "users"
+    # A repo holding anything at a retired path stops before its build is
+    # looked for, so an unbuilt one is refused for the layout, not the build.
+    repo_root = deployment_root(repo)
     build = find_build(
-        repo, "Web-terminal users are managed through the rendered config the stack runs from."
+        repo_root, "Web-terminal users are managed through the rendered config the stack runs from."
     )
     if build is None:
         raise click.Abort()

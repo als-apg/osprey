@@ -17,7 +17,7 @@ from osprey.registry.scenario_servers import check_scenario_servers, scenario_se
 from osprey_facility.scenarios import check_scenario_sessions
 from osprey_facility.validate import Validated
 
-_PATH = "scenarios/warm.yaml `sessions[0].parts[0].turns[0]"
+_PATH = "simulation/scenarios/warm.yaml `sessions[0].parts[0].turns[0]"
 
 _TURN: dict[str, Any] = {
     "prompt": "How did the beam current look overnight?",

@@ -97,10 +97,10 @@ FACILITY_ROSTER = [
 HOST_WEB_PANELS = ["channel-finder", "okf"]
 
 #: Where the pulled knowledge bundle lands, relative to the repo root.
-BUNDLE_PATH = "data/facility/knowledge"
+BUNDLE_PATH = "facility/knowledge"
 
 #: Directory ``osprey build`` seeds in the *source* zone, one per roster entry.
-CONTEXT_DIRNAME = "web-terminal-context"
+CONTEXT_DIRNAME = "agent/context"
 
 
 def invoke(runner: CliRunner, *args: str) -> Result:

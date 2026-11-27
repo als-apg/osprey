@@ -32,9 +32,9 @@ When in doubt, EVALUATE — surface it rather than silently discard.
 | Custom providers (`models/providers/*.py`) | Provider registry still exists             | EVALUATE  |
 | Custom prompt builders (`*prompts*/*.py`)  | Customization layer likely still needed    | EVALUATE  |
 | `services/channel_finder/` full copies     | Framework-native now — likely redundant    | EVALUATE  |
-| Channel database JSON files                | Channels are `data/facility/` records now  | TRANSFORM |
+| Channel database JSON files                | Channels are `facility/` records now  | TRANSFORM |
 | `data/channel_limits.json`                 | Limits are `limits.yaml` records now       | TRANSFORM |
-| `data/benchmarks/**`, `data/raw/*.csv`     | Same format                                | SALVAGE   |
+| `data/benchmarks/**`                       | Same format, under `facility/benchmarks/`  | SALVAGE   |
 | `data/tools/*.py`, machine-state JSON      | Utility data                               | SALVAGE   |
 | Custom `.claude/rules/`, `.claude/skills/` | Content still valid                        | SALVAGE   |
 | Custom `.claude/hooks/`                    | Hook API may differ — review               | TRANSFORM |
@@ -49,13 +49,14 @@ When in doubt, EVALUATE — surface it rather than silently discard.
 Do not memorize target paths — open the live repo and read its profile.yml
 comments — but the general destinations are:
 
-- Data files → the repo's `data/` tree (same formats).
+- Facility data files (records, limits, knowledge, benchmarks) → the repo's
+  `facility/` tree (same formats).
 - Config values (gateways, archiver URLs, timezone, provider/model) →
   `osprey set key=value` into the live profile.
 - Custom code and assets (rules, skills, agents, MCP servers, services,
   arbitrary project files) → the matching convention directory
-  (`rules/`, `skills/`, `agents/`, `mcp_servers/`, `services/`,
-  `project/`, …) — the directory name is the declaration.
+  (`agent/rules/`, `agent/skills/`, `agent/agents/`, `agent/mcp_servers/`,
+  `ops/services/`, `ops/project/`, …) — the directory name is the declaration.
 - Environment variable NAMES → the profile's `env:` block (`required`
   vs `defaults`). NEVER copy values — even from a committed file; the
   user may not realize a token is in there. Flag `*_TOKEN`, `*_KEY`,

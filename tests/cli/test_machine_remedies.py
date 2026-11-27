@@ -2,8 +2,8 @@
 
 With ``machine:`` in the profile, the facility's ``limits.yaml`` lives in the
 machine repository, so the remedy for a profile that names its own limits
-database points there. Without ``machine:``, the text is byte-identical to the
-historical ``<data>/facility/limits.yaml`` wording.
+database points there. Without ``machine:``, it names the deployment's own
+``facility/limits.yaml``.
 """
 
 from __future__ import annotations
@@ -42,35 +42,29 @@ def _refusal(raw: dict[str, Any]) -> str:
     ],
 )
 def test_with_machine_the_remedy_names_the_machine_limits(machine: str, limits: str) -> None:
-    raw = {"data": "data", "machine": machine, "config": {WIDE: "x.json"}}
+    raw = {"machine": machine, "config": {WIDE: "x.json"}}
 
     assert _refusal(raw) == _line(WIDE, limits)
 
 
-def test_with_machine_the_remedy_does_not_name_the_data_tree() -> None:
-    raw = {"data": "site", "machine": "machine", "config": {WIDE: "x.json"}}
+def test_with_machine_the_remedy_does_not_name_the_facility_tree() -> None:
+    raw = {"machine": "machine", "config": {WIDE: "x.json"}}
 
     text = _refusal(raw)
 
-    assert "site/facility/limits.yaml" not in text
+    assert "facility/limits.yaml" not in text
     assert "machine/limits.yaml" in text
 
 
 @pytest.mark.parametrize(
-    ("raw_extra", "limits"),
-    [
-        ({}, "data/facility/limits.yaml"),
-        ({"data": "data"}, "data/facility/limits.yaml"),
-        ({"data": "site"}, "site/facility/limits.yaml"),
-        ({"data": "site", "machine": None}, "site/facility/limits.yaml"),
-        ({"data": "site", "machine": ""}, "site/facility/limits.yaml"),
-    ],
-    ids=["no-data", "data", "custom-data", "machine-null", "machine-empty"],
+    "raw_extra",
+    [{}, {"machine": None}, {"machine": ""}],
+    ids=["no-machine", "machine-null", "machine-empty"],
 )
-def test_without_machine_the_text_is_unchanged(raw_extra: dict[str, Any], limits: str) -> None:
+def test_without_machine_the_remedy_names_the_facility_limits(raw_extra: dict[str, Any]) -> None:
     raw = {**raw_extra, "config": {WIDE: "x.json"}}
 
-    assert _refusal(raw) == _line(WIDE, limits)
+    assert _refusal(raw) == _line(WIDE, "facility/limits.yaml")
 
 
 def test_the_profile_parse_carries_the_machine_remedy() -> None:

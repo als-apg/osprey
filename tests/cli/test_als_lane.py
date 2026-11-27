@@ -24,7 +24,7 @@ The lane is the install a deployer types, on a demo deployment:
 Discovery, in order; the first variable that is set decides:
 
 * ``OSPREY_ALS_PROFILES`` names the facility's profiles checkout:
-  ``data/facility/identity.yaml`` and ``data/facility/imported/mml/mapping.yaml``
+  ``facility/identity.yaml`` and ``facility/imported/mml/mapping.yaml``
   under it, and every ``*.ao.json`` export anywhere in it;
 * ``OSPREY_ALS_MML_EXPORT`` and ``OSPREY_ALS_MML_MAPPING`` name one export and
   the reviewed ``imported/mml/mapping.yaml`` file directly;
@@ -108,6 +108,7 @@ import pytest  # noqa: E402
 import yaml  # noqa: E402
 from click.testing import CliRunner, Result  # noqa: E402
 
+from osprey import repo_layout  # noqa: E402
 from osprey_connectors_tests._harness._ports import reserved_port  # noqa: E402
 
 #: The facility's profiles checkout.
@@ -126,7 +127,7 @@ STAND_IN_ENV = "OSPREY_ALS_LANE_STAND_IN"
 LANE_VARIABLES = (ALS_PROFILES_ENV, ALS_EXPORT_ENV, ALS_MAPPING_ENV, STAND_IN_ENV)
 
 #: Where a profiles checkout keeps its facility sources.
-FACILITY_DIR = Path("data") / "facility"
+FACILITY_DIR = Path(repo_layout.entry("facility").path)
 
 #: The file whose presence makes a directory a facility checkout.
 IDENTITY_FILE = "identity.yaml"

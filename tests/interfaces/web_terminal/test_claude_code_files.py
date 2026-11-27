@@ -314,8 +314,8 @@ class TestCreateFileProtectedSet:
     @pytest.mark.parametrize(
         ("rel_path", "channel_phrase"),
         [
-            (".claude/skills/new/SKILL.md", "`skills/`"),
-            (".claude/rules/new.md", "`rules/`"),
+            (".claude/skills/new/SKILL.md", "`agent/skills/`"),
+            (".claude/rules/new.md", "`agent/rules/`"),
         ],
     )
     def test_create_file_refuses_a_new_file_in_a_reserved_subtree(
@@ -406,11 +406,11 @@ class TestSymlinkedReservedTargets:
     @pytest.mark.parametrize(
         ("link_rel", "target_rel", "channel_phrase"),
         [
-            (".claude/agents/x.md", ".claude/rules/safety.md", "`rules/`"),
+            (".claude/agents/x.md", ".claude/rules/safety.md", "`agent/rules/`"),
             (
                 ".claude/agents/hook-alias.py",
                 ".claude/hooks/osprey_writes_check.py",
-                "`hooks/`",
+                "`agent/hooks/`",
             ),
         ],
     )
@@ -451,7 +451,7 @@ class TestSymlinkedReservedTargets:
     def test_create_file_refuses_a_dangling_link_into_a_reserved_subtree(
         self, service, project_dir
     ):
-        """Create is the other half: a link with no target yet still lands in ``rules/``."""
+        """Create is the other half: a link with no target yet still lands in ``agent/rules/``."""
         link_rel = ".claude/agents/new-rule.md"
         landing = project_dir / ".claude" / "rules" / "authored-by-the-agent.md"
         (project_dir / link_rel).symlink_to(landing)
@@ -459,7 +459,7 @@ class TestSymlinkedReservedTargets:
         with pytest.raises(ProtectedWriteError) as excinfo:
             service.create_file(link_rel, "# Authored by the agent\n")
 
-        assert "`rules/`" in str(excinfo.value)
+        assert "`agent/rules/`" in str(excinfo.value)
         assert not landing.exists()
 
     def test_list_files_marks_a_link_onto_a_reserved_file_read_only(self, service, project_dir):

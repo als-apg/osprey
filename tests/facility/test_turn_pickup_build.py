@@ -16,6 +16,7 @@ from typing import Any
 import pytest
 import yaml
 
+from osprey_facility import source_tree
 from osprey_facility.build import build_facility
 from osprey_facility.errors import FacilityBuildError
 from tests._builds import FRAMEWORK_CHECKS
@@ -40,14 +41,16 @@ TABLE: dict[str, Any] = {"shape": "table", "table": "pickups/flat.json", "button
 def _tree(tmp_path: Path, faults: dict[str, Any] | None = None, **block: Any) -> Path:
     facility_dir = tmp_path / "facility"
     shutil.copytree(FIXTURE, facility_dir)
-    models = yaml.safe_load((facility_dir / "models.yaml").read_text())
+    models_file = facility_dir / source_tree.path("models")
+    models = yaml.safe_load(models_file.read_text())
     (ring,) = [model for model in models if model["name"] == RING]
     ring["settings"]["pyat"]["turn_by_turn"].update(block)
-    (facility_dir / "models.yaml").write_text(yaml.safe_dump(models, sort_keys=False))
+    models_file.write_text(yaml.safe_dump(models, sort_keys=False))
     if faults is not None:
-        (facility_dir / "scenarios").mkdir()
+        scenario_file = facility_dir / source_tree.keyed_file("scenarios", "uneven-buttons")
+        scenario_file.parent.mkdir(parents=True)
         scenario = {"description": "A monitor with uneven buttons.", "faults": faults}
-        (facility_dir / "scenarios" / "uneven-buttons.yaml").write_text(yaml.safe_dump(scenario))
+        scenario_file.write_text(yaml.safe_dump(scenario))
     return facility_dir
 
 
@@ -55,7 +58,7 @@ def _table(facility_dir: Path, *, buttons: int = 4) -> Path:
     grid = [-0.002, -0.001, 0.0, 0.001, 0.002]
     corners = [(1, 1), (-1, 1), (-1, -1), (1, -1)][:buttons]
     values = [[[1.0 + 60.0 * (cx * x + cy * y) for x in grid] for y in grid] for cx, cy in corners]
-    path = facility_dir / "decks" / "pickups" / "flat.json"
+    path = facility_dir / source_tree.path("decks") / "pickups" / "flat.json"
     path.parent.mkdir()
     path.write_text(json.dumps({"x": grid, "y": grid, "buttons": values}))
     return path
@@ -134,7 +137,8 @@ def test_a_missing_table_stops_the_build_with_its_resolved_path(tmp_path: Path) 
 
     text = str(caught.value)
     assert "pyat.turn_by_turn.pickup.table pickups/flat.json" in text
-    assert str((facility_dir / "decks" / "pickups" / "flat.json").resolve()) in text
+    table = facility_dir / source_tree.path("decks") / "pickups" / "flat.json"
+    assert str(table.resolve()) in text
     assert "cannot be read" in text
 
 

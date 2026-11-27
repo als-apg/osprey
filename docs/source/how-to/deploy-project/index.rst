@@ -454,7 +454,7 @@ Every build wipes and re-renders ``build/``, and preserves what you own:
 
 ``data/`` in the *build zone* (``build/``) is re-materialized from the profile.
 A build never touches the *source zone*: the files you author, such as
-``profile.yml`` and ``data/`` at the repository root.
+``profile.yml``, ``facility/`` and ``agent/`` at the repository root.
 
 Three guards keep ``osprey up`` from starting something you did not mean to:
 
@@ -473,8 +473,8 @@ Three guards keep ``osprey up`` from starting something you did not mean to:
   the profile now describes. Rebuild with ``--build``, or start the old render
   knowingly with ``--as-built``.
 
-  The fingerprint covers ``profile.yml``, the profile's data tree and its
-  convention directories (see :doc:`/how-to/build-profiles`). So regenerating
+  The fingerprint covers ``profile.yml``, ``facility/``, the ``web/`` content
+  and the convention directories (see :doc:`/how-to/build-profiles`). So regenerating
   a channel database or adding a rule trips it too. ``osprey status`` reports
   the same comparison without acting on it.
 * **Endpoint summary** — every ``osprey up`` ends with a summary of the

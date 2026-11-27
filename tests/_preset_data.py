@@ -1,11 +1,13 @@
 """A preset's packaged data, composed once on disk, for tests that render from it.
 
-A preset's ``data/`` tree is no single packaged directory: it is the app
-template's ``data/`` plus the bundled facility at ``data/facility/``
+A preset's source trees are no single packaged directory: they are the app
+template's ``web/`` plus the bundled facility at ``facility/``
 (:class:`osprey.cli.templates.preset_data.PresetData`). A test that hands a
-render a ``data_root`` without going through ``osprey init`` needs that same
-composed tree, so it is written here by the very composition ``osprey init``
-copies, once per process and app template, under a temporary directory.
+render a ``data_root`` without going through ``osprey init`` needs the tree
+the render's ``data/`` is assembled from, so it is written here by the very
+composition ``osprey init`` copies, each declared source then laid at its
+render path (:func:`osprey.repo_layout.rendered_sources`), once per process
+and app template, under a temporary directory.
 
 Callers read the tree and must not write into it: it is shared by every test of
 the process.
@@ -41,10 +43,11 @@ def preset_data(bundle: str = "demo"):
 
 
 def bundle_data_root(bundle: str = "demo") -> Path:
-    """The composed ``data/`` tree of the preset named after *bundle*.
+    """The composed render-side ``data/`` tree of the preset named after *bundle*.
 
-    The tree a profile materialized from that preset holds under ``data/``:
-    the app template's ``data/`` plus its facility at ``data/facility/``.
+    Every declared source a profile materialized from that preset holds, laid
+    at its render path: the facility at ``data/facility/``, the web content at
+    ``data/canopy/...`` and ``data/landing/``.
 
     Args:
         bundle: An app template name (``demo``, ``hello_world``).
@@ -56,19 +59,46 @@ def bundle_data_root(bundle: str = "demo") -> Path:
     return _composed(bundle)
 
 
+def bundle_source_root(bundle: str = "demo") -> Path:
+    """A deployment root holding the sources a profile materialized from *bundle*'s preset holds.
+
+    The facility at ``facility/`` and the web content at ``web/``, as
+    ``osprey init`` lays them; the root a render assembles its ``data/`` from.
+
+    Returns:
+        A directory shared by every caller in this process; read it, never
+        write into it.
+    """
+    return _source_root(bundle)
+
+
+@cache
+def _source_root(bundle: str) -> Path:
+    source = preset_data(bundle)
+    root = _scratch_root() / bundle
+    root.mkdir(parents=True)
+    source.copy_into(root)
+    return root
+
+
 @cache
 def _composed(bundle: str) -> Path:
-    from osprey.cli.profile_cmd import _data_copy_ignore
+    from osprey import repo_layout
 
-    source = preset_data(bundle)
-    destination = _scratch_root() / bundle / "data"
-    destination.parent.mkdir(parents=True)
-    source.copy_into(destination, ignore=_data_copy_ignore(source.app_data))
-    return destination
+    root = bundle_source_root(bundle)
+    render = _scratch_root() / f"{bundle}-render"
+    render.mkdir(parents=True)
+    for rendered in repo_layout.rendered_sources():
+        tree = root.joinpath(*rendered.source_rel.split("/"))
+        if tree.is_dir():
+            shutil.copytree(tree, render.joinpath(*rendered.render_rel.split("/")))
+    data = render / "data"
+    data.mkdir(exist_ok=True)
+    return data
 
 
 def copy_bundle_data(destination: Path, bundle: str = "demo") -> Path:
-    """Copy the composed ``data/`` tree of *bundle*'s preset to *destination*.
+    """Copy the composed render-side ``data/`` tree of *bundle*'s preset to *destination*.
 
     For a test that edits its copy. *destination* may exist already; files in
     it are overwritten.
@@ -81,15 +111,17 @@ def copy_bundle_data(destination: Path, bundle: str = "demo") -> Path:
 
 
 def packaged_facility_dir(bundle: str = "demo") -> Path:
-    """The packaged facility tree the preset named after *bundle* lands at ``data/facility/``.
+    """The packaged facility tree the preset named after *bundle* lands at ``facility/``.
 
     The bundled facility the preset names, or — for a preset naming none — the
-    ``data/facility/`` its app template ships, if any.
+    ``facility/`` its app template ships, if any.
     """
+    from osprey import repo_layout
+
     source = preset_data(bundle)
     if source.facility_root is not None:
         return source.facility_root
-    return source.app_data / "facility"
+    return source.app_root / repo_layout.entry("facility").path
 
 
 def create_project_as_built(manager, *, facility_views: bool = False, **kwargs) -> Path:
@@ -111,7 +143,7 @@ def create_project_as_built(manager, *, facility_views: bool = False, **kwargs) 
             as a build does, so the agent facts name the models the render
             serves.
         **kwargs: Passed to ``manager.create_project``; ``data_bundle`` defaults
-            to ``demo`` and ``data_root`` to that bundle's tree.
+            to ``demo`` and ``repo_root`` to that bundle's source root.
 
     Returns:
         The rendered project directory.
@@ -121,7 +153,7 @@ def create_project_as_built(manager, *, facility_views: bool = False, **kwargs) 
 
     bundle = kwargs.setdefault("data_bundle", "demo")
     preset = bundle.replace("_", "-")
-    kwargs.setdefault("data_root", bundle_data_root(bundle))
+    kwargs.setdefault("repo_root", bundle_source_root(bundle))
     project = manager.create_project(**kwargs)
     profile, _preset_dir = resolve_build_profile(None, preset=preset)
     config_update_fields(project / "config.yml", profile.config)

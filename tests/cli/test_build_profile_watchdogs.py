@@ -17,6 +17,7 @@ from osprey.mcp_server.python_executor.executor import (
     resolve_protected_roots,
 )
 from osprey.registry.mcp import framework_write_tools
+from osprey.repo_layout import watchdogs_source_dir
 from osprey.services.watchdog.config import (
     VerdictOption,
     WatchdogDefinition,
@@ -42,14 +43,16 @@ def _agent(**keys: Any) -> dict[str, Any]:
 
 def _files(base: Path, *names: str) -> Path:
     for name in names:
-        directory = base / "watchdogs" / name
+        directory = base / "agent" / "watchdogs" / name
         directory.mkdir(parents=True)
         (directory / "instructions.md").write_text(f"Judge as {name}.\n", encoding="utf-8")
     return base
 
 
 def _errors(block: Any, base: Path, *, hooks: Any = ("turn-state",), writes: Any = ()) -> list[str]:
-    return watchdog_errors(block, base_dir=base, write_tools=writes, hook_selection=hooks)
+    return watchdog_errors(
+        block, watchdogs_dir=watchdogs_source_dir(base), write_tools=writes, hook_selection=hooks
+    )
 
 
 def _validation_problems(profile: Any, base: Path) -> list[str]:
@@ -64,9 +67,7 @@ def _write_profile(base: Path, block: dict[str, Any], hooks: list[str]) -> Path:
     (base / "data").mkdir()
     path = base / "profile.yml"
     path.write_text(
-        yaml.safe_dump(
-            {"name": "w", "data": "data", "hooks": hooks, "watchdogs": block}, sort_keys=False
-        ),
+        yaml.safe_dump({"name": "w", "hooks": hooks, "watchdogs": block}, sort_keys=False),
         encoding="utf-8",
     )
     return path
@@ -80,7 +81,7 @@ def _write_profile(base: Path, block: dict[str, Any], hooks: list[str]) -> Path:
 def test_defaults(tmp_path: Path) -> None:
     _files(tmp_path, "a", "d")
     agent, decision = parse_watchdogs_block(
-        {"a": {"engine": "agent"}, "d": _decision()}, base_dir=tmp_path
+        {"a": {"engine": "agent"}, "d": _decision()}, watchdogs_dir=watchdogs_source_dir(tmp_path)
     )
     assert agent == WatchdogDefinition(name="a", engine="agent", instructions="Judge as a.\n")
     assert (agent.enabled, agent.timeout_s, agent.max_cost_usd) == (False, 90.0, 0.25)
@@ -96,7 +97,8 @@ def test_defaults(tmp_path: Path) -> None:
 def test_stated_values_are_kept_and_the_key_is_the_name(tmp_path: Path) -> None:
     _files(tmp_path, "a")
     [definition] = parse_watchdogs_block(
-        {"a": _agent(enabled=True, model="m", timeout_s=5, max_cost_usd=1)}, base_dir=tmp_path
+        {"a": _agent(enabled=True, model="m", timeout_s=5, max_cost_usd=1)},
+        watchdogs_dir=watchdogs_source_dir(tmp_path),
     )
     assert definition.name == "a"
     assert definition.enabled is True
@@ -107,26 +109,30 @@ def test_stated_values_are_kept_and_the_key_is_the_name(tmp_path: Path) -> None:
 
 def test_references_are_derived_from_the_watchdog_directory(tmp_path: Path) -> None:
     _files(tmp_path, "a", "b")
-    references = tmp_path / "watchdogs" / "a" / "references"
+    references = tmp_path / "agent" / "watchdogs" / "a" / "references"
     (references / "deep").mkdir(parents=True)
     (references / "z.md").write_text("z")
     (references / "deep" / "y.md").write_text("y")
-    a, b = parse_watchdogs_block({"a": _agent(), "b": _agent()}, base_dir=tmp_path)
+    a, b = parse_watchdogs_block(
+        {"a": _agent(), "b": _agent()}, watchdogs_dir=watchdogs_source_dir(tmp_path)
+    )
     assert a.references == (references / "deep" / "y.md", references / "z.md")
     assert b.references == ()
 
 
 @pytest.mark.parametrize("empty", [None, {}])
 def test_no_watchdogs_parse_to_nothing(tmp_path: Path, empty: Any) -> None:
-    assert parse_watchdogs_block(empty, base_dir=tmp_path) == ()
+    assert parse_watchdogs_block(empty, watchdogs_dir=watchdogs_source_dir(tmp_path)) == ()
     assert _errors(empty, tmp_path) == []
 
 
 def test_parser_refuses_what_the_errors_list(tmp_path: Path) -> None:
     with pytest.raises(BuildProfileError, match="engine must be one of"):
-        parse_watchdogs_block({"a": {"engine": "oracle"}}, base_dir=tmp_path)
+        parse_watchdogs_block(
+            {"a": {"engine": "oracle"}}, watchdogs_dir=watchdogs_source_dir(tmp_path)
+        )
     with pytest.raises(BuildProfileError, match="must be a mapping"):
-        parse_watchdogs_block(["a"], base_dir=tmp_path)
+        parse_watchdogs_block(["a"], watchdogs_dir=watchdogs_source_dir(tmp_path))
 
 
 # ---------------------------------------------------------------------------
@@ -154,7 +160,7 @@ def test_a_disabled_entry_needs_no_files_until_it_is_parsed(
 ) -> None:
     assert _errors({"a": entry}, tmp_path) == []
     with pytest.raises(BuildProfileError, match="instructions.md"):
-        parse_watchdogs_block({"a": entry}, base_dir=tmp_path)
+        parse_watchdogs_block({"a": entry}, watchdogs_dir=watchdogs_source_dir(tmp_path))
 
 
 def test_a_malformed_enabled_is_still_held_to_the_files(tmp_path: Path) -> None:
@@ -164,7 +170,7 @@ def test_a_malformed_enabled_is_still_held_to_the_files(tmp_path: Path) -> None:
 
 def test_empty_instructions_are_refused(tmp_path: Path) -> None:
     _files(tmp_path, "a")
-    (tmp_path / "watchdogs" / "a" / "instructions.md").write_text("  \n")
+    (tmp_path / "agent" / "watchdogs" / "a" / "instructions.md").write_text("  \n")
     [error] = _errors({"a": _agent(enabled=True)}, tmp_path)
     assert "empty" in error
 
@@ -256,7 +262,7 @@ def test_a_pattern_the_check_cannot_read_is_refused(tmp_path: Path, tool: str) -
     block = {"a": _agent(tools=[tool])}
     assert any("cannot read" in error for error in _errors(block, tmp_path))
     with pytest.raises(BuildProfileError, match="cannot read"):
-        parse_watchdogs_block(block, base_dir=tmp_path)
+        parse_watchdogs_block(block, watchdogs_dir=watchdogs_source_dir(tmp_path))
 
 
 @pytest.mark.parametrize("classified", ["mcp__site__push_*", "mcp__site__push_.*"])
@@ -389,7 +395,9 @@ def test_profile_with_two_of_each_engine_builds(tmp_path: Path) -> None:
     }
     profile = load_profile(_write_profile(tmp_path, block, ["turn-state"]))
     assert profile.watchdogs == block
-    definitions = parse_watchdogs_block(profile.watchdogs, base_dir=tmp_path)
+    definitions = parse_watchdogs_block(
+        profile.watchdogs, watchdogs_dir=watchdogs_source_dir(tmp_path)
+    )
     assert [d.name for d in definitions] == list(names)
     assert [d.engine for d in definitions] == ["decision", "decision", "agent", "agent"]
     assert [d.enabled for d in definitions] == [True, False, True, False]
@@ -598,11 +606,9 @@ def test_profile_classification_takes_in_the_denied_builtins(tmp_path: Path, too
 
 def test_a_clean_agent_watchdog_validates_against_the_full_classification(tmp_path: Path) -> None:
     _files(tmp_path, "a")
-    (tmp_path / "data").mkdir()
     profile = _parse_profile(
         {
             "name": "w",
-            "data": "data",
             "config": {"claude_code.servers.phoebus2": {"extends": "phoebus"}},
             "watchdogs": {"a": _agent(tools=["Read", "mcp__controls__channel_read"])},
         }
@@ -641,13 +647,15 @@ def test_watchdogs_and_jev_config_keys_are_protected(key: str) -> None:
 
 
 def test_watchdogs_directory_is_a_source_entry() -> None:
-    assert "watchdogs" in KNOWN_ROOT_ENTRIES
+    """The ``agent/`` group holds it; an unmigrated repo's top-level copy stays protected."""
+    assert "agent" in KNOWN_ROOT_ENTRIES
+    assert "agent" in PROFILE_SOURCE_ENTRIES
     assert "watchdogs" in PROFILE_SOURCE_ENTRIES
 
 
 def test_watchdogs_directory_is_a_protected_root(tmp_path: Path) -> None:
     protected = resolve_protected_roots(tmp_path, entries=())
-    assert (tmp_path / "watchdogs").resolve() in protected
+    assert (tmp_path / "agent").resolve() in protected
 
 
 @pytest.mark.parametrize("mode", ["readonly", "readwrite"])
@@ -655,6 +663,8 @@ def test_an_executed_write_to_the_watchdogs_directory_is_refused(
     project: _Project,  # noqa: F811
     mode: str,
 ) -> None:
-    (project.root / "watchdogs" / "guard").mkdir(parents=True)
-    out = project.probe("open('watchdogs/guard/instructions.md', 'w').close()", execution_mode=mode)
+    (project.root / "agent" / "watchdogs" / "guard").mkdir(parents=True)
+    out = project.probe(
+        "open('agent/watchdogs/guard/instructions.md', 'w').close()", execution_mode=mode
+    )
     assert out.startswith("REFUSED:"), out

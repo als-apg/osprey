@@ -17,7 +17,7 @@ else. ``hours_before`` counts back from the entry's own time, as every plot
 spec does (see :func:`osprey.simulation.plots.render_plot_spec`).
 
 Both scenarios are facility scenario files: :func:`install_scenarios` copies
-them into a deployment's ``data/facility/scenarios/`` and draws the spec where
+them into a deployment's ``facility/simulation/scenarios/`` and draws the spec where
 the entry's ``plot`` attachment points, in the scenario's own directory.
 """
 
@@ -41,7 +41,7 @@ TARGET_ENTRY_ID = "BLC-DECAY-001"
 
 DCCT_CHANNEL = "SR:DIAG:DCCT:01:CURRENT:RB"
 #: The example facility's seeds, whose ``topoff`` seed sets the DCCT baseline.
-EXAMPLE_SEEDS = Path(osprey.__file__).parent / "templates/facilities/example/seeds.yaml"
+EXAMPLE_SEEDS = Path(osprey.__file__).parent / "templates/facilities/example/simulation/seeds.yaml"
 
 
 def _held_current() -> float:
@@ -136,7 +136,7 @@ def write_plot_spec(scenario_dir: Path) -> Path:
 
 
 def install_scenarios(scenarios_dir: Path) -> None:
-    """Copy both scenario files into a facility ``scenarios/`` directory and draw the spec."""
+    """Copy both scenario files into a facility ``simulation/scenarios/`` directory and draw the spec."""
     scenarios_dir.mkdir(parents=True, exist_ok=True)
     for name in (RECENT_SCENARIO, LOGBOOK_SCENARIO):
         shutil.copyfile(SCENARIOS_DIR / f"{name}.yaml", scenarios_dir / f"{name}.yaml")

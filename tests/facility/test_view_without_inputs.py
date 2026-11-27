@@ -75,7 +75,7 @@ def _built(
     name: str, root: Path, mml_built: Callable[[str, str], BuiltModel]
 ) -> tuple[dict[str, Any], Path]:
     if name in TREES:
-        facility_dir = root / "data" / "facility"
+        facility_dir = root / "facility"
         shutil.copytree(TREES[name], facility_dir)
         return build_facility(
             facility_dir, project_name=name, extra_checks=FRAMEWORK_CHECKS

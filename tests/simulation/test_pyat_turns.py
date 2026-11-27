@@ -19,7 +19,10 @@ import pytest
 from osprey.simulation.engines import pyat_turns as turns
 from osprey_connectors.simulation.series import keyed_normals
 
-DECK = Path(__file__).resolve().parents[2] / "src/osprey/templates/facilities/example/decks/SR.json"
+DECK = (
+    Path(__file__).resolve().parents[2]
+    / "src/osprey/templates/facilities/example/simulation/decks/SR.json"
+)
 MODEL = "SR"
 MARKER = "INJ"
 TURNS = 4

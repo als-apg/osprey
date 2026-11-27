@@ -60,13 +60,12 @@ _SERVING = "control_system.connector.virtual_accelerator.serving"
 
 
 def _write_profile(tmp_path: Path, va_archiver: Any, **profile_keys: Any) -> Path:
-    body: dict[str, Any] = {"name": "Facility", "extends": "hello-world", "data": "data"}
+    body: dict[str, Any] = {"name": "Facility", "extends": "hello-world"}
     body.update(profile_keys)
     if va_archiver is not None:
         body["va_archiver"] = va_archiver
     # ``data:`` is required of a repo profile and must resolve to a real
     # directory, so the tree is part of writing a valid profile.
-    (tmp_path / "data").mkdir(exist_ok=True)
     path = tmp_path / "profile.yml"
     path.write_text(yaml.safe_dump(body, sort_keys=False), encoding="utf-8")
     return path

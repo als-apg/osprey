@@ -66,7 +66,7 @@ def validate_facility(
     A clean directory prints the warnings of its build instead.
 
     Args:
-        facility_dir: The ``data/facility`` directory.
+        facility_dir: The ``facility/`` directory.
         project_name: The project's name.
         extra_checks: Checks the caller supplies
             (:func:`osprey_facility.validate.run_stages`).

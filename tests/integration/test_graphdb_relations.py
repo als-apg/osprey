@@ -241,7 +241,7 @@ def seeded(
         tree = appendix_a_tree(variant)  # type: ignore[arg-type]
         if readout:
             tree = with_readout_control(tree)
-        root: Path = tmp_path_factory.mktemp(f"appendix-a-{name}") / "data" / "facility"
+        root: Path = tmp_path_factory.mktemp(f"appendix-a-{name}") / "facility"
         document = build_appendix_a(root, tree=tree)
         out[name] = (document, _seed_and_ask(store, graph_text(FacilityRecords(document))))
     return out

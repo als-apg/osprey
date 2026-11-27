@@ -36,7 +36,7 @@ namespace instead. That is ``host``:
    # a facility-owned service
    services:
      my-service:
-       template: services/my-service
+       template: ops/services/my-service
        config:
          network: host
 
@@ -97,12 +97,12 @@ themselves; a facility service on the host network declares it beside
    # profile
    services:
      site_api:
-       template: services/site_api
+       template: ops/services/site_api
        config: {network: host, bind_env: SITE_BIND}
 
 .. code-block:: yaml
 
-   # services/site_api/docker-compose.yml.j2
+   # ops/services/site_api/docker-compose.yml.j2
        environment:
          SITE_BIND: "127.0.0.1"
 

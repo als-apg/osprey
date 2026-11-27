@@ -73,7 +73,9 @@ class TestReplacedLayer:
         assert index.authored_places == {"SR", "SR/S01"}
 
     def test_classes_are_the_known_classes(self, tmp_path: Path) -> None:
-        tree = _tree(tmp_path, {"classes.yaml": [{"class": "Undulator2", "parent": "Quadrupole"}]})
+        tree = _tree(
+            tmp_path, {"vocabulary/classes.yaml": [{"class": "Undulator2", "parent": "Quadrupole"}]}
+        )
         index = FacilityIndex.load(tree, "cables")
         assert "Undulator2" in index.classes
         assert "Quadrupole" in index.classes

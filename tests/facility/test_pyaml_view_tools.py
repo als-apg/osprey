@@ -54,7 +54,7 @@ def test_one_array_per_named_group(tmp_path: Path) -> None:
 def _shared_corrector_group() -> dict[str, Any]:
     """LINE with ``LINE/HCM``, whose corrector is steered in both planes, as hcor and vcor."""
     tree = measured_tree()
-    tree["measurement/LINE.yaml"]["groups"]["vcor"] = "LINE/HCM"
+    tree["simulation/measurement/LINE.yaml"]["groups"]["vcor"] = "LINE/HCM"
     return tree
 
 
@@ -89,7 +89,7 @@ def test_a_role_naming_several_groups_is_one_array_named_after_the_role(tmp_path
         {"id": "SR/QF", "members": ["SR/QF"]},
         {"id": "SR/QD", "members": ["SR/QD"]},
     ]
-    tree["measurement/SR.yaml"]["groups"]["quad"] = ["SR/QF", "SR/QD"]
+    tree["simulation/measurement/SR.yaml"]["groups"]["quad"] = ["SR/QF", "SR/QD"]
     configuration = _configuration(tmp_path, tree, "SR")
     arrays = {array["name"]: array for array in configuration["arrays"]}
     assert list(arrays) == ["SR_BPM", "quad"]
@@ -134,8 +134,8 @@ def test_a_key_another_kind_takes_is_not_carried(tmp_path: Path) -> None:
 
 def test_dispersion_steps_the_rf_plant(tmp_path: Path) -> None:
     tree = with_correctors(with_rf(measured_tree()))
-    tree["measurement/SR.yaml"]["kinds"] = ["dispersion"]
-    tree["measurement/SR.yaml"]["frequency_delta"] = 50.0
+    tree["simulation/measurement/SR.yaml"]["kinds"] = ["dispersion"]
+    tree["simulation/measurement/SR.yaml"]["frequency_delta"] = 50.0
     tools = _tools(_configuration(tmp_path, tree, "SR"))
     assert tools == {
         "DEFAULT_DISPERSION": {
@@ -150,8 +150,8 @@ def test_dispersion_steps_the_rf_plant(tmp_path: Path) -> None:
 
 def test_the_chromaticity_monitor_steps_the_momentum_by_the_compaction(tmp_path: Path) -> None:
     tree = with_rf(measured_tree())
-    tree["measurement/SR.yaml"]["kinds"] = ["chromaticity_monitor"]
-    tree["measurement/SR.yaml"] |= {
+    tree["simulation/measurement/SR.yaml"]["kinds"] = ["chromaticity_monitor"]
+    tree["simulation/measurement/SR.yaml"] |= {
         "n_avg_meas": 1,
         "fit_order": 2,
         "sleep_between_step": 0.5,
@@ -183,12 +183,12 @@ def test_the_chromaticity_response_tool_reads_a_chromaticity_monitor(tmp_path: P
         {"id": "SX:SP", "role": "setpoint", "on": {"device": "SR/SX"}}
     )
     tree["records/groups.yaml"].append({"id": "SR/S", "members": ["SR/SX"]})
-    (sr,) = [model for model in tree["models.yaml"] if model["name"] == "SR"]
+    (sr,) = [model for model in tree["simulation/models.yaml"] if model["name"] == "SR"]
     sr["wiring"].append(
         {"address": "SX:SP", "element": "SX", "engine": {"attribute": "PolynomB", "index": 2}}
     )
-    tree["measurement/SR.yaml"] |= {"kinds": ["crm"], "sextu_delta": 0.01}
-    tree["measurement/SR.yaml"]["groups"]["sext"] = "SR/S"
+    tree["simulation/measurement/SR.yaml"] |= {"kinds": ["crm"], "sextu_delta": 0.01}
+    tree["simulation/measurement/SR.yaml"]["groups"]["sext"] = "SR/S"
     tools = _tools(_configuration(tmp_path, tree, "SR"))
     assert tools["DEFAULT_CHROMATICITY_RESPONSE_MATRIX"] == {
         "type": "pyaml.tuning_tools.chromaticity_response_matrix",
@@ -204,8 +204,8 @@ def test_the_measurement_tools_load_in_pyaml(tmp_path: Path) -> None:
     from pyaml.accelerator import Accelerator
 
     tree = with_rf(measured_tree())
-    tree["measurement/SR.yaml"]["kinds"] = ["trm", "chromaticity_monitor"]
-    tree["measurement/SR.yaml"] |= {
+    tree["simulation/measurement/SR.yaml"]["kinds"] = ["trm", "chromaticity_monitor"]
+    tree["simulation/measurement/SR.yaml"] |= {
         "n_avg_meas": 1,
         "fit_order": 2,
         "sleep_between_step": 0.0,

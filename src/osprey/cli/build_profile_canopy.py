@@ -20,6 +20,7 @@ from pathlib import Path
 from typing import Any
 
 from osprey.integrations.canopy.library import HOME_SCREEN_KEY, find_home_screen
+from osprey.repo_layout import child_path, entry
 
 CANOPY_PANEL = "canopy"
 #: The skills that go with the panel and leave the deployment with it.
@@ -37,7 +38,7 @@ def canopy_home_screen_errors(
         config: The profile's merged ``config:`` block.
         selected_panels: The profile's ``web_panels``, as resolved.
         library_root: The project's screen library,
-            ``<data root>/canopy/library``.
+            ``web/canopy/library`` below the repo root.
 
     Returns:
         list[str]: Messages naming the key as written, the id, the path looked
@@ -83,7 +84,7 @@ def repo_home_screen_errors(
 
     Each layer file (:func:`~osprey.cli.build_cmd._layer_files`) is judged on
     the resolution the build renders it from, with the same overlays, and
-    against the library under ``repo_root``'s data root; its messages are
+    against the library under ``repo_root``'s ``web`` root; its messages are
     headed by the file's path. A layer that does not resolve on its own is not
     judged here: whether it resolves is the build's question, asked where it
     renders the layer, and ``osprey validate`` does not ask it of a repo.
@@ -119,29 +120,31 @@ def repo_home_screen_errors(
 def profile_home_screen_errors(profile: Any, root: Path) -> list[str]:
     """:func:`canopy_home_screen_errors` for one resolved profile.
 
-    The library is the one under the profile's data root, resolved against
-    ``root``; a profile with no data root has no library to judge against.
+    The library is the web row's canopy library under ``root``.
     """
-    data_root = profile.resolved_data_root(root)
-    if data_root is None:
-        return []
     return canopy_home_screen_errors(
-        profile.config, profile.web_panels, data_root / "canopy" / "library"
+        profile.config,
+        profile.web_panels,
+        child_path(root / entry("web").path, "web", "canopy-library"),
     )
 
 
-def without_unstaged_panel(profile: Any, repo_root: Path) -> Any:
+def without_unstaged_panel(profile: Any, repo_root: Path, *, staging_runs: bool = True) -> Any:
     """*profile* without the CANOPY panel when the build stages no payload for it.
 
-    With ``OSPREY_CANOPY_PAYLOAD`` unset (and staging not skipped) the image
-    carries no CANOPY, so the panel, its skills and a ``default_panel`` naming it
-    leave the render rather than ship broken. Any other profile is returned as is.
+    With ``OSPREY_CANOPY_PAYLOAD`` unset, or with no lifecycle step run
+    (``staging_runs`` false, ``--skip-lifecycle``), and staging not skipped,
+    the image carries no CANOPY, so the panel, its skills and a
+    ``default_panel`` naming it leave the render rather than ship broken. Any
+    other profile is returned as is.
     """
     from dataclasses import replace
 
     from osprey.integrations.canopy.stage import panel_off
 
-    if CANOPY_PANEL not in (profile.web_panels or ()) or not panel_off(repo_root):
+    if CANOPY_PANEL not in (profile.web_panels or ()) or not panel_off(
+        repo_root, staging_runs=staging_runs
+    ):
         return profile
     dropped = replace(
         profile,
@@ -152,3 +155,32 @@ def without_unstaged_panel(profile: Any, repo_root: Path) -> Any:
     # Not a dataclass field, so `replace` does not carry it.
     dropped.inherited_preset = profile.inherited_preset
     return dropped
+
+
+def unstaged_panel_error(profile: Any, repo_root: Path, stage_dir: Path) -> str | None:
+    """Why a build keeping the CANOPY panel cannot ship it, or ``None`` when it can.
+
+    Run after ``pre_build``: a profile that still serves the panel, with staging
+    on, needs the payload the staging step writes into ``stage_dir``. A
+    ``pre_build`` that never ran the step (or ran one that staged nothing)
+    would otherwise ship a panel with no CANOPY behind it.
+    """
+    from osprey.integrations.canopy import PAYLOAD_DIRNAME
+    from osprey.integrations.canopy.stage import (
+        CHECK_ENV,
+        PAYLOAD_ENV,
+        STAGED_FILENAME,
+        staging_skipped,
+    )
+
+    if CANOPY_PANEL not in (profile.web_panels or ()):
+        return None
+    if staging_skipped(repo_root):
+        return None
+    if (stage_dir / PAYLOAD_DIRNAME / STAGED_FILENAME).is_file():
+        return None
+    return (
+        f"the CANOPY panel is on and {PAYLOAD_ENV} names a payload, but pre_build staged "
+        f"none: add the step '\"{{python}}\" -m osprey.integrations.canopy.stage' to "
+        f"lifecycle.pre_build, or set {CHECK_ENV}=0 to build without a payload"
+    )

@@ -449,7 +449,7 @@ jobs:
         out="$(mktemp -d)"
         args=(--facility packages/osprey-panels/tests/osprey_panels_tests/fixture/facility.json
           --tables packages/osprey-panels/tests/osprey_panels_tests/fixture/panels
-          --theme src/osprey/templates/apps/demo/data/canopy/theme/osprey.json --out "$out")
+          --theme src/osprey/templates/apps/demo/web/canopy/theme/osprey.json --out "$out")
         uv run --no-sync osprey-panels write "${args[@]}"
         uv run --no-sync osprey-panels check "${args[@]}"
 

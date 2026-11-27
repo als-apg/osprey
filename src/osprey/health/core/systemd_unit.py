@@ -19,12 +19,15 @@ and the only witness is the manager's own answer.
 The category emits exactly one row, ``systemd_unit``, from a deliberate
 trigger/report split:
 
-* the **repo** copy (``<project>/osprey.service``) decides whether this
-  deployment uses the systemd boot path at all. No repo unit means the operator
+* the **repo** copy (the ``osprey.service`` row's path under ``<project>``) decides whether
+  this deployment uses the systemd boot path at all. No repo unit means the operator
   never asked for one, so the row is ``skip`` — not a warning about a missing
   file nobody wanted;
 * the **installed** copy plus the manager's ``LoadState`` decide the verdict:
-  ``warning`` when the unit was scaffolded but never installed, ``error`` when
+  ``warning`` when the unit was scaffolded but never installed, or when the
+  installed unit or a line of the account's crontab still names the unit or the
+  boot hook at a path the repo layout retired — wiring that boots from a file
+  no longer there; ``error`` when
   it is installed and the manager still reports ``not-found``, ``ok`` for any
   other ``LoadState`` (``loaded``, ``masked``, ``error``, ``bad-setting`` — all
   states in which the manager can see the unit, which is what this row asks).
@@ -44,11 +47,12 @@ from __future__ import annotations
 
 import os
 import shutil
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import TYPE_CHECKING, Any
 
 from osprey.health.core.claude_cli import _run_command
 from osprey.health.models import CheckResult, Status
+from osprey.repo_layout import child_display_path, entry, former_locations
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -64,14 +68,22 @@ CATEGORY = "systemd_unit"
 #: or unreachable bus, and waiting longer only delays the ``skip``.
 _SYSTEMCTL_TIMEOUT_S = 5.0
 
-#: The boot unit ``osprey scaffold systemd`` writes, spelled as a literal rather
-#: than imported from :mod:`~osprey.cli.deploy_scaffold_templates` (which owns
-#: the name as ``SYSTEMD_UNIT_NAME``). Importing it would pull the CLI package
-#: into the web and MCP health surfaces, which import this module. This is the
-#: same choice :mod:`~osprey.cli.profile_conventions` made for its own copy of
-#: the name, and the same answer: the two spellings are pinned to each other by
-#: a test rather than by an import.
-_UNIT_NAME = "osprey.service"
+#: The boot unit ``osprey scaffold systemd`` writes, read from its row in the
+#: deployment-root declaration rather than imported from
+#: :mod:`~osprey.cli.deploy_scaffold_templates`: the declaration is a leaf below
+#: the CLI package, which the web and MCP health surfaces that import this
+#: module must not load.
+#:
+#: Two values: the row's path is where the scaffolded copy sits in the repo,
+#: and its file name is all the user manager knows the installed unit by.
+_UNIT_PATH = entry("osprey.service").path
+_UNIT_NAME = PurePosixPath(_UNIT_PATH).name
+
+#: Where the boot hook sits in the repo; the account's crontab names it in full.
+_BOOT_HOOK_PATH = child_display_path("scripts", "boot-hook")
+
+#: Wall-clock budget for ``crontab -l``, which reads one local file.
+_CRONTAB_TIMEOUT_S = 5.0
 
 _LOAD_STATE_NOT_FOUND = "not-found"
 
@@ -136,14 +148,60 @@ def _row(status: Status, message: str, details: str = "", value: str = "") -> Ch
     )
 
 
+async def _crontab_lines() -> tuple[str, ...]:
+    """The account's crontab entries; none when there is no crontab or no ``crontab``."""
+    try:
+        returncode, stdout, _ = await _run_command(["crontab", "-l"], _CRONTAB_TIMEOUT_S)
+    except (FileNotFoundError, TimeoutError):
+        return ()
+    if returncode != 0:
+        return ()
+    return tuple(
+        line for line in stdout.splitlines() if line.strip() and not line.lstrip().startswith("#")
+    )
+
+
+def _retired_paths(repo_root: Path) -> tuple[str, ...]:
+    """The absolute former locations of the unit and the boot hook in *repo_root*."""
+    # The scaffold writes resolved paths; an operator may have typed the
+    # unresolved spelling. Both name the same file.
+    roots = dict.fromkeys((Path(repo_root).resolve(), Path(os.path.abspath(repo_root))))
+    olds = (*former_locations(_UNIT_PATH), *former_locations(_BOOT_HOOK_PATH))
+    return tuple(
+        dict.fromkeys(str(root.joinpath(*old.split("/"))) for root in roots for old in olds)
+    )
+
+
+def _unit_references(installed_unit: Path, retired: tuple[str, ...]) -> list[str]:
+    """How the installed unit names a retired path: as its link target, or in its text."""
+    if installed_unit.is_symlink():
+        target = os.readlink(installed_unit)
+        absolute = os.path.normpath(os.path.join(installed_unit.parent, target))
+        return [f"{installed_unit} links to {target}"] if absolute in retired else []
+    try:
+        text = installed_unit.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        return []
+    return [f"{installed_unit} names {old}" for old in retired if old in text]
+
+
+async def _crontab_references(retired: tuple[str, ...]) -> list[str]:
+    """The crontab entries that name a retired path."""
+    if not retired:
+        return []
+    return [
+        f"crontab: {line}" for line in await _crontab_lines() if any(old in line for old in retired)
+    ]
+
+
 async def _check_systemd_unit(repo_root: Path) -> list[CheckResult]:
     """Produce the one ``systemd_unit`` row for the deployment at ``repo_root``."""
-    repo_unit = repo_root / _UNIT_NAME
+    repo_unit = repo_root.joinpath(*_UNIT_PATH.split("/"))
     if not repo_unit.exists():
         return [
             _row(
                 Status.SKIP,
-                f"no scaffolded {_UNIT_NAME} in this deployment",
+                f"no scaffolded {_UNIT_PATH} in this deployment",
                 details=(
                     f"Run `osprey scaffold systemd` if this deployment should "
                     f"start at boot; expected {repo_unit}."
@@ -165,6 +223,26 @@ async def _check_systemd_unit(repo_root: Path) -> list[CheckResult]:
                 Status.SKIP,
                 "cannot resolve the user unit directory",
                 details=f"{type(exc).__name__}: {exc}",
+            )
+        ]
+
+    retired = _retired_paths(repo_root)
+    stale = [
+        *_unit_references(installed_unit, retired),
+        *(await _crontab_references(retired)),
+    ]
+    if stale:
+        return [
+            _row(
+                Status.WARNING,
+                "the boot wiring names a retired path",
+                details=(
+                    "\n".join(stale) + f"\nThe unit is at {repo_unit} and the boot hook at "
+                    f"{repo_root.joinpath(*_BOOT_HOOK_PATH.split('/'))} now. Re-run "
+                    f"`osprey scaffold systemd`, copy {repo_unit} to {installed_unit}, run "
+                    "`systemctl --user daemon-reload`, and replace the osprey-boot-hook "
+                    "lines of `crontab -e` with the ones the scaffold prints."
+                ),
             )
         ]
 

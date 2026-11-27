@@ -37,6 +37,7 @@ from osprey.integrations.canopy.library import (
     library_digest,
     scan,
 )
+from osprey.repo_layout import child_display_path
 
 from . import container, grammar
 from . import deployment as deployment_module
@@ -1362,7 +1363,8 @@ def _parse(argv: Sequence[str] | None) -> argparse.Namespace:
         "--repo", help="the deployment repo (default: the one enclosing the working directory)"
     )
     parser.add_argument(
-        "--library", help="review against this library instead of data/canopy/library"
+        "--library",
+        help=f"review against this library instead of {child_display_path('web', 'canopy-library')}",
     )
     verbs = parser.add_subparsers(dest="verb", required=True)
     verbs.add_parser("list", help="list every user's pending push requests")

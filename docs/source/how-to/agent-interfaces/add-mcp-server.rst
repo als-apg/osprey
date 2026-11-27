@@ -41,7 +41,7 @@ interpreter — the one the framework's servers run under. ``${VAR}`` is left
 alone for the shell or the container to resolve at run time. A Python module
 launched with ``-m`` has to be importable by that interpreter: either declare
 its package under the profile's ``dependencies:`` so it is installed into the
-project venv, or ship it in the profile's ``mcp_servers/`` directory and reach
+project venv, or ship it in the profile's ``agent/mcp_servers/`` directory and reach
 it with ``PYTHONPATH: "{project_root}/build/_mcp_servers"`` (see
 :ref:`profile-mcp-servers`).
 

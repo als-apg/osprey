@@ -82,13 +82,12 @@ def _code_block(page: Path, language: str, after: str) -> str:
 
 @pytest.fixture
 def code_review_repo(tmp_path: Path) -> Path:
-    """A profile root holding the page's example, a data tree and the default prompt."""
-    (tmp_path / "data").mkdir()
+    """A profile root holding the page's example and the default prompt."""
     prompt = tmp_path / DEFAULT_PROMPT
     prompt.parent.mkdir(parents=True, exist_ok=True)
     prompt.write_text("Review this.\n", "utf-8")
     example = yaml.safe_load(CODE_REVIEW_EXAMPLE.read_text())
-    profile = {"name": "code-review-example", "data": "data", **example}
+    profile = {"name": "code-review-example", **example}
     (tmp_path / "profile.yml").write_text(yaml.safe_dump(profile), "utf-8")
     return tmp_path
 

@@ -1,6 +1,6 @@
 """``osprey build`` writes the facility file at the root of every render.
 
-The build makes the facility file once, from the profile's ``data/facility/``,
+The build makes the facility file once, from the profile's ``facility/``,
 before the project venv and before any render; each render then receives it
 through ``render_facility_outputs``: the deployment's own (``build/``), each
 render's (``build/<repo>-<render>/``) and each container image's
@@ -19,6 +19,7 @@ from typing import Any, NoReturn
 import pytest
 from click.testing import CliRunner
 
+from osprey import repo_layout
 from osprey.cli.main import cli
 from osprey.facility.settings import BENCHMARK_DATASET_PATH
 from osprey.utils.workspace import IMAGE_DIR_NAME
@@ -37,6 +38,7 @@ REPO = "demo"
 CHANNEL_FINDER_APP = "channel-finder"
 
 #: The hierarchical channel index a hierarchical render carries.
+FACILITY = repo_layout.entry("facility").path
 CHANNEL_INDEX = "data/channel_finder/hierarchical.json"
 
 
@@ -131,17 +133,15 @@ def test_the_facility_file_is_the_demo_facility_without_build_facts(
 def test_equal_sources_hash_equal_across_two_builds(
     built_demo: BuiltProject, tmp_path_factory: pytest.TempPathFactory
 ) -> None:
-    """A second build of the same ``data/facility/`` elsewhere gives the same bytes."""
+    """A second build of the same ``facility/`` elsewhere gives the same bytes."""
     other = init_project(tmp_path_factory.mktemp("second"), "hello-world", REPO)
-    shutil.rmtree(other / "data" / "facility")
-    shutil.copytree(built_demo.repo / "data" / "facility", other / "data" / "facility")
+    shutil.rmtree(other / FACILITY)
+    shutil.copytree(built_demo.facility_dir, other / FACILITY)
 
     result = _build(other, "--skip-deps")
     assert result.exit_code == 0, result.output
 
-    assert facility_digest(other / "data" / "facility") == facility_digest(
-        built_demo.repo / "data" / "facility"
-    )
+    assert facility_digest(other / FACILITY) == facility_digest(built_demo.facility_dir)
     assert (other / BUILD_DIR_NAME / FACILITY_FILE).read_bytes() == (
         built_demo.repo / BUILD_DIR_NAME / FACILITY_FILE
     ).read_bytes()
@@ -158,7 +158,7 @@ def test_a_facility_stop_ends_the_build_before_the_venv(
 
     monkeypatch.setattr(build_cmd, "_create_project_venv", venv_spy)
     repo = init_project(tmp_path, "hello-world", REPO)
-    (repo / "data" / "facility" / "identity.yaml").write_text("code: 1bad\n", encoding="utf-8")
+    (repo / FACILITY / "identity.yaml").write_text("code: 1bad\n", encoding="utf-8")
 
     result = _build(repo)
 

@@ -50,7 +50,7 @@ from tests.facility.served_tree import in_process_config
 GAUGE = "SR:VAC:GAUGE:SR{:02d}:PRESSURE:RB"
 DCCT = "SR:DIAG:DCCT:01:CURRENT:RB"
 #: The example facility's seeds, whose ``topoff`` seed sets the DCCT baseline.
-EXAMPLE_SEEDS = Path(osprey.__file__).parent / "templates/facilities/example/seeds.yaml"
+EXAMPLE_SEEDS = Path(osprey.__file__).parent / "templates/facilities/example/simulation/seeds.yaml"
 
 
 def _held_current() -> float:
@@ -166,7 +166,7 @@ class TestRfThermal:
 
     @pytest.fixture(scope="class")
     def scenario(self, built_demo) -> dict:
-        path = built_demo.facility_dir / "scenarios" / "rf-thermal.yaml"
+        path = built_demo.facility_dir / "simulation" / "scenarios" / "rf-thermal.yaml"
         return yaml.safe_load(path.read_text(encoding="utf-8"))
 
     @pytest.fixture(scope="class")
