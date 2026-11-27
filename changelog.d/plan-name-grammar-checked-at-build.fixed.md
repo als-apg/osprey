@@ -1,0 +1,1 @@
+A channel whose address holds `.` or `/` (an EPICS field such as `.RBV`) is no Bluesky plan device, and the build names each one. Before, such a channel passed the launch checks and the approval, then aborted the run at its first reading.

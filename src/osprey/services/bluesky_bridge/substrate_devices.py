@@ -14,10 +14,12 @@ except a read channel of more than one dimension, which a run cannot record in
 its table and so is no device, a command a setpoint names as ``started_by``,
 which that setpoint's settable carries as its start act, or as ``stopped_by``,
 which it carries as its stop, and a command a detector names as ``acquire``,
-which that detector fires. A detector is named by its device id. Nothing here
-filters by machine, family, field or address grammar. Which channels exist and
-which way
-they point is the roster's answer, given once per build from the facility's own
+which that detector fires. A detector is named by its device id. One more
+channel is no device: one whose address holds ``.`` or ``/`` (an EPICS field
+such as ``.RBV``), since a run refuses that name as a data key
+(:func:`osprey_facility.plan_names.is_plan_name`). Nothing here filters by
+machine, family or field. Which channels exist and which way they point is the
+roster's answer, given once per build from the facility's own
 knowledge graph or channel-finder database; a second opinion at this seam is
 precisely the divergence that had a build report 144 devices for the bundled
 demo tree's 2908-channel machine.
@@ -131,6 +133,7 @@ from osprey.services.bluesky_bridge.devices._specs_from_file import (
 )
 from osprey_connectors import yaml_loader
 from osprey_connectors.safety_file import atomic_replace
+from osprey_facility.plan_names import is_plan_name
 
 
 def _act(completion: CommandCompletion) -> dict[str, Any]:
@@ -174,13 +177,14 @@ def _write_entry(
 
     The one place a write record's device kind is decided: a command another
     device carries (``carried``) -- a positioner's start act or its stop, a
-    detector's acquire -- is no device, any other command with a completion
+    detector's acquire -- is no device, nor is a record whose address a run
+    cannot record (:func:`is_plan_name`); any other command with a completion
     signal is a triggerable, every other write record a settable. A settable
     whose ``started_by`` command has a completion signal carries it as
     ``started_by``, after its ``readback``, and its ``stopped_by`` right after
     that.
     """
-    if record.address in carried:
+    if record.address in carried or not is_plan_name(record.address):
         return None
     completion = completions.get(record.address)
     if completion is not None:
@@ -290,6 +294,12 @@ def devices_document(
     than one dimension becomes no device: a run records each reading as one
     cell of its table, which holds a 1-D array but not an image.
 
+    A record whose address holds ``.`` or ``/`` becomes no device: a run records
+    a device under its name, and refuses such a name as a data key. A settable
+    whose setpoint is a plan name keeps such a readback: a run records the
+    readback's value under the setpoint's name. A positioner whose setpoint is refused
+    still carries its commands, so neither becomes a device of its own.
+
     A record whose direction the source could not say (``direction is None``)
     becomes no device. It is not silently demoted to a readable: the honest
     handling of an unknown direction is the build's, which refuses to stage a
@@ -349,7 +359,8 @@ def devices_document(
                 section, entry = device
                 document[section].append(entry)
         elif record.direction == "read":
-            if record.shape is not None and len(record.shape) > 1:
+            beyond_one_dimension = record.shape is not None and len(record.shape) > 1
+            if beyond_one_dimension or not is_plan_name(record.address):
                 continue
             readable: dict[str, Any] = {"name": record.address, "pv": record.address}
             readable.update(_value_type(record))
@@ -406,6 +417,7 @@ _GENERATED_HEADER = """\
 # that fires its acquire command and records its results; its acquire command
 # is no device of its own.
 # A readback of more than one dimension is no device.
+# A channel whose address holds `.` or `/` is no device: a run cannot record it.
 """
 """Header the written file carries, filled with the roster source's
 ``describe()`` so the file names the artifact it was derived from."""
