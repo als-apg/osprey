@@ -116,6 +116,13 @@ exceptions:
       driven; the landing page runs no script, so it is in the markup. It is
       the one landing line reworded rather than added, renders the same under
       every method and carries no account, role or claim.
+  18. **the kept upstream connections** — one ``upstream`` block per terminal
+      with ``keepalive``, which each terminal's ``proxy_pass`` now names in
+      place of the address the block holds, and an empty ``Connection`` header
+      in place of ``close`` on a request that is no websocket handshake. nginx
+      reaches the same address with the same requests; it only stops opening a
+      connection for each one. It renders the same under every method and
+      carries no account, role or claim.
 
 Everything else — every volume, header, ``location`` block, comment and blank
 line, and every port *site* (see the mask below) — must be untouched, with one
@@ -275,6 +282,9 @@ _PORT_SITES: tuple[re.Pattern[str], ...] = (
     # `osprey_terminal_session_9100` — the cookie name nginx sets and the
     # `$cookie_osprey_terminal_session_9100` variable that reads it back.
     re.compile(r"osprey_terminal_session_(?P<port>\d+)"),
+    # `server 127.0.0.1:9100;` — the address inside a terminal's `upstream`
+    # block (exception 18), the port `proxy_pass` used to spell itself.
+    re.compile(r"^\s*server\s+[^\s:;]+:(?P<port>\d+);", re.MULTILINE),
 )
 
 
@@ -620,6 +630,17 @@ _REWORDED_NGINX_LINES = frozenset(
 #: may be replaced in the `token` render.
 _REPLACED_NGINX_LINES = frozenset({"    server_name _;"})
 
+#: The two lines the kept upstream connections (SC6 exception 18) replace, as
+#: the port mask leaves them: each terminal's `proxy_pass`, which now names its
+#: `upstream` block, and the `Connection: close` of a request that is no
+#: websocket handshake. These lines — and ONLY these — may be replaced for it.
+_REROUTED_NGINX_LINES = frozenset(
+    {
+        "        proxy_pass http://127.0.0.1:<port>/;",
+        "    '' close;",
+    }
+)
+
 #: The terminal-starting page's one response line. Read out of the tracked
 #: golden rather than spelled here: the page carries the deployment's palette
 #: and a script, `test_golden_render.py` already holds those bytes to the
@@ -653,7 +674,7 @@ _ALLOWED_NGINX_LINES = Counter(
         "    server_name _;": 1,
         "    access_log /dev/stdout osprey_sanitized;": 1,
         "    return 301 http://dls-deploy.dls.example.org:<port>$request_uri;": 1,
-        "}": 1,
+        # Its closing brace is counted with the `upstream` blocks' two below.
         # The terminal-starting page — the TENTH exception to SC6. Each of
         # the two proxying locations sends nginx's own 502 to one named
         # location, which answers with a 503 waiting page. difflib pairs the
@@ -666,6 +687,18 @@ _ALLOWED_NGINX_LINES = Counter(
         '        add_header Cache-Control "no-store" always;': 1,
         _STARTING_PAGE_RETURN: 1,
         "    }": 1,
+        # The kept upstream connections — the EIGHTEENTH exception to SC6. One
+        # `upstream` block per terminal (alice + bob), the `proxy_pass` that
+        # names it, and the empty `Connection` of a plain request.
+        "upstream osprey_terminal_alice {": 1,
+        "upstream osprey_terminal_bob {": 1,
+        "    server 127.0.0.1:<port>;": 2,
+        "    keepalive 16;": 2,
+        "    keepalive_timeout 4s;": 2,
+        "}": 3,
+        "        proxy_pass http://osprey_terminal_alice/;": 1,
+        "        proxy_pass http://osprey_terminal_bob/;": 1,
+        "    '' '';": 1,
     }
 )
 
@@ -864,6 +897,10 @@ def test_the_frozen_baseline_really_predates_the_feature() -> None:
         assert line in nginx, (
             f"the frozen baseline lacks the catch-all name it is said to carry: {line!r}"
         )
+    for line in _REROUTED_NGINX_LINES:
+        assert line in _masked(nginx), (
+            f"the frozen baseline lacks the direct upstream line it is said to carry: {line!r}"
+        )
     for line in _REWORDED_NGINX_LINES:
         assert line in nginx, (
             f"the frozen baseline lacks the pre-retirement comment it is said to carry: {line!r}"
@@ -1007,7 +1044,7 @@ def test_no_pre_feature_line_is_removed_or_reworded() -> None:
             | _RETIRED_COMPOSE_LINES
             | _RETIRED_PANEL_COMPOSE_LINES
             if name == "docker-compose.web.yml"
-            else _REPLACED_NGINX_LINES | _REWORDED_NGINX_LINES
+            else _REPLACED_NGINX_LINES | _REWORDED_NGINX_LINES | _REROUTED_NGINX_LINES
             if name == "nginx.conf"
             else _REWORDED_LANDING_LINES
         )

@@ -302,6 +302,31 @@ class AssetSet:
             return path
         return f"{mount}/{VERSION_SEGMENT}/{self.version()}/{rest}"
 
+    def url_of_file(self, path: str) -> str | None:
+        """The fingerprinted URL of *path* when it names a file of the set, else ``None``.
+
+        What a page served from somewhere else uses to name one of these files
+        at the address this app's own pages name it by, so a browser that has
+        the file keeps using it. Answered from the last scan: no file is read.
+
+        Args:
+            path: A root-relative URL path under one of the mounts, without a
+                query string or fragment.
+        """
+        mount = self._mount_of(path)
+        if mount is None:
+            return None
+        rest = path[len(mount) + 1 :]
+        parts = rest.split("/")
+        if not rest or rest.startswith(f"{VERSION_SEGMENT}/") or ".." in parts or "" in parts:
+            return None
+        version = self.version()
+        full_path = os.path.join(dict(self._mounts)[mount], *parts)
+        with self._lock:
+            if full_path not in self._entries:
+                return None
+        return f"{mount}/{VERSION_SEGMENT}/{version}/{rest}"
+
     def root(self, mount: str) -> str:
         """The fingerprinted root of *mount*, with a trailing slash.
 

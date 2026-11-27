@@ -111,11 +111,16 @@ def test_the_stylesheet_the_chip_needs_is_reachable(client: TestClient) -> None:
     assert ".ctc-anchor" in response.text
 
 
-def test_assets_are_served_uncached(client: TestClient) -> None:
+def test_assets_are_revalidated_on_every_use(client: TestClient) -> None:
     """Filenames here are unversioned, so a redeploy must reach an open page."""
     response = client.get(_url("js/control-target-chip.js"))
 
-    assert "no-store" in response.headers["cache-control"]
+    assert response.headers["cache-control"] == "no-cache"
+    again = client.get(
+        _url("js/control-target-chip.js"), headers={"If-None-Match": response.headers["etag"]}
+    )
+    assert again.status_code == 304
+    assert again.content == b""
 
 
 def test_head_answers_without_a_body(client: TestClient) -> None:

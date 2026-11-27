@@ -103,9 +103,12 @@ class TestDesignSystemProxyRewrite:
                 yield app, c
 
     def test_design_system_prefix_is_rewritten(self, app_and_client):
-        """HTML served through /panel/{id}/ has /design-system/... rewritten
-        to /panel/{id}/design-system/... so followers resolve the shared
-        tokens/CSS/JS through their own panel origin."""
+        """HTML served through /panel/{id}/ has /design-system/... rewritten.
+
+        A module goes to /panel/{id}/design-system/..., where its own
+        root-absolute imports resolve. A style sheet goes to the fingerprinted
+        address the shell's own page names it by, which the browser already
+        holds and never asks for again."""
         app, client = app_and_client
 
         html_body = (
@@ -126,7 +129,8 @@ class TestDesignSystemProxyRewrite:
 
         resp = client.get("/panel/my-dash/")
         assert resp.status_code == 200
-        assert '"/panel/my-dash/design-system/css/tokens.css"' in resp.text
+        fingerprint = app.state.assets.version()
+        assert f'"/design-system/_v/{fingerprint}/css/tokens.css"' in resp.text
         assert '"/panel/my-dash/design-system/js/theme-boot.js"' in resp.text
 
     def test_design_system_prefix_rewritten_in_css(self, app_and_client):

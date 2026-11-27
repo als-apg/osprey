@@ -69,6 +69,7 @@ from websockets.asyncio.client import connect as _WebSocketConnect
 
 from osprey.apps.manifest import is_write_method
 from osprey.dispatch import DISPATCHER_MCP_PATH
+from osprey.interfaces._assets import CACHE_REVALIDATE, AssetSet
 from osprey.interfaces._media_types import STATIC_TEXT_TYPES as _STATIC_TEXT_TYPES
 from osprey.interfaces._media_types import asset_media_type as _asset_media_type
 from osprey.interfaces.common_middleware import (
@@ -94,6 +95,7 @@ from osprey.interfaces.opaque_origin import document_headers
 from osprey.interfaces.web_auth import get_web_credentials, panel_registry_of
 from osprey.interfaces.web_terminal.config_view import login_tier, rendered_config, section_of
 from osprey.interfaces.web_terminal.operator_session import session_hold_root_of
+from osprey.interfaces.web_terminal.panel_answers import is_hub_tag, serve_hub_file, shape_relayed
 from osprey.interfaces.web_terminal.panel_cap import opaque_panel_kind, verify_request_cap
 from osprey.interfaces.web_terminal.panel_sandbox import apply_panel_sandbox, builtin_entry_pages
 from osprey.interfaces.web_terminal.routes.watchdog import live_session_keys, session_is_live
@@ -1366,6 +1368,25 @@ def _panel_rewrite_prefixes(request: Request, panel_id: str) -> tuple[str, ...]:
     return ()
 
 
+#: The hub's shared files a panel's page may name at the address the hub's own
+#: pages name them by: a style sheet, image or font of the design system and
+#: the shared fonts. A literal is one of them when it names the whole file, so
+#: the capture runs to the literal's closing delimiter, query or fragment. The
+#: design system's modules are not among them: they import each other by
+#: root-absolute path, which only a panel-scoped copy resolves on a page that
+#: carries no import map.
+_SHARED_FILE_RE = (
+    r"""(?P<shared>/static/fonts/[A-Za-z0-9._-]+|/design-system/(?:css|img)/[A-Za-z0-9._/-]+)"""
+    r"""(?=["'`?#])"""
+)
+
+
+def _shared_assets(scope: Request | WebSocket) -> AssetSet | None:
+    """The asset set of the app answering *scope*, or ``None`` without one."""
+    assets = getattr(scope.app.state, "assets", None)
+    return assets if isinstance(assets, AssetSet) else None
+
+
 def _rewrite_content(
     body: str,
     panel_id: str,
@@ -1373,6 +1394,7 @@ def _rewrite_content(
     extra_prefixes: tuple[str, ...] = (),
     *,
     panel_base: str | None = None,
+    shared: AssetSet | None = None,
 ) -> str:
     """Rewrite root-absolute paths inside string delimiters for proxied content.
 
@@ -1406,27 +1428,41 @@ def _rewrite_content(
             backend, so they keep pointing at their C-ASSETS route
             ``<outer_prefix>/panel/<panel_id>/<sub>/`` — already exempt and
             CORS-readable, so nothing new is exempted.
+        shared: The hub's asset set. A literal naming a style sheet, image or
+            font of it (:data:`_SHARED_FILE_RE`) is rewritten to the
+            fingerprinted address the hub's own pages use,
+            ``<outer_prefix>/design-system/_v/<fingerprint>/…``: the browser
+            already holds that file, never asks for it again, and every panel
+            shares the one copy. Any other literal, and every literal when
+            ``None``, goes under the panel's namespace.
     """
     prefix = panel_base or f"{outer_prefix}/panel/{panel_id}"
-    if panel_base:
-        # First, so the broader "/static/" prefix below cannot claim
-        # "/static/fonts/" for the cap.
-        for sub in PANEL_ASSET_SUBPATHS:
-            body = re.sub(
-                r"""(?<=["'`])""" + re.escape(f"/{sub}/"),
-                f"{outer_prefix}/panel/{panel_id}/{sub}/",
-                body,
-            )
+    hub_prefix = f"{outer_prefix}/panel/{panel_id}"
 
     # One alternation, one pass: "/static/..." → "/panel/id/static/...". The
     # lookbehind matches only right after a quote character; bare '/api' (no
-    # trailing slash) is matched only when the delimiter closes it.
-    alternatives = [
+    # trailing slash) is matched only when the delimiter closes it. The first
+    # alternative that matches wins, so the order is: a whole shared file,
+    # then the hub's own sub-paths (which a cap path must not claim), then
+    # the broader prefixes.
+    alternatives = [_SHARED_FILE_RE] if shared is not None else []
+    alternatives.append(
+        "(?P<hub>" + "|".join(re.escape(f"/{sub}/") for sub in PANEL_ASSET_SUBPATHS) + ")"
+    )
+    alternatives.extend(
         re.escape(path) for path in dict.fromkeys((*_REWRITE_PREFIXES, *extra_prefixes))
-    ]
+    )
     alternatives.append(r"""/api(?=["'`])""")
     pattern = r"""(?<=["'`])(?:""" + "|".join(alternatives) + ")"
-    body = re.sub(pattern, lambda match: prefix + match.group(0), body)
+
+    def rebased(match: re.Match[str]) -> str:
+        literal = match.group(0)
+        if shared is not None and match.group("shared"):
+            url = shared.url_of_file(literal)
+            return f"{outer_prefix}{url}" if url else f"{hub_prefix}{literal}"
+        return f"{hub_prefix if match.group('hub') else prefix}{literal}"
+
+    body = re.sub(pattern, rebased, body)
 
     # Rewrite href="/" to href="/panel/{id}/"
     body = body.replace('href="/"', f'href="{prefix}/"')
@@ -1501,7 +1537,7 @@ def _contained_asset(root: Path, asset_path: str) -> Path | None:
     "/panel/{panel_id}/design-system/{asset_path:path}",
     methods=["GET", "HEAD"],
 )
-async def proxy_panel_design_system(panel_id: str, asset_path: str, _request: Request):
+async def proxy_panel_design_system(panel_id: str, asset_path: str, request: Request):
     """Serve the HUB's design-system assets to an embedded panel.
 
     MUST stay declared above :func:`proxy_panel` — that route's
@@ -1530,6 +1566,12 @@ async def proxy_panel_design_system(panel_id: str, asset_path: str, _request: Re
     (:func:`~osprey.interfaces.common_middleware.is_panel_asset_path`) and
     answered with ``Access-Control-Allow-Origin: *``, so an opaque agent
     document embedded under this panel can still import the theme modules.
+
+    Answered from memory (:func:`~osprey.interfaces.web_terminal.panel_answers.serve_hub_file`):
+    a file is read and rewritten once per panel, and a browser that holds it
+    is answered ``304``. A page reaches this route for the design system's
+    modules; its style sheets and images are named at the hub's own
+    fingerprinted address by :func:`_rewrite_content`.
     """
     if not _DESIGN_SYSTEM_DIR.is_dir():  # pragma: no cover - packaging guard
         return Response(content="design system unavailable", status_code=404)
@@ -1545,11 +1587,16 @@ async def proxy_panel_design_system(panel_id: str, asset_path: str, _request: Re
     if candidate is None:
         return Response(content="Not found", status_code=404)
 
-    headers = {"cache-control": _DEFAULT_NO_CACHE, **ASSET_CORS_HEADERS}
     media_type = _asset_media_type(candidate)
 
     if candidate.suffix.lower() not in _STATIC_TEXT_TYPES:
-        return Response(content=candidate.read_bytes(), headers=headers, media_type=media_type)
+        return await serve_hub_file(
+            request.headers,
+            request.method,
+            candidate,
+            media_type=media_type,
+            headers=ASSET_CORS_HEADERS,
+        )
 
     # Text assets carry root-absolute self-references (e.g.
     # osprey-theme-switcher.js dynamically imports '/design-system/js/
@@ -1557,8 +1604,39 @@ async def proxy_panel_design_system(panel_id: str, asset_path: str, _request: Re
     # into this panel's namespace — and therefore back to the hub's copy.
     # The fixed prefixes only: this is the hub's tree, not the panel's upstream,
     # so nothing derived from the panel's configuration applies to it.
-    text = _rewrite_content(candidate.read_text(encoding="utf-8"), panel_id, compute_url_prefix())
-    return Response(content=text, headers=headers, media_type=media_type)
+    return await _serve_rewritten_hub_file(request, candidate, panel_id, media_type)
+
+
+async def _serve_rewritten_hub_file(
+    request: Request,
+    candidate: Path,
+    panel_id: str,
+    media_type: str,
+    *,
+    cache_control: str = CACHE_REVALIDATE,
+) -> Response:
+    """One of the hub's text files, its root-absolute paths rewritten for *panel_id*.
+
+    The body depends on the panel, the mount prefix and the fingerprint the
+    rewrite names shared files by, so those are the variant it is kept under.
+    """
+    outer_prefix = compute_url_prefix()
+    shared = _shared_assets(request)
+
+    def rewritten(content: bytes) -> bytes:
+        text = _rewrite_content(content.decode("utf-8"), panel_id, outer_prefix, shared=shared)
+        return text.encode("utf-8")
+
+    return await serve_hub_file(
+        request.headers,
+        request.method,
+        candidate,
+        media_type=media_type,
+        headers=ASSET_CORS_HEADERS,
+        variant=(panel_id, outer_prefix, shared.version() if shared is not None else None),
+        transform=rewritten,
+        cache_control=cache_control,
+    )
 
 
 @router.api_route(
@@ -1568,6 +1646,7 @@ async def proxy_panel_design_system(panel_id: str, asset_path: str, _request: Re
 async def proxy_panel_terminal_static(
     panel_id: str,  # noqa: ARG001 - route path parameter; terminal assets are served verbatim
     asset_path: str,
+    request: Request,
 ):
     """Serve the TERMINAL's own ``static/`` tree to an embedded panel.
 
@@ -1611,10 +1690,12 @@ async def proxy_panel_terminal_static(
     if candidate is None or candidate.suffix.lower() not in _TERMINAL_STATIC_SUFFIXES:
         return Response(content="Not found", status_code=404)
 
-    return Response(
-        content=candidate.read_bytes(),
-        headers={"cache-control": _DEFAULT_NO_CACHE},
+    return await serve_hub_file(
+        request.headers,
+        request.method,
+        candidate,
         media_type=_asset_media_type(candidate),
+        headers={},
     )
 
 
@@ -2018,6 +2099,7 @@ def _stamp_facility_timezone(text: str, base_type: str, zone: str) -> str:
 async def proxy_panel_shared_fonts(
     panel_id: str,  # noqa: ARG001 - route path parameter; fonts are served verbatim
     asset_path: str,
+    request: Request,
 ):
     """Serve the HUB's shared fonts to an embedded panel.
 
@@ -2034,6 +2116,10 @@ async def proxy_panel_shared_fonts(
 
     ``fonts.css`` names its font files relatively, so it is served verbatim.
     A missing font 404s here and never reaches the backend.
+
+    A page the proxy rewrote names a shared font at the hub's own fingerprinted
+    address instead (:func:`_rewrite_content`); this route answers a literal
+    the rewrite could not resolve to a file, such as a path a script builds.
     """
     if not _SHARED_FONTS_DIR.is_dir():  # pragma: no cover - packaging guard
         return Response(content="shared fonts unavailable", status_code=404)
@@ -2042,10 +2128,12 @@ async def proxy_panel_shared_fonts(
     if candidate is None:
         return Response(content="Not found", status_code=404)
 
-    return Response(
-        content=candidate.read_bytes(),
-        headers={"cache-control": _DEFAULT_NO_CACHE, **ASSET_CORS_HEADERS},
+    return await serve_hub_file(
+        request.headers,
+        request.method,
+        candidate,
         media_type=_asset_media_type(candidate),
+        headers=ASSET_CORS_HEADERS,
     )
 
 
@@ -2073,7 +2161,7 @@ def _first_party_static_route(panel_id: str, subpath: str, root: Path):
     ``import '/static/js/state.js'`` still lands back on this route.
     """
 
-    async def serve(asset_path: str) -> Response:
+    async def serve(asset_path: str, request: Request) -> Response:
         if not root.is_dir():  # pragma: no cover - packaging guard
             return Response(content="panel static assets unavailable", status_code=404)
 
@@ -2082,17 +2170,20 @@ def _first_party_static_route(panel_id: str, subpath: str, root: Path):
             return Response(content="Not found", status_code=404)
 
         vendored = "vendor" in Path(asset_path).parts
-        headers = {
-            "cache-control": _VENDOR_CACHE if vendored else _DEFAULT_NO_CACHE,
-            **ASSET_CORS_HEADERS,
-        }
+        cache_control = _VENDOR_CACHE if vendored else CACHE_REVALIDATE
         media_type = _asset_media_type(candidate)
         if media_type not in _REWRITABLE_TYPES:
-            return Response(content=candidate.read_bytes(), headers=headers, media_type=media_type)
-        text = _rewrite_content(
-            candidate.read_text(encoding="utf-8"), panel_id, compute_url_prefix()
+            return await serve_hub_file(
+                request.headers,
+                request.method,
+                candidate,
+                media_type=media_type,
+                headers=ASSET_CORS_HEADERS,
+                cache_control=cache_control,
+            )
+        return await _serve_rewritten_hub_file(
+            request, candidate, panel_id, media_type, cache_control=cache_control
         )
-        return Response(content=text, headers=headers, media_type=media_type)
 
     serve.__name__ = f"proxy_panel_first_party_{panel_id}_{subpath}".replace("/", "_").replace(
         "-", "_"
@@ -2122,7 +2213,7 @@ del _panel_id, _subpaths, _subpath, _root
 
 
 @router.api_route(f"{FIRST_PARTY_PANEL_VIEWERS}{{key}}.js", methods=["GET", "HEAD"])
-async def proxy_panel_artifacts_viewer(key: str) -> Response:
+async def proxy_panel_artifacts_viewer(key: str, request: Request) -> Response:
     """Serve extension type ``key``'s viewer module to the embedded gallery.
 
     A C-ASSETS path (:data:`~osprey.interfaces.common_middleware.FIRST_PARTY_PANEL_VIEWERS`):
@@ -2140,14 +2231,12 @@ async def proxy_panel_artifacts_viewer(key: str) -> Response:
     path = viewer_path(key)
     if path is None or not path.is_file():
         return Response(content="Not found", status_code=404)
-    return Response(
-        content=path.read_bytes(),
-        headers={
-            "cache-control": _DEFAULT_NO_CACHE,
-            "x-content-type-options": "nosniff",
-            **ASSET_CORS_HEADERS,
-        },
+    return await serve_hub_file(
+        request.headers,
+        request.method,
+        path,
         media_type="text/javascript",
+        headers={"x-content-type-options": "nosniff", **ASSET_CORS_HEADERS},
     )
 
 
@@ -2337,6 +2426,12 @@ async def _forward_to_panel(
         and not _is_stripped_header(k)
     }
     fwd_headers["x-forwarded-prefix"] = panel_prefix
+    # A validator this proxy computed (panel_answers) names bytes the backend
+    # never sent: the backend is asked for the file, and the answer is
+    # compared here.
+    if is_hub_tag(request.headers.get("if-none-match")):
+        for name in [k for k in fwd_headers if k.lower() in ("if-none-match", "if-modified-since")]:
+            del fwd_headers[name]
 
     # Re-issue the operator secret, but only toward a backend that is both
     # config-declared and on loopback. This runs after the strip above, so a
@@ -2505,11 +2600,23 @@ async def _forward_to_panel(
             observer.close()
         raise
 
-    # Filter response headers (see _filter_response_headers); fill in the
-    # no-cache default when the upstream made no caching decision of its own
-    # (see _DEFAULT_NO_CACHE).
+    # Filter response headers (see _filter_response_headers). The caching
+    # default for an upstream that made no decision of its own is filled in
+    # where the answer is shaped (_shaped): _DEFAULT_NO_CACHE, or ``no-cache``
+    # for a static file that leaves with a validator.
     resp_headers = _filter_response_headers(resp.headers)
-    resp_headers.setdefault("cache-control", _DEFAULT_NO_CACHE)
+
+    async def _shaped(body: bytes, *, rewritten: bool) -> Response:
+        return await shape_relayed(
+            request.headers,
+            request.method,
+            body=body,
+            status_code=resp.status_code,
+            headers=resp_headers,
+            media_type=content_type or None,
+            rewritten=rewritten,
+            default_cache_control=_DEFAULT_NO_CACHE,
+        )
 
     content_type = resp.headers.get("content-type", "")
     base_type = content_type.split(";")[0].strip().lower()
@@ -2524,6 +2631,7 @@ async def _forward_to_panel(
     # A sidecar's agent hop is the same kind of conversation and is relayed
     # the same way.
     if dispatcher_mcp or agent_hop:
+        resp_headers.setdefault("cache-control", _DEFAULT_NO_CACHE)
         return Response(
             content=resp.content,
             status_code=resp.status_code,
@@ -2541,6 +2649,7 @@ async def _forward_to_panel(
             outer_prefix,
             _panel_rewrite_prefixes(request, panel_id),
             panel_base=panel_base,
+            shared=_shared_assets(request),
         )
         # A JupyterLab application page runs under the proxy's script policy
         # (_lab_page_csp): Lab's own tags and the bar's carry this response's
@@ -2582,12 +2691,7 @@ async def _forward_to_panel(
         # Resolved per request, like the storage scope, by the call the hub's own pages use.
         if base_type == "text/html":
             text = _stamp_facility_timezone(text, base_type, get_facility_timezone().key)
-        return Response(
-            content=text,
-            status_code=resp.status_code,
-            headers=resp_headers,
-            media_type=content_type,
-        )
+        return await _shaped(text.encode("utf-8"), rewritten=True)
 
     # JSON is normally passed through untouched (rewriting arbitrary API
     # payloads would corrupt data). But some backends bootstrap their web UI
@@ -2600,26 +2704,17 @@ async def _forward_to_panel(
     if base_type == "application/json":
         stripped = path.rstrip("/")
         if any(stripped.endswith(sfx) for sfx in _panel_json_rewrite_paths(request, panel_id)):
-            return Response(
-                content=_rewrite_content(
-                    resp.text,
-                    panel_id,
-                    outer_prefix,
-                    _panel_rewrite_prefixes(request, panel_id),
-                    panel_base=panel_base,
-                ),
-                status_code=resp.status_code,
-                headers=resp_headers,
-                media_type=content_type,
+            rewritten_json = _rewrite_content(
+                resp.text,
+                panel_id,
+                outer_prefix,
+                _panel_rewrite_prefixes(request, panel_id),
+                panel_base=panel_base,
             )
+            return await _shaped(rewritten_json.encode("utf-8"), rewritten=True)
 
     # JSON, images, binary — pass through unchanged.
-    return Response(
-        content=resp.content,
-        status_code=resp.status_code,
-        headers=resp_headers,
-        media_type=content_type or None,
-    )
+    return await _shaped(resp.content, rewritten=False)
 
 
 @router.api_route(

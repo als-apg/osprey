@@ -177,7 +177,11 @@ def test_scaffold_render_consistency_across_all_generated_artifacts(tmp_path: Pa
         # nginx reverse-proxies /u/<user>/ to that user's own loopback `web`
         # upstream, and 301-redirects the no-trailing-slash bookmark into it.
         assert f"location /u/{user}/ {{" in nginx_conf
-        assert f"proxy_pass http://127.0.0.1:{expected['web']}/;" in nginx_conf
+        assert (
+            f"upstream osprey_terminal_{user} {{\n    server 127.0.0.1:{expected['web']};\n"
+            in nginx_conf
+        )
+        assert f"proxy_pass http://osprey_terminal_{user}/;" in nginx_conf
         assert f"location = /u/{user} {{" in nginx_conf
         assert f"return 301 /u/{user}/;" in nginx_conf
         assert f">{user}<" in landing_html
