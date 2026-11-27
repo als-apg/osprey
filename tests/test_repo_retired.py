@@ -123,7 +123,7 @@ def _run(message: str, elsewhere: Path) -> list[str]:
 
 
 def _old_facility(root: Path) -> Path:
-    """A facility tree at its pre-epic place, with its own pre-epic slots."""
+    """A facility tree at its retired place, with its slots at their retired paths."""
     facility = root / "data/facility"
     _write(facility, "identity.yaml", "code: demo\n")
     _write(facility, "classes.yaml", "- class: Widget\n  parent: Magnet\n")

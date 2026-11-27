@@ -222,7 +222,7 @@ def check_profile_file(profile_file: Path) -> None:
     ]
     # The CANOPY home screen, as `osprey build` judges it: a repo's profile
     # together with every login file the build renders, a file named
-    # directly on its own, against the library under the profile's data root.
+    # directly on its own, against the library under the deployment's `web/`.
     try:
         if profile_file.name == PROFILE_FILENAME:
             web_errors.extend(repo_home_screen_errors(build_profile, profile_root, overlays))

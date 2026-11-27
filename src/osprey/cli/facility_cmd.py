@@ -693,7 +693,7 @@ def _facility_roots(resolved: LoadedProfile, repo_root: Path) -> FacilityRoots:
 
     Raises:
         FacilityBuildError: When a stated ``machine:`` root is missing or
-            overlaps the data root.
+            overlaps the facility tree.
         RetiredRootRefused: When the repo holds something at a retired path.
         RetiredLayoutRefused: When either root holds a source at a retired
             path.

@@ -13,8 +13,8 @@ closing command: they alone leave nothing at a retired path and bring every
 file ``--revalidate`` leaves at a moved path, so the closing command cannot
 stand in for a move line that is missing or wrong.
 
-Three repositories are taken both ways: the previous release (pre-epic, its
-facility tree at ``data/facility`` with the old facility slots); the same
+Three repositories are taken both ways: the previous release (its facility
+tree at ``data/facility`` with the retired facility slots); the same
 release with its rendered sources under a non-default in-repo ``data:`` root;
 and the previous release whose facility tree is a repository of its own, where
 the commands for that repository run by both routes. A refusal that only names

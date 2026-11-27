@@ -46,6 +46,7 @@ import tempfile
 from collections.abc import Iterable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass, replace
+from functools import cache
 from pathlib import Path
 from typing import IO, Any, Literal, Protocol
 
@@ -137,9 +138,11 @@ _INNER_PATHS_UNCHANGED: Mapping[str, str] = {
 #: The README osprey shipped in a dissolved directory, by name.
 _SHIPPED_README = "README.md"
 
-#: The sha256 of every copy of that README osprey shipped: each version at a
-#: release tag, and the last copy before it was deleted. Any other content is
-#: the deployment's own, so it is a leftover.
+#: The sha256 of each copy of that README osprey shipped as a file: every
+#: version at a release tag, and the last copy before it was deleted. Any
+#: other content is a leftover, since it may be the deployment's own; that
+#: includes a README a release rendered from a template, whose text depended
+#: on the profile it was rendered for.
 _SHIPPED_DATA_README_DIGESTS: frozenset[str] = frozenset(
     {
         "4359e5deb4a2ff1fb3831a7fb0174d8b0efda4f2bbda8b53f5f802ed293e5e55",
@@ -997,7 +1000,8 @@ def _anchored_retired(root: Path, value: str, table: Sequence[RootMove]) -> bool
 # --- root text files ---------------------------------------------------------------
 
 
-def _token_pattern(table: Sequence[RootMove]) -> re.Pattern[str] | None:
+@cache
+def _token_pattern(table: tuple[RootMove, ...]) -> re.Pattern[str] | None:
     """A path token naming a retired path in free text, longest first.
 
     A bare directory name counts only before a ``/``; a name that is plainly a
@@ -1016,14 +1020,14 @@ def _token_pattern(table: Sequence[RootMove]) -> re.Pattern[str] | None:
 
 
 def _names_retired(text: str, table: Sequence[RootMove]) -> bool:
-    pattern = _token_pattern(table)
+    pattern = _token_pattern(tuple(table))
     return pattern is not None and pattern.search(text) is not None
 
 
 def _pipeline_edits(root: Path, table: Sequence[RootMove]) -> list[LineEdit]:
     """The root pipeline file's lines that name a retired path, rewritten."""
     file = root / repo_layout.entry(_PIPELINE_KEY).path
-    pattern = _token_pattern(table)
+    pattern = _token_pattern(tuple(table))
     if pattern is None or not file.is_file():
         return []
     try:
