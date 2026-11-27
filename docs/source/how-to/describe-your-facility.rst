@@ -73,12 +73,10 @@ with the layer and file each of its fields came from, the fields the build
 filled and the fixes applied. Both are described in full under
 :ref:`cli-osprey-facility`.
 
-A tree that still holds a file at a retired path, such as ``classes.yaml`` in
-place of ``vocabulary/classes.yaml`` or ``scenarios/`` in place of
-``simulation/scenarios/``, is refused before anything is read, with the commands
-that move each file and edit every ``deck:`` value that names ``decks/``
-(:ref:`profile-root-migration`). ``osprey init --revalidate`` makes the same
-moves (:ref:`the retired paths <cli-osprey-init-revalidate>`).
+A tree that still holds a file at a retired path is refused before anything is
+read, with the commands that move it (:ref:`profile-root-migration`).
+``osprey init --revalidate`` makes the same moves
+(:ref:`--revalidate <cli-osprey-init-revalidate>`).
 
 Identity
 ========

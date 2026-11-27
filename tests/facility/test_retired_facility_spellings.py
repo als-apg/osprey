@@ -81,33 +81,21 @@ EXEMPT_NAMES = frozenset({"CHANGELOG.md"})
 #: path on purpose.
 LINE_ALLOWLIST: Mapping[tuple[str, str], str] = {
     (
-        "docs/source/reference/cli.rst",
-        "``scenarios/``  ",
+        "docs/source/how-to/build-profiles.rst",
+        "* - ``models.yaml``, ``seeds.yaml``, ``scenarios/``, ``measurement/``,",
     ): "the migration table names each retired path",
     (
-        "docs/source/reference/cli.rst",
-        "``measurement/``  ",
+        "docs/source/how-to/build-profiles.rst",
+        "       ``decks/``",
     ): "the migration table names each retired path",
     (
-        "docs/source/reference/cli.rst",
-        "``decks/``  ",
+        "docs/source/how-to/build-profiles.rst",
+        "* - ``benchmarks/cross_paradigm/queries/``",
     ): "the migration table names each retired path",
     (
-        "docs/source/reference/cli.rst",
-        "``benchmarks/cross_paradigm/queries/``  ",
-    ): "the migration table names each retired path",
-    (
-        "docs/source/reference/cli.rst",
-        "that begins ``decks/`` is",
+        "docs/source/how-to/build-profiles.rst",
+        "value that begins ``decks/`` is rewritten",
     ): "the migration names the deck value it rewrites",
-    (
-        "docs/source/how-to/describe-your-facility.rst",
-        "``scenarios/`` in place of",
-    ): "the refusal note names a retired path it refuses",
-    (
-        "docs/source/how-to/describe-your-facility.rst",
-        "value that names ``decks/``",
-    ): "the refusal note names the deck value it rewrites",
     (
         "docs/source/_diagrams/va-layer-map.html",
         "the view osprey build writes:",

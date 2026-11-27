@@ -98,10 +98,6 @@ LINE_ALLOWLIST: Mapping[tuple[str, str], str] = {
     ): "the migration table names each retired path",
     (
         "docs/source/how-to/build-profiles.rst",
-        "perl -pi -e 's{    template: services/site_api}",
-    ): "the sample refusal block rewrites a retired template value",
-    (
-        "docs/source/how-to/build-profiles.rst",
         "* - ``data/facility/``",
     ): "the migration table names each retired path",
     (
@@ -122,28 +118,8 @@ LINE_ALLOWLIST: Mapping[tuple[str, str], str] = {
     ): "the sample refusal block moves a retired path",
     (
         "docs/source/how-to/build-profiles.rst",
-        "git mv data/canopy/library web/canopy/library",
+        "git mv data/code_review agent/code_review",
     ): "the sample refusal block moves a retired path",
-    (
-        "docs/source/how-to/build-profiles.rst",
-        "git mv data/landing web/landing",
-    ): "the sample refusal block moves a retired path",
-    (
-        "docs/source/how-to/build-profiles.rst",
-        "facility_knowledge\\.bundle_path: data/facility/knowledge}",
-    ): "the sample refusal block rewrites a profile value naming a retired path",
-    (
-        "docs/source/how-to/build-profiles.rst",
-        "        - data/landing/working-safely\\.md}",
-    ): "the sample refusal block rewrites a profile value naming a retired path",
-    (
-        "docs/source/reference/cli.rst",
-        "``data/`` is dissolved: ``data/facility/`` moves to",
-    ): "the migration command names each path it moves",
-    (
-        "docs/source/reference/cli.rst",
-        "``facility/``, ``data/landing/`` and ``data/canopy/`` to ``web/``",
-    ): "the migration command names each path it moves",
     (
         "docs/source/architecture/facility-file.rst",
         "       ``data/facility/ariel/vocabulary.yml``",

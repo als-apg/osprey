@@ -1169,9 +1169,21 @@ entry is at its current one:
      - the same name under ``web/canopy/``
    * - ``data/landing/``
      - ``web/landing/``
+   * - *Inside a facility tree:*
+     -
+   * - ``classes.yaml``, ``signals.yaml``
+     - the same name under ``vocabulary/``
+   * - ``models.yaml``, ``seeds.yaml``, ``scenarios/``, ``measurement/``,
+       ``decks/``
+     - the same name under ``simulation/``
+   * - ``fixes.yaml``, ``documents.yaml``, ``policy.yaml``
+     - the same name under ``provenance/``
+   * - ``benchmarks/cross_paradigm/queries/``
+     - ``benchmarks/channel_finder/``
 
 ``data/`` itself is gone, and so is the profile's ``data:`` key: the render
-assembles ``build/data/`` from ``facility/`` and ``web/`` alone.
+assembles ``build/data/`` from ``facility/`` and ``web/`` alone. A ``deck:``
+value that begins ``decks/`` is rewritten to begin ``simulation/decks/``.
 
 Every command that reads the sources, ``osprey build``, ``osprey up`` and
 ``osprey validate`` among them, stops before it reads or writes anything and
@@ -1186,31 +1198,15 @@ be stopped and watched. This repository also holds a file of its own,
    # Paste this whole block to move them to their current paths, then place by hand what is listed below it; the repo is refused until both are done:
    cd /srv/my-facility
    git mv data/facility facility
-   mkdir -p agent
-   git mv rules agent/rules
-   git mv watchdogs agent/watchdogs
-   mkdir -p ops
-   git mv services ops/services
-   git mv scripts ops/scripts
-   git mv osprey.service ops/osprey.service
+   git mv data/code_review agent/code_review
+   git mv mcp_servers agent/mcp_servers
    git mv ci-extra.yml ops/ci-extra.yml
-   mkdir -p web/canopy
-   git mv data/canopy/library web/canopy/library
-   mkdir -p web
-   git mv data/landing web/landing
-   perl -pi -e 's{    template: services/site_api}{    template: ops/services/site_api} if $. == 4' profile.yml
-   perl -pi -e 's{  facility_knowledge\.bundle_path: data/facility/knowledge}{  facility_knowledge.bundle_path: facility/knowledge} if $. == 9' profile.yml
-   perl -pi -e 's{        - data/landing/working-safely\.md}{        - web/landing/working-safely.md} if $. == 14' profile.yml
-   perl -pi -e 's{services/secret}{ops/services/secret} if $. == 1' .dockerignore
-   perl -ni -e 'print unless $. == 21 && m{^data: data\r?$}' profile.yml
-   rmdir data/canopy 2>/dev/null || true
+   perl -ni -e 'print unless $. == 636 && m{^data: data\r?$}' profile.yml
    rmdir data 2>/dev/null || true
    # Host steps, once the files moved:
    #   osprey build
    # Check by hand; the paths inside these are not rewritten:
    #   ops/ci-extra.yml
-   #   ops/services/site_api/Dockerfile
-   #   ops/scripts/ (operator scripts)
    # Still in data/, place by hand:
    #   data/notes.md
    # Content the render must see goes under facility/.

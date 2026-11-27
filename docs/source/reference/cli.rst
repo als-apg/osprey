@@ -188,38 +188,12 @@ output. Retired write keys are rewritten to the tier key
 retired per-tool policies for switch-governed tools are removed. Prints
 a diff to review and commit.
 
-Every root entry at a retired path is moved under ``agent/``, ``ops/`` or
-``var/``, and ``data/`` is dissolved: ``data/facility/`` moves to
-``facility/``, ``data/landing/`` and ``data/canopy/`` to ``web/`` (``git mv``
-where tracked). The lines that name a moved path are rewritten, and what stays
-with you is printed under "Left for you to do by hand"
-(:ref:`profile-root-migration`).
-
-Each facility tree the profile and its variants build from is moved off its
-retired paths, relative to ``facility/`` (``git mv`` where tracked):
-
-======================================  ==================================
-Retired path                            Current path
-======================================  ==================================
-``classes.yaml``                        ``vocabulary/classes.yaml``
-``signals.yaml``                        ``vocabulary/signals.yaml``
-``models.yaml``                         ``simulation/models.yaml``
-``seeds.yaml``                          ``simulation/seeds.yaml``
-``fixes.yaml``                          ``provenance/fixes.yaml``
-``documents.yaml``                      ``provenance/documents.yaml``
-``policy.yaml``                         ``provenance/policy.yaml``
-``scenarios/``                          ``simulation/scenarios/``
-``measurement/``                        ``simulation/measurement/``
-``decks/``                              ``simulation/decks/``
-``benchmarks/cross_paradigm/queries/``  ``benchmarks/channel_finder/``
-======================================  ==================================
-
-A ``deck:`` value in ``simulation/models.yaml`` that begins ``decks/`` is
-rewritten to begin ``simulation/decks/``. A file at both a retired path and its
-current path stops the run before anything is written; keep one. A tree in
-another repository, such as a mounted machine repository, is not touched: the
-commands that move it are printed under "Left for you to do by hand"
-(:ref:`upgrade order <machine-repository-upgrade>`).
+A repository at a retired layout is moved to the current one (``git mv`` where
+tracked), and the lines that name a moved path are rewritten. What stays with
+you is printed under "Left for you to do by hand"; that includes the commands
+for a facility tree in another repository, such as a mounted machine repository
+(:ref:`upgrade order <machine-repository-upgrade>`). The retired paths and what
+the run leaves to you are under :ref:`profile-root-migration`.
 
 The step is one-way: an older OSPREY refuses the revalidated repository. To go
 back, check out the repository as it was before the commit and install the
