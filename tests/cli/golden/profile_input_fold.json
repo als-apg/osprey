@@ -35,7 +35,7 @@
       {
         "key": "web/canopy/library/",
         "label": "web:canopy-library",
-        "digest": "42350b3e9428a9cbc2706b670e17a378555ea91ea55de0974bb8bee60412c654"
+        "digest": "92d2d438028f6105493324056b252a982955d541a4ec77dc13f2b3793495fc97"
       },
       {
         "key": "web/canopy/collections/",
@@ -98,7 +98,7 @@
         "digest": "63dbd2d7f4c556bdd25f7a8e30b0d5189e9eb99b6d87ebc50ca2983882c82219"
       }
     ],
-    "profile_hash": "sha256:2f262bd7111ecb75e0838c3754fea693e598ea9479bf07fc5ad7eeaf43c3bcb1",
+    "profile_hash": "sha256:58b03b21bd0d8c049c031ce323b9cec0362dea6b756525592831327e1adc1bc7",
     "preset_hash": "sha256:df1db339234e046d52d74cd7f9b2b37eaa9fd2ac65724142c8db8acff53c878c"
   }
 }
