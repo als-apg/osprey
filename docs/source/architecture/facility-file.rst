@@ -257,8 +257,8 @@ derived keys where a stated value is not refused.
      - the key
      - the render's copy of the shipped file,
        ``data/facility/ariel/vocabulary.yml``
-     - while the vocabulary is on, name a file, resolved against the project
-       root
+     - while the vocabulary is on, name a file: in the render's facility tree
+       it is the render's copy, elsewhere it resolves against the project root
    * - ``channel_finder.benchmark.dataset_path``
      - the key
      - ``data/benchmarks/queries.json`` when the tree ships benchmark query
