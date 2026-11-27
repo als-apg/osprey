@@ -40,7 +40,11 @@ from docs.screenshots.contact_sheet import (
     hermetic_hub,
 )
 
-from tests.interfaces._browser import wait_for_last_active, wait_for_page_ready
+from tests.interfaces._browser import (
+    wait_for_last_active,
+    wait_for_page_ready,
+    wait_for_pointer,
+)
 
 pytestmark = [pytest.mark.browser, pytest.mark.slow]
 
@@ -221,10 +225,6 @@ def _menu(page: Page, row, item: str) -> None:
     page.get_by_role("menuitem", name=item).click()
 
 
-def _pointer(page: Page) -> str:
-    return page.evaluate("() => localStorage.getItem('osprey-pty-session')")
-
-
 def _send(page: Page, prompt: str) -> None:
     """Send *prompt* from the composer; a composer still binding keeps the text, so
     Enter is pressed until the composer takes it."""
@@ -403,11 +403,12 @@ def test_entering_an_older_transcript_keeps_its_save_and_a_terminal_clear_shows_
     expect(_session(page, _RF_AFTER_CLEAR.transcript_id)).to_have_count(1)
     expect(_session(page, _PROFILE.transcript_id)).to_have_count(1)
 
+    before = wait_for_pointer(page)
     _session(page, _RF_FIRST.transcript_id).locator(".osprey-tree-title").click()
     expect(_session(page, _RF_FIRST.transcript_id)).to_have_class(
         _re(r"\bactive\b"), timeout=_TIMEOUT_MS
     )
-    entered = _pointer(page)
+    entered = wait_for_pointer(page, other_than=before)
     assert entered and entered != _RF_FIRST.session_key, "entering must mint a new key"
 
     _send(page, "Plot the cavity temperatures.")
@@ -440,7 +441,7 @@ def test_entering_an_older_transcript_keeps_its_save_and_a_terminal_clear_shows_
     expect(_session(page, new_tid)).to_have_count(1, timeout=_TIMEOUT_MS)
     expect(_active(page)).to_have_attribute("data-session-id", new_tid, timeout=_TIMEOUT_MS)
 
-    wait_for_last_active(page, _pointer(page))
+    wait_for_last_active(page, wait_for_pointer(page))
     page.reload(wait_until="domcontentloaded")
     wait_for_page_ready(page)
     expect(_active(page)).to_have_attribute("data-session-id", new_tid, timeout=_TIMEOUT_MS)
@@ -601,12 +602,13 @@ def test_a_session_name_click_reveals_its_last_artifact_and_every_return_resumes
     expect(_active(page)).to_have_attribute(
         "data-session-id", _RF_AFTER_CLEAR.transcript_id, timeout=_TIMEOUT_MS
     )
+    before = wait_for_pointer(page)
     _session(page, sid).locator(".osprey-tree-title").click()
     expect(_active(page)).to_have_attribute("data-session-id", sid, timeout=_TIMEOUT_MS)
     expect(_row(page, profile.id)).to_have_attribute("aria-selected", "true", timeout=_TIMEOUT_MS)
 
     # Reload: the same session, the artifact shown in the docked panel.
-    wait_for_last_active(page, _pointer(page))
+    wait_for_last_active(page, wait_for_pointer(page, other_than=before))
     page.reload(wait_until="domcontentloaded")
     wait_for_page_ready(page)
     expect(_active(page)).to_have_attribute("data-session-id", sid, timeout=_TIMEOUT_MS)
@@ -639,11 +641,10 @@ def test_a_session_name_click_reveals_its_last_artifact_and_every_return_resumes
     expect(_active(page)).to_have_attribute("data-session-id", sid, timeout=_TIMEOUT_MS)
 
     # The pen button opens a new session, and a reload stays on it.
+    before = wait_for_pointer(page)
     page.locator("button.op-session-new").click()
-    expect(_active(page)).to_have_attribute(
-        "data-session-id", f"key:{_pointer(page)}", timeout=_TIMEOUT_MS
-    )
-    minted = _pointer(page)
+    minted = wait_for_pointer(page, other_than=before)
+    expect(_active(page)).to_have_attribute("data-session-id", f"key:{minted}", timeout=_TIMEOUT_MS)
     wait_for_last_active(page, minted)
     page.reload(wait_until="domcontentloaded")
     wait_for_page_ready(page)
@@ -1050,7 +1051,7 @@ def test_deleting_a_past_session_drops_its_row_and_its_artifacts(hub, page):
     expect(_active(page)).to_have_attribute(
         "data-session-id", _RF_AFTER_CLEAR.transcript_id, timeout=_TIMEOUT_MS
     )
-    wait_for_last_active(page, _pointer(page))
+    wait_for_last_active(page, wait_for_pointer(page))
 
     # The session the Agent is on offers Delete… disabled.
     current.click(button="right")

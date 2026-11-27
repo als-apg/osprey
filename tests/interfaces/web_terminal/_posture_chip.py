@@ -27,7 +27,7 @@ from osprey_connectors.identity import acting_identity
 from osprey_connectors.write_target import KIND_BANNERS
 from osprey_connectors_tests._harness import write_control_context, write_server_report
 from osprey_connectors_tests._harness._control_context_fixtures import SELF_OWNER
-from tests.interfaces._browser import wait_for_page_ready
+from tests.interfaces._browser import wait_for_page_ready, wait_for_pointer
 from tests.interfaces._hub import LONG_LIVED_SHELL, hub_server
 from tests.interfaces.web_terminal._control_context import read_record
 from tests.interfaces.web_terminal._surface import arm_terminal_tab
@@ -601,15 +601,8 @@ def settled_chip(
         "data-enforceable", str(enforceable).lower(), timeout=TIMEOUT
     )
 
-    # The pointer is written by the surface that owns the session — here the
-    # terminal's own confirmation — and the chip settles on two local reads, ahead of either. A
-    # single read here would be a read of whatever had happened by then.
-    page.wait_for_function(
-        "() => Boolean(localStorage.getItem('osprey-pty-session'))", timeout=TIMEOUT
-    )
-
-    session_id = page.evaluate("() => localStorage.getItem('osprey-pty-session')")
-    return page, session_id
+    # The terminal's own confirmation writes the pointer, after the chip has settled.
+    return page, wait_for_pointer(page)
 
 
 def open_popover(page: Page) -> None:

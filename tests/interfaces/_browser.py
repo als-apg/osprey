@@ -16,7 +16,9 @@ makes after it navigates: it returns once the page sets its ready mark
 window, and fails at once when the writer marked the page ``failed``.
 ``wait_for_last_active`` waits until the server's last-active answer names the
 key a test expects, so a reload or an overwrite never races the page's own
-debounced write. ``open_hub_page`` is the hub's own entry point — it opens the page and
+debounced write. ``wait_for_pointer`` waits until the tab's session pointer
+holds a key (one other than a given key, when asked) and returns it, since the
+page stores it after a connect, not with the render. ``open_hub_page`` is the hub's own entry point — it opens the page and
 waits through it — and ``rail_entry`` builds the locator for one of that rail's
 buttons.
 """
@@ -347,6 +349,70 @@ def wait_for_last_active(page: Page, key: str) -> None:
     raise AssertionError(
         f"the server's last-active session is {answer!r}, not {key!r}, "
         f"{_LAST_ACTIVE_TIMEOUT_MS} ms after the wait began"
+    )
+
+
+#: A hang ceiling for the page's pointer write after a connect or a
+#: confirmation. No product constant bounds that step; the debounce is the
+#: nearest one the page states.
+_POINTER_TIMEOUT_MS = 50 * LAST_ACTIVE_DEBOUNCE_MS
+
+#: The tab's session pointer, read as the page reads it: ``osprey-pty-session``,
+#: suffixed ``--<scope>`` when ``<html data-osprey-storage-scope>`` is set and
+#: never the bare key when it is (the rule ``storage-scope.js`` defines).
+_POINTER_JS = """
+() => {
+  const scope = document.documentElement.getAttribute('data-osprey-storage-scope') || null;
+  const key = scope === null ? 'osprey-pty-session' : `osprey-pty-session--${scope}`;
+  return { key, value: localStorage.getItem(key) };
+}
+"""
+
+#: Resolves ``{ok, last}`` once the pointer holds a key other than
+#: ``otherThan``, or when ``budgetMs`` runs out; ``last`` is the final read.
+#: Reads are paced by animation frames, as ``_LAST_ACTIVE_IS_JS`` paces its own.
+_POINTER_SET_JS = f"""
+async ([otherThan, budgetMs]) => {{
+  const read = {_POINTER_JS.strip()};
+  const frame = () => new Promise((resolve) => requestAnimationFrame(() => resolve()));
+  const deadline = Date.now() + budgetMs;
+  const ok = (pointer) => pointer.value !== null && pointer.value !== otherThan;
+  let last = read();
+  while (!ok(last) && Date.now() < deadline) {{
+    await frame();
+    last = read();
+  }}
+  return {{ ok: ok(last), last }};
+}}
+"""
+
+
+def wait_for_pointer(page: Page, *, other_than: str | None = None) -> str:
+    """Wait until the tab's session pointer holds a key, and return it.
+
+    The page stores the pointer after a connect or a confirmation, not with the
+    render a test waits on, so a single read can see no key or the previous
+    one. The wait reads the pointer from inside *page* under the page's own
+    storage scope, and gives up after a ceiling scaled from
+    ``LAST_ACTIVE_DEBOUNCE_MS``.
+
+    Args:
+        page: A web-terminal page whose pointer is read.
+        other_than: A key the pointer must have moved off; ``None`` accepts
+            any stored key.
+
+    Raises:
+        AssertionError: No such key was stored within the ceiling; the message
+            names the storage key, its last value and *other_than*.
+    """
+    answer = page.evaluate(_POINTER_SET_JS, [other_than, _POINTER_TIMEOUT_MS])
+    last = answer["last"]
+    if answer["ok"]:
+        return last["value"]
+    wanted = "a key" if other_than is None else f"a key other than {other_than!r}"
+    raise AssertionError(
+        f"the page's pointer {last['key']!r} holds {last['value']!r}, not {wanted}, "
+        f"{_POINTER_TIMEOUT_MS} ms after the wait began"
     )
 
 
