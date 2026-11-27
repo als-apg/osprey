@@ -19,6 +19,7 @@ import logging
 from pathlib import Path
 
 import pytest
+from tests._census import census
 from tests.services.channel_finder.graph_index import corpora
 from tests.services.channel_finder.graph_index._index import read_rows
 
@@ -39,10 +40,10 @@ from osprey.services.graph_store.seeder import ttl_sha256
 #: chromaticity, user beam mode and operation-mode channels itself, is one of the 1027; ``signals`` is what
 #: ``GRAPH_SIGNAL_COUNT_CYPHER`` counts, and ``sections`` what
 #: ``GRAPH_SECTION_COUNT_CYPHER`` does.
-DEMO_BINDINGS = 4775
-DEMO_DEVICES = 1027
-DEMO_CLASSES = 38
-DEMO_SIGNALS = 71
+DEMO_BINDINGS = census("channels")
+DEMO_DEVICES = census("bound_devices")
+DEMO_CLASSES = census("graph_classes")
+DEMO_SIGNALS = census("graph_signals")
 
 #: Derived from the view (twenty-four distinct ``narad_p:sectionCode`` literals:
 #: ``SECT1`` to ``SECT12``, the top-place codes ``SR``, ``BR``, ``BTS``,
@@ -50,7 +51,7 @@ DEMO_SIGNALS = 71
 #: and ``RK08``, and the girder ``G2`` in ``SECT3``),
 #: not read off a store-backed assertion -- no census test seeds this corpus and
 #: asks the store for its section count.
-DEMO_SECTIONS = 24
+DEMO_SECTIONS = census("graph_sections")
 
 
 def _meta_row(index_path: Path) -> dict:

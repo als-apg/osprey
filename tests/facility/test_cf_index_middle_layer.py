@@ -23,6 +23,7 @@ from typing import TYPE_CHECKING, Any
 import pytest
 
 from osprey_facility.records import FacilityRecords
+from tests._census import census
 from tests._facility_file import FACILITY_V4
 
 if TYPE_CHECKING:
@@ -1038,44 +1039,12 @@ def _families(document: dict[str, Any]) -> dict[str, list[str]]:
 
 #: The demo's groups by System, each a Family named by its short id. The racks,
 #: supplies and hosts of the example hold no channel, so ``-`` and ``HALL`` are no
-#: System.
-DEMO_GROUPS = {
-    # The booster's bends and quadrupoles share three supplies and have no
-    # channel of their own, so their groups are no family of a channel index.
-    "BR": [
-        *("BPM", "DIAG", "DIPOLE-RAMP", "HCM", "KICKER", "MAG"),
-        *("QD-RAMP", "QF-RAMP", "SEPTUM", "TV", "VCM"),
-    ],
-    "BTS": [
-        *("BPM", "DIAG", "DIPOLE", "HCM", "ICT", "MAG"),
-        *("PADDLES", "QD", "QF", "TV", "VCM"),
-    ],
-    "ES1": ["MCA", "STAGE"],
-    "GTL": ["BC", "BPM", "EGUN", "HCM", "ICT", "SHB", "SOL", "TV", "VCM"],
-    "LN": [
-        *("ACC", "BPM", "BUNCHER", "HCM", "ICT", "MASTER"),
-        *("QD", "QF", "SOL", "TV", "VCM", "WATER"),
-    ],
-    "LTB": ["BPM", "DIPOLE", "HCM", "ICT", "QD", "QF", "TV", "VCM"],
-    "SR": [
-        *("BPM", "DIAG", "DIPOLE", "ENV", "FE", "HC", "HCM", "ID", "MAG", "QD", "QF"),
-        *("QFA", "RF", "SCRAPER", "SD", "SEPTUM", "SF", "SHD", "SHF", "TC", "VAC", "VCM"),
-    ],
-}
+#: System. The booster's bends and quadrupoles share three supplies and have no
+#: channel of their own, so their groups are no family of a channel index.
+DEMO_GROUPS = census("groups_by_system")
 
 #: The demo's classes no single-class group holds, by System.
-DEMO_DERIVED = {
-    "BR": ["BeamCurrentMonitor"],
-    "BTS": [],
-    "ES1": [],
-    "GTL": [],
-    "LN": [],
-    "LTB": [],
-    "SR": [
-        *("AcceleratingCavity", "AirHandler", "BeamCurrentMonitor", "BeamLossMonitor"),
-        *("Gauge", "Modulator", "Pump", "TemperatureSensor", "Valve"),
-    ],
-}
+DEMO_DERIVED = census("derived_by_system")
 
 
 @pytest.mark.slow

@@ -40,6 +40,7 @@ from typing import TYPE_CHECKING, Any
 import pytest
 
 from osprey_facility.records import FacilityRecords
+from tests._census import census
 
 if TYPE_CHECKING:
     from tests.facility.conftest import BuiltProject
@@ -140,8 +141,8 @@ def recounted(family: tuple[str, str], description: str) -> str:
     return description
 
 
-#: How many frozen rows the demo has retired; a retirement changes this pin.
-RETIRED_COUNT = 64
+#: How many frozen rows the demo has retired; a retirement changes the census.
+RETIRED_COUNT = census("retired")
 
 FINGERPRINT_SHA256 = "644f41850784e0251ac4be0081c6891b7f933b119efc037a7455ebe89c54e9c0"
 FINGERPRINT_ROW_KEYS = ["address", "role", "value_type", "names", "description"]

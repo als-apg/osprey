@@ -3,16 +3,16 @@
 ``golden/demo_census.json`` lists each file that states a count of the demo
 facility -- channels, devices, groups, setpoints, moving channels, benchmark
 queries, logbook entries -- with the text that states it and the value it
-states. Each file must still state its value, and the built demo
-facility must hold the census' own counts. A change to the demo's size
-therefore updates the census and every pin in the same commit; a pin that is
-moved without the census, or a census that is moved without the pins, fails
-here.
+states. Each file must still state its value, and the built demo facility
+must hold the census' own counts. A test constant does not restate a count: it
+reads it from the census by name, through ``tests/_census.py``. A change to the
+demo's size therefore updates the census and every pin in the same commit; a
+pin that is moved without the census, or a census that is moved without the
+pins, fails here.
 """
 
 from __future__ import annotations
 
-import ast
 import json
 import re
 from pathlib import Path
@@ -28,35 +28,6 @@ if TYPE_CHECKING:
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 CENSUS = "demo_census.json"
-
-
-class _UnpackLiterals(ast.NodeTransformer):
-    """Splice ``*("a", "b")`` into its enclosing list, as the interpreter would."""
-
-    def visit_List(self, node: ast.List) -> ast.List:
-        self.generic_visit(node)
-        elts: list[ast.expr] = []
-        for elt in node.elts:
-            if isinstance(elt, ast.Starred) and isinstance(elt.value, ast.Tuple | ast.List):
-                elts.extend(elt.value.elts)
-            else:
-                elts.append(elt)
-        node.elts = elts
-        return node
-
-
-def _assigned(source: str, name: str) -> Any:
-    """The literal a module binds to ``name`` at top level."""
-    for node in ast.parse(source).body:
-        if isinstance(node, ast.Assign):
-            targets = node.targets
-        elif isinstance(node, ast.AnnAssign) and node.value is not None:
-            targets = [node.target]
-        else:
-            continue
-        if any(isinstance(target, ast.Name) and target.id == name for target in targets):
-            return ast.literal_eval(_UnpackLiterals().visit(node.value))
-    raise LookupError(f"no top-level assignment to {name}")
 
 
 def _json_value(document: Any, key: str) -> Any:
@@ -76,11 +47,6 @@ def _text_pattern(fragment: str, value: Any) -> re.Pattern[str]:
 def stated(text: str, pin: str, value: Any, *, suffix: str) -> bool:
     """Whether a file's ``text`` states ``value`` the way ``pin`` says it does."""
     kind, _, spec = pin.partition(":")
-    if kind == "assign":
-        try:
-            return _assigned(text, spec) == value
-        except LookupError:
-            return False
     if kind == "json":
         if suffix != ".json":
             raise ValueError(f"json pin {pin!r} on a {suffix} file")
@@ -108,7 +74,7 @@ def test_the_census_is_well_formed() -> None:
     assert entries
     for entry in entries:
         assert set(entry) == {"file", "pin", "value"}, entry
-        assert entry["pin"].split(":", 1)[0] in {"assign", "json", "text"}, entry
+        assert entry["pin"].split(":", 1)[0] in {"json", "text"}, entry
     ids = [_entry_id(entry) for entry in entries]
     assert len(ids) == len(set(ids)), "an entry is listed twice"
     assert set(census["facility"]) == {"channels", "devices", "groups", "setpoints", "readables"}
@@ -136,33 +102,22 @@ def test_every_listed_file_still_states_its_value(entry: dict[str, Any]) -> None
 
 
 def test_the_census_agrees_with_itself() -> None:
-    """The facility block and the entries that restate it name the same numbers."""
+    """The facility block, the facts and the goldens' counts relate as the demo does."""
     census = _census()
     facility = census["facility"]
+    facts = census["facts"]
     assert facility["channels"] == facility["setpoints"] + facility["readables"]
-    by_pin = {(entry["file"], entry["pin"]): entry["value"] for entry in census["entries"]}
-    facade = "tests/channel_roster/test_facade.py"
-    graph_mcp = "tests/integration/test_graph_mcp.py"
-    assert by_pin[(facade, "assign:DEMO_CHANNELS")] == facility["channels"]
-    assert by_pin[(facade, "assign:DEMO_WRITES")] == facility["setpoints"]
-    assert by_pin[(facade, "assign:DEMO_READS")] == facility["readables"]
     # The graph view types every device; the store and the index count the
     # devices a channel binds, which the facility's unbound devices are not.
-    demo_ttl = "tests/templates/test_demo_ttl.py"
-    parse_corpus = "tests/services/channel_finder/graph_index/test_parse_corpus.py"
-    assert by_pin[(demo_ttl, "assign:EXPECTED_DEVICES")] == facility["devices"]
-    assert (
-        by_pin[(graph_mcp, "assign:EXPECTED_DEVICES")]
-        == by_pin[(parse_corpus, "assign:DEMO_TYPED_DEVICES")]
-        < facility["devices"]
-    )
+    assert facts["typed_devices"] < facility["devices"]
+    by_pin = {(entry["file"], entry["pin"]): entry["value"] for entry in census["entries"]}
     fingerprint = "tests/facility/golden/demo_fingerprint.json"
     additions = "tests/facility/golden/demo_fingerprint_additions.json"
     retired = "tests/facility/golden/demo_fingerprint_retired.json"
+    assert by_pin[(fingerprint, "json:count")] == facts["manifest_channels"]
+    assert by_pin[(retired, "json:len(rows)")] == facts["retired"]
     assert (
-        by_pin[(fingerprint, "json:count")]
-        - by_pin[(retired, "json:len(rows)")]
-        + by_pin[(additions, "json:len(rows)")]
+        facts["manifest_channels"] - facts["retired"] + by_pin[(additions, "json:len(rows)")]
         == facility["channels"]
     )
 
@@ -189,13 +144,6 @@ def test_the_built_facility_holds_the_census_counts(
 @pytest.mark.parametrize(
     ("text", "pin", "value", "suffix", "expected"),
     [
-        ("EXPECTED = 2952\n", "assign:EXPECTED", 2952, ".py", True),
-        ("EXPECTED = 2953\n", "assign:EXPECTED", 2952, ".py", False),
-        ("OTHER = 2952\n", "assign:EXPECTED", 2952, ".py", False),
-        ("EXPECTED: int = 412\n", "assign:EXPECTED", 412, ".py", True),
-        ('G = {"A": ["x"]}\n', "assign:G", {"A": ["x"]}, ".py", True),
-        ('G = {"A": ["x", "y"]}\n', "assign:G", {"A": ["x"]}, ".py", False),
-        ('G = {"A": [*("x", "y"), "z"]}\n', "assign:G", {"A": ["x", "y", "z"]}, ".py", True),
         ("    assert len(groups) == 29\n", "text:assert len(groups) == {value}", 29, ".py", True),
         ("    assert len(groups) == 30\n", "text:assert len(groups) == {value}", 29, ".py", False),
         ("    assert len(groups) == 290\n", "text:assert len(groups) == {value}", 29, ".py", False),

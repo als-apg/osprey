@@ -46,6 +46,7 @@ import pytest
 from osprey.facility.views.graph_iri import iri
 from osprey_facility.records import FacilityRecords
 from tests._builds import BuiltProject
+from tests._census import census
 from tests._graphdb_container import (
     GRAPHDB_TEST_DATABASE,
     GRAPHDB_TEST_PASSWORD,
@@ -80,15 +81,15 @@ pytestmark = [pytest.mark.xdist_group("docker")]
 # locatedIn and record names (40928 then); this test is what confirms it holds.
 
 #: Triples n10s reports loading from the view.
-EXPECTED_TRIPLES_LOADED = 45622
+EXPECTED_TRIPLES_LOADED = census("triples_loaded")
 #: Distinct resources carrying at least one channel binding: the 1026 devices
 #: and the top place ``SR``, which carries the tune, chromaticity, user
 #: beam mode and operation-mode channels.
-EXPECTED_DEVICES = 1027
+EXPECTED_DEVICES = census("bound_devices")
 #: ``(:ChannelBinding)`` nodes.
-EXPECTED_BINDINGS = 4775
-EXPECTED_WRITE_ONLY = 681
-EXPECTED_READ_ONLY = 4089
+EXPECTED_BINDINGS = census("channels")
+EXPECTED_WRITE_ONLY = census("setpoints")
+EXPECTED_READ_ONLY = census("graph_read_only")
 #: Devices whose type rolls up to ``Magnet`` through ``rdfs:subClassOf`` —
 #: Dipole + Quadrupole + Sextupole + HCorrector + VCorrector + Septum + Kicker
 #: + Solenoid + BuckingCoil + InsertionDevice. ``SR/MAG-Q-0301``, the quadrupole
@@ -96,7 +97,7 @@ EXPECTED_READ_ONLY = 4089
 #: merges nothing. So do the booster's 56 bends and quadrupoles, which share
 #: three supplies and have no channel of their own.
 #: This is the count that proves the *hierarchy* imported, not just the nodes.
-EXPECTED_MAGNETS = 537
+EXPECTED_MAGNETS = census("magnets")
 
 #: Ontology root the magnet rollup walks up to.  A driver parameter here, where
 #: the prototype's Browser-oriented file inlines it as a literal.

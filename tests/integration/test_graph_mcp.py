@@ -53,6 +53,7 @@ from osprey.services.channel_finder.graph_queries import (
     GRAPH_CHANNEL_COUNT_CYPHER,
     GRAPH_DEVICE_CYPHER,
 )
+from tests._census import census
 from tests._graphdb_container import (
     GRAPHDB_TEST_DATABASE,
     GRAPHDB_TEST_PASSWORD,
@@ -86,18 +87,18 @@ pytestmark = [pytest.mark.xdist_group("docker")]
 
 
 # --- Verified counts for the demo build's graph view ----------
-# Stated here rather than derived, so a change to the demo facility has to be
-# acknowledged in this module.
+# Read from the demo census rather than derived, so a change to the demo
+# facility has to be acknowledged in ``tests/facility/golden/demo_census.json``.
 
-EXPECTED_DEVICES = 1026
+EXPECTED_DEVICES = census("typed_devices")
 #: Places carrying channels of their own: the top place ``SR``, whose tune,
 #: chromaticity, user beam mode and operation-mode channels sit on the place rather than on a
 #: device. The store matches a place on ``(:Resource)-[:HASBINDING]->`` as it
 #: matches a device.
 EXPECTED_BOUND_PLACES = 1
-EXPECTED_BINDINGS = 4775
-EXPECTED_WRITE_ONLY = 681
-EXPECTED_READ_ONLY = 4089
+EXPECTED_BINDINGS = census("channels")
+EXPECTED_WRITE_ONLY = census("setpoints")
+EXPECTED_READ_ONLY = census("graph_read_only")
 #: The place's tune, chromaticity and user beam mode channels name no signal; its
 #: operation mode reads one.
 EXPECTED_UNSIGNALLED = 5
@@ -105,10 +106,10 @@ EXPECTED_UNSIGNALLED = 5
 #: system names and no channel binds, counts with them: ``sameAs`` merges nothing.
 #: So do the booster's 56 bends and quadrupoles, which share three supplies and
 #: have no channel of their own.
-EXPECTED_MAGNETS = 537
+EXPECTED_MAGNETS = census("magnets")
 #: The magnets that carry a channel binding: what the ontology rollup and the
 #: channel search count.
-EXPECTED_BOUND_MAGNETS = 480
+EXPECTED_BOUND_MAGNETS = census("bound_magnets")
 
 _SEM = "https://narad.example.org/schema/shared_semantics/"
 MAGNET_CLASS_URI = _SEM + "Magnet"

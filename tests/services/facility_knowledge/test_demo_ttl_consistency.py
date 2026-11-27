@@ -35,6 +35,7 @@ from typing import Any
 import pytest
 
 from tests._builds import BuiltProject
+from tests._census import census
 
 #: Repo root — this file sits at ``tests/services/facility_knowledge/``.
 REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -55,15 +56,15 @@ RETIRED_PATH = REPO_ROOT / "tests/facility/golden/demo_fingerprint_retired.json"
 #: NARAD property namespace — the emitter binds it as ``narad_p:``.
 NARAD_PROPERTY = "https://narad.example.org/property/"
 
-#: Expected sizes, spelled out rather than derived, so a change to *both* sides
-#: at once still trips something.
+#: Expected sizes, read from the demo census rather than derived from either
+#: side, so a change to *both* sides at once still trips something.
 #: ``EXPECTED_CHANNELS`` counts the channel database; the view carries those and
 #: ``EXPECTED_BINDINGS`` in all, the 1931 addresses the facility adds included.
-EXPECTED_CHANNELS = 2908
-EXPECTED_BINDINGS = 4775
-EXPECTED_DEVICES = 1093
+EXPECTED_CHANNELS = census("manifest_channels")
+EXPECTED_BINDINGS = census("channels")
+EXPECTED_DEVICES = census("devices")
 #: Devices placed in a system: every device but the nine placed nowhere.
-EXPECTED_SYSTEM_DESCRIBED = 1084
+EXPECTED_SYSTEM_DESCRIBED = census("system_described")
 
 #: Devices carrying each device prose predicate: every device placed in a
 #: system carries its system's text, and only a device some described group names carries a
@@ -83,10 +84,7 @@ DEVICE_DESCRIPTION_PREDICATES = ("familyDescription", "systemDescription")
 #: Distinct texts behind the device predicates — the facility's whole family
 #: and system vocabulary. Counting the distinct values, not just the triples,
 #: is what says the texts were joined by device rather than broadcast.
-EXPECTED_DISTINCT_DEVICE_TEXTS = {
-    "familyDescription": 74,
-    "systemDescription": 8,
-}
+EXPECTED_DISTINCT_DEVICE_TEXTS = census("distinct_device_texts")
 
 #: How many members of a set difference a failure message names before eliding.
 _MAX_REPORTED = 20

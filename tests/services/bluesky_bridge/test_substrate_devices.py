@@ -45,13 +45,13 @@ from osprey.services.bluesky_bridge.substrate_devices import (
     devices_document,
     write_devices_file,
 )
+from tests._census import census
 from tests._facility_file import write_demo_facility_file
 from tests.channel_roster.test_facade import DEMO_UNPAIRED, demo_readback, is_demo_unpaired
 
-#: What the shipped demo tree holds, pinned alongside
-#: ``tests/channel_roster/test_facade.py``.
-DEMO_WRITES = 681
-DEMO_READS = 4094
+#: What the shipped demo tree holds, as the demo census states it.
+DEMO_WRITES = census("setpoints")
+DEMO_READS = census("readables")
 
 _SOURCE = RosterSource(
     kind=RosterSourceKind.FACILITY, path=Path("/data/facility.json"), spelled="facility.json"
