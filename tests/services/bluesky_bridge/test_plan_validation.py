@@ -11,8 +11,10 @@ from __future__ import annotations
 
 import inspect
 import json
+import re
 import textwrap
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -36,6 +38,11 @@ from osprey.services.bluesky_bridge.plan_validation import (
     _static_allowlist_check,
     hash_plan_body,
     validate_plan,
+)
+from osprey.services.bluesky_bridge.plan_writes import (
+    ChannelWrite,
+    UndeclaredWriteError,
+    held_to_declaration,
 )
 from osprey_connectors.ipc._host import EPICS_ENV_PREFIXES
 
@@ -1386,6 +1393,101 @@ class TestDeclaredPointCountGate:
     )
     def test_the_writes_declaration_is_read_statically_off_the_body(self, body, expected):
         assert plan_validation.declares_writes(body) is expected
+
+
+# =========================================================================
+# Stage 3: the dry run is held to the body's own `writes` declaration, the
+# same guard the launch runs, so an undeclared write fails before upload in
+# the launch's own words.
+# =========================================================================
+
+
+def _launch_refusal(plan_name: str, address: str) -> str:
+    """The reason a dry run reports for the launch's refusal of ``address``.
+
+    Built from the launch's own guard over a one-message stub, so the tests
+    pin "the same words as the launch", not a copy of its sentence.
+    """
+
+    class _Stub:
+        name = address
+
+        def set(self, _value):  # pragma: no cover - never driven
+            raise AssertionError("the guard refuses before the write")
+
+        def set_writes(self, value):
+            return (ChannelWrite(address, value),)
+
+    message = SimpleNamespace(command="set", obj=_Stub(), args=(1.0,))
+    with pytest.raises(UndeclaredWriteError) as refused:
+        next(held_to_declaration(plan_name, False, iter([message])))
+    return f"Dry-run failed: UndeclaredWriteError: {refused.value}"
+
+
+def _moving_body(params_source: str = _GATE_PARAMS) -> str:
+    return _role_mock_body(params_source, "def build_plan(devices, params):\n" + _DRIVE_ONE_POINT)
+
+
+_COUNT_ON_A_DETECTOR = textwrap.dedent(
+    """\
+    def build_plan(devices, params):
+        detector = devices[params.detectors[0]]
+
+        @bpp.stage_decorator([detector])
+        @bpp.run_decorator(
+            md=scan_metadata(movable=[], readable=[], points=1, triggered=params.detectors)
+        )
+        def _count():
+            yield from bps.trigger_and_read([detector])
+
+        return _count()
+    """
+)
+
+_DETECTOR_ONLY_PARAMS = textwrap.dedent(
+    """\
+    class PARAMS(BaseModel):
+        detectors: TriggeredChannels = Field(..., min_length=1)
+    """
+)
+
+
+class TestDryRunHeldToDeclaration:
+    async def test_a_plan_that_moves_without_declaring_writes_fails_in_the_launchs_words(self):
+        body = _moving_body().replace('"writes": True', '"writes": False')
+
+        result = await validate_plan(body, plan_name="role_mocks", sample_args=_GATE_SAMPLE_ARGS)
+
+        assert result.passed is False
+        assert result.reasons == [_launch_refusal("role_mocks", "c1")]
+
+    async def test_the_same_plan_declaring_writes_passes(self):
+        result = await validate_plan(
+            _moving_body(), plan_name="role_mocks", sample_args=_GATE_SAMPLE_ARGS
+        )
+
+        assert result.passed is True, result.reasons
+
+    async def test_a_plan_that_triggers_without_declaring_writes_fails(self):
+        body = _role_mock_body(_DETECTOR_ONLY_PARAMS, _COUNT_ON_A_DETECTOR).replace(
+            '"writes": True', '"writes": False'
+        )
+
+        result = await validate_plan(
+            body, plan_name="role_mocks", sample_args={"detectors": ["d1"]}
+        )
+
+        assert result.passed is False
+        assert result.reasons == [_launch_refusal("role_mocks", "d1")]
+
+    async def test_a_body_with_no_plan_metadata_is_held_as_read_only(self):
+        body = re.sub(r"PLAN_METADATA = \{.*?\n\}\n", "", _moving_body(), flags=re.S)
+        assert "PLAN_METADATA" not in body
+
+        result = await validate_plan(body, plan_name="role_mocks", sample_args=_GATE_SAMPLE_ARGS)
+
+        assert result.passed is False
+        assert result.reasons == [_launch_refusal("role_mocks", "c1")]
 
 
 # =========================================================================

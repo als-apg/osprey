@@ -139,7 +139,9 @@ Two ways to add a plan
       directly is rejected. These checks finish before a single line runs.
    2. **A dry run**: the plan is executed against mock devices in an
       isolated process, with all control-system access switched off. It has
-      to run to completion there.
+      to run to completion there. A plan that writes during the dry run
+      without stating ``writes: true`` in its metadata fails there, with the
+      sentence the launch would refuse it with.
 
    A pass is recorded against the exact content of the file, its
    fingerprint. The fingerprint is what makes the "exact bytes" rule

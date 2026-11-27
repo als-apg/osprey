@@ -479,6 +479,7 @@ def _render_dry_run_script(
     fallback_readable_names: tuple[str, ...],
     point_count_key: str,
     inner_timeout: float,
+    declares_writes: bool,
     described: Mapping[str, Any] | None = None,
 ) -> str:
     """Render the subprocess script that drives the dry-run to completion.
@@ -510,6 +511,11 @@ def _render_dry_run_script(
     it — whether a missing declaration is a rejection depends on what the plan's
     own metadata says it does, which the parent reads (`_point_count_reasons`).
 
+    The plan is driven through `plan_writes.held_to_declaration` with the
+    body's own ``writes`` declaration (``declares_writes``, read by the parent
+    off the body text), the guard the launch runs: a rehearsal that writes
+    under a plan that does not declare writes fails in the launch's own words.
+
     Which mock a channel gets is read from the plan's own declaration via
     `plan_fields.collect_channels`, the single authority every consumer shares.
     That collection runs here, inside the subprocess, because it needs the
@@ -540,6 +546,7 @@ _FALLBACK_MOVABLE = {fallback_movable_names!r}
 _FALLBACK_READABLE = {fallback_readable_names!r}
 _POINT_COUNT_KEY = {point_count_key!r}
 _DEADLINE_S = {inner_timeout!r}
+_DECLARES_WRITES = {declares_writes!r}
 _DESCRIBED = {dict(described or {})!r}
 
 result = {{"success": False, "error": None}}
@@ -572,6 +579,7 @@ try:
         TRIGGERED_ROLE,
         collect_channels,
     )
+    from osprey.services.bluesky_bridge.plan_writes import held_to_declaration
 
     params_cls = getattr(module, "PARAMS", None)
     if params_cls is None:
@@ -655,7 +663,7 @@ try:
 
     def _drive():
         try:
-            RE(plan_gen)
+            RE(held_to_declaration(_PLAN_NAME, _DECLARES_WRITES, plan_gen))
         except Exception as exc:
             failure["exc"] = exc
 
@@ -685,8 +693,9 @@ def declares_writes(body: str) -> bool:
     """Whether the body's own ``PLAN_METADATA`` says the plan writes to the machine.
 
     The one reading of a session plan's ``writes`` declaration: this
-    validator's point-count gate and the worker's session wrapper both ask it,
-    so the two cannot disagree on what a body declared.
+    validator's dry run (its point-count gate and its write guard) and the
+    worker's session wrapper both ask it, so the two cannot disagree on what a
+    body declared.
 
     Read statically off the assignment's dict literal, never by importing the
     body — the bridge process never loads a plan body (see the module
@@ -839,13 +848,17 @@ async def _dry_run(
     docstring for why deleting would be worse) on top of that. Authoring-QUALITY gate only — "does it actually run" — not
     a containment boundary (see module docstring).
 
-    A body that runs clean must record every channel it moved
+    The run is held to the body's own ``writes`` declaration first: a write
+    under a plan that does not declare writes fails the run in the launch's
+    own words (`plan_writes.held_to_declaration`). A body that runs clean must
+    record every channel it moved
     (`_unrecorded_move_reasons`), and is then held to what its own
     ``PLAN_METADATA`` claims: a plan declaring that it moves channels must
     leave a declared point count behind on the run(s) it opened
     (`_point_count_reasons`). A read-only plan is not asked for one. A run that
     passes all of that reports the channels its sample arguments named.
     """
+    declares = declares_writes(body)
     with tempfile.TemporaryDirectory(prefix="osprey_plan_dry_run_") as tmp:
         tmp_path = Path(tmp)
         plan_path = tmp_path / "plan_body.py"
@@ -862,6 +875,7 @@ async def _dry_run(
                 fallback_readable_names=_FALLBACK_READABLE_MOCKS,
                 point_count_key=_DECLARED_POINT_COUNT_KEY,
                 inner_timeout=timeout,
+                declares_writes=declares,
                 described=described_devices(described),
             ),
             encoding="utf-8",
@@ -909,7 +923,7 @@ async def _dry_run(
         if not payload.get("success"):
             return _DryRunOutcome([f"Dry-run failed: {payload.get('error', 'unknown error')}"])
         reasons = _unrecorded_move_reasons(payload, plan_name=plan_name)
-        if declares_writes(body):
+        if declares:
             reasons += _point_count_reasons(payload, plan_name=plan_name)
         if reasons:
             return _DryRunOutcome(reasons)

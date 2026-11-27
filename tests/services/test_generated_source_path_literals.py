@@ -47,6 +47,7 @@ def _plan_dry_run(folder: Path) -> tuple[str, dict[str, Path]]:
         fallback_readable_names=(),
         point_count_key="k",
         inner_timeout=1.0,
+        declares_writes=False,
     )
     return source, {"_PLAN_PATH": folder, "_RESULT_PATH": result_path}
 
