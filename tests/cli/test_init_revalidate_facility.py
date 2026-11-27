@@ -374,5 +374,5 @@ def test_a_tree_under_data_in_another_repository_moves_before_its_own_steps(
     output = result.output
     steps = output[output.index("Left for you to do by hand") :]
     moved = steps.index(f"data/{_FACILITY} {_FACILITY}")
-    there = steps.index(f"mv {_FACILITY}/classes.yaml {_FACILITY}/vocabulary/classes.yaml")
+    there = steps.index(f"git -C {_FACILITY} mv classes.yaml vocabulary/classes.yaml")
     assert moved < there
