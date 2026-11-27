@@ -26,28 +26,26 @@ not promised.
    * - Manifest
      - The keys of ``app.yml``, with their types; the frontmatter keys of an app's
        ``agents/<name>.md``
-     - ``AppManifest`` in ``src/osprey/apps/manifest.py``; ``AppAgent`` in
-       ``src/osprey/apps/agents.py``
+     - ``osprey.apps.manifest.AppManifest``; ``osprey.apps.agents.AppAgent``
    * - Python
      - The names of ``osprey.apps.sdk.__all__``, ``osprey.apps.sdk.testing.__all__``
        and ``osprey_facility.kinds.__all__``; the public modules of
        ``osprey_connectors``
-     - ``src/osprey/apps/sdk/``; ``packages/osprey-facility/src/osprey_facility/kinds.py``;
-       ``packages/osprey-connectors``
+     - The ``osprey-framework`` package (``osprey.apps.sdk``), the ``osprey-facility``
+       package (``osprey_facility.kinds``) and the ``osprey-connectors`` package
    * - Panel
      - The panel rules; the exports of ``page-ready.js``; the ``osprey-*`` primitive
        classes; the design tokens; the ``type`` of each ``osprey-*`` message the
        terminal posts to a panel
-     - ``osprey.interfaces.design_system.panels.validator``; ``page-ready.js``,
-       ``primitives.css`` and ``tokens.css`` under
-       ``src/osprey/interfaces/design_system/static/``; ``panel-iframe-sync.js`` under
-       ``src/osprey/interfaces/web_terminal/static/js/``
+     - ``osprey.interfaces.design_system.panels.validator``;
+       ``/design-system/js/page-ready.js``, ``/design-system/css/primitives.css`` and
+       ``/design-system/css/tokens.css`` as the web terminal serves them;
+       ``panel-iframe-sync.js``, the web terminal's own script
    * - Process
      - The headers an app's server receives (``X-Osprey-Owner``,
        ``X-Osprey-Session``, ``X-Osprey-Caller``, ``X-Launch-Token``); the ``OSPREY_*``
        environment variables handed to its container and tool server
-     - ``src/osprey/utils/owner_header.py``, ``src/osprey/utils/launch_token.py``;
-       ``APP_ENVIRONMENT`` in ``src/osprey/apps/projection.py``
+     - ``osprey.apps.contract.APP_HEADERS``; ``osprey.apps.projection.APP_ENVIRONMENT``
 
 The ``OSPREY_*`` variables are ``OSPREY_APP_BIND``, ``OSPREY_APP_CONFIG``,
 ``OSPREY_APP_CORPORA``, ``OSPREY_APP_NAME``, ``OSPREY_APP_PORT``,
@@ -92,7 +90,8 @@ manifest, beside the profile's own errors. The line names the file, then
      - ``not declared; this OSPREY implements contract N. Add "contract: N" to app.yml.``
    * - Not an integer
      - ``<value> is not an integer; this OSPREY implements contract N. Add "contract: N"
-       to app.yml.`` ``true``, ``1.0`` and ``"1"`` are not integers.
+       to app.yml.`` ``contract: true``, ``contract: 1.0`` and ``contract: "1"`` are
+       not integers; the message shows them as ``True``, ``1.0`` and ``'1'``.
    * - Lower
      - ``the app is written for contract M; this OSPREY implements N. Update the app to
        contract N.``
@@ -146,13 +145,13 @@ History
 Before contract 1
 -----------------
 
-These changes broke apps before the number existed:
+These changes broke apps before the number existed, each in the release named:
 
-- ``require.one_of`` accepts readback names only (2026-11-09).
-- Hook code in an app is refused (2026-11-11).
+- ``require.one_of`` accepts readback names only (2026.11.0).
+- Hook code in an app is refused (2026.11.0).
 - A panel must load ``page-ready.js`` and call ``markPageReady()``; a missing
   ``theme-boot.js``, a missing fonts link and raw hex colours are refused (2026.11.1).
 - ``single_user_alias`` is removed; ``roster_grant: {}`` names the one operator
-  (2026-11-21).
+  (2026.11.1).
 - The measurement-kinds module moved out of the framework to
-  ``osprey_facility.kinds`` (2026-11-23).
+  ``osprey_facility.kinds`` (after 2026.11.1).
