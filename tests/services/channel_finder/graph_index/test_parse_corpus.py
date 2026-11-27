@@ -44,9 +44,9 @@ DEMO_BINDINGS = census("channels")
 DEMO_WRITE_ONLY = census("setpoints")
 DEMO_READ_ONLY = census("graph_read_only")
 DEMO_MAGNETS = census("bound_magnets")
-#: 49 ``owl:Class`` subjects less the leaves that pruning drops: ``SemanticSignal``,
-#: ``ChannelBinding`` and the eight infrastructure classes whose devices bind no
-#: channel. Their parent ``Infrastructure`` stays, as the parent of a class.
+#: The demo graph's ``owl:Class`` subjects that survive pruning. Pruning drops
+#: ``SemanticSignal``, ``ChannelBinding`` and every class whose devices bind no
+#: channel; a parent of a kept class stays.
 DEMO_CLASS_COUNT = census("graph_classes")
 #: The channels bound to the top place rather than to a device: no system, no
 #: class.
