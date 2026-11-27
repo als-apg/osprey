@@ -1,0 +1,1 @@
+Validating a session plan now refuses a plan that writes to the machine without declaring `writes: true`, in the words the launch uses; before, the plan passed validation and was refused only when launched.
