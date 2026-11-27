@@ -46,7 +46,7 @@ from osprey.deployment.staleness import DriftState, check_drift, profile_fingerp
 from osprey.utils.workspace import TIERS_DIRNAME
 from osprey_connectors.dotenv import ENV_CHAIN_FILENAMES
 from osprey_connectors.errors import BuildProfileError
-from tests._scoped_stdlib import scoped
+from tests._scoped_stdlib import no_child_process, scoped
 from tests.cli._lifecycle_build import invoke_build_in, rendered_config, stub_build
 
 
@@ -68,6 +68,33 @@ def define_variants(repo: Path, *names: str) -> None:
     root.mkdir(exist_ok=True)
     for name in names:
         (root / f"{name}.yml").write_text(f"# {name}\n", encoding="utf-8")
+
+
+#: The tests whose subject is the real git probe; only they start git, serially.
+_REAL_GIT_GROUP = "real-git-probe"
+
+
+@pytest.fixture(autouse=True)
+def _git_answers_untracked(
+    request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch
+) -> list[list[str]]:
+    """Answer the git-tracked probe "untracked" outside the real-git group.
+
+    Returns the argument list of every probe the stand-in answered.
+    """
+    calls: list[list[str]] = []
+    marker = request.node.get_closest_marker("xdist_group")
+    if marker is not None:
+        group = marker.args[0] if marker.args else marker.kwargs.get("name")
+        if group == _REAL_GIT_GROUP:
+            return calls
+
+    def fake(args: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        calls.append(list(args))
+        return subprocess.CompletedProcess(args, 1, "", "")
+
+    scoped(monkeypatch, "osprey.cli.variant_selection", "subprocess", run=fake)
+    return calls
 
 
 class TestReadSetting:
@@ -188,6 +215,21 @@ class TestResolution:
         with pytest.raises(BuildProfileError):
             resolve_variant_selection(repo)
 
+    def test_the_overlay_tests_start_no_git(
+        self, repo: Path, _git_answers_untracked: list[list[str]]
+    ) -> None:
+        """Outside the real-git group the probe is answered without a child process."""
+        define_variants(repo, "teststand")
+        write_setting(repo, f"{VARIANT_SETTING_KEY}=teststand\n")
+
+        with no_child_process() as started:
+            selection = resolve_variant_selection(repo)
+
+        assert started == []
+        assert len(_git_answers_untracked) == 1
+        assert _git_answers_untracked[0][:2] == ["git", "ls-files"]
+        assert selection.notices == ()
+
 
 _UNCHECKED = f"could not check whether {VARIANT_SETTING_FILENAME} is tracked by git:"
 
@@ -195,6 +237,7 @@ _UNCHECKED = f"could not check whether {VARIANT_SETTING_FILENAME} is tracked by 
 class TestGitTrackedProbe:
     """The committed-by-accident warning — loud, and never fatal."""
 
+    @pytest.mark.xdist_group(_REAL_GIT_GROUP)
     def test_untracked_setting_is_silent(self, repo: Path) -> None:
         """Git answers "not tracked" (exit 1) inside a real repository."""
         define_variants(repo, "teststand")
@@ -203,6 +246,7 @@ class TestGitTrackedProbe:
 
         assert resolve_variant_selection(repo).notices == ()
 
+    @pytest.mark.xdist_group(_REAL_GIT_GROUP)
     def test_no_repository_is_silent(self, repo: Path) -> None:
         """A repo root no git repository encloses has nothing to commit by accident."""
         if any((ancestor / ".git").exists() for ancestor in (repo, *repo.resolve().parents)):
@@ -212,6 +256,7 @@ class TestGitTrackedProbe:
 
         assert resolve_variant_selection(repo).notices == ()
 
+    @pytest.mark.xdist_group(_REAL_GIT_GROUP)
     def test_tracked_setting_warns_and_still_resolves(
         self, repo: Path, caplog: pytest.LogCaptureFixture
     ) -> None:
