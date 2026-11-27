@@ -1,6 +1,6 @@
 """The demo template's storage-ring orbit-feedback screen.
 
-``data/canopy/library/screens/sr/orbit-feedback.screen.json`` ships with the app
+``web/canopy/library/screens/sr/orbit-feedback.screen.json`` ships with the app
 template and is copied into a deployment's screen library. It shows the stored
 current, the orbit RMS per plane, the BPM orbit and corrector readbacks, and the
 one corrector setpoint. Its PV set is what the viewer subscribes when the screen
@@ -27,8 +27,13 @@ from canopy_mcp.check.schema import SPEC_UNAVAILABLE, check_schema, schema_path
 from canopy_mcp.check.semantic import check_semantic
 from canopy_mcp.store import DraftStore
 
+from osprey import repo_layout
+
 ROOT = Path(__file__).resolve().parents[3]
-LIBRARY = ROOT / "src" / "osprey" / "templates" / "apps" / "demo" / "data" / "canopy" / "library"
+DEMO_TEMPLATE = ROOT / "src" / "osprey" / "templates" / "apps" / "demo"
+LIBRARY = repo_layout.child_path(
+    DEMO_TEMPLATE / repo_layout.entry("web").path, "web", "canopy-library"
+)
 EXAMPLE_CHANNELS = (
     ROOT / "src" / "osprey" / "templates" / "facilities" / "example" / "records" / "channels.yaml"
 )
