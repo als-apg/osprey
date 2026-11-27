@@ -517,31 +517,29 @@ not promised.</p>
 <tr class="row-even"><td><p>Manifest</p></td>
 <td><p>The keys of <code class="docutils literal notranslate"><span class="pre">app.yml</span></code>, with their types; the frontmatter keys of an app’s
 <code class="docutils literal notranslate"><span class="pre">agents/&lt;name&gt;.md</span></code></p></td>
-<td><p><code class="docutils literal notranslate"><span class="pre">AppManifest</span></code> in <code class="docutils literal notranslate"><span class="pre">src/osprey/apps/manifest.py</span></code>; <code class="docutils literal notranslate"><span class="pre">AppAgent</span></code> in
-<code class="docutils literal notranslate"><span class="pre">src/osprey/apps/agents.py</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">osprey.apps.manifest.AppManifest</span></code>; <code class="docutils literal notranslate"><span class="pre">osprey.apps.agents.AppAgent</span></code></p></td>
 </tr>
 <tr class="row-odd"><td><p>Python</p></td>
 <td><p>The names of <code class="docutils literal notranslate"><span class="pre">osprey.apps.sdk.__all__</span></code>, <code class="docutils literal notranslate"><span class="pre">osprey.apps.sdk.testing.__all__</span></code>
 and <code class="docutils literal notranslate"><span class="pre">osprey_facility.kinds.__all__</span></code>; the public modules of
 <code class="docutils literal notranslate"><span class="pre">osprey_connectors</span></code></p></td>
-<td><p><code class="docutils literal notranslate"><span class="pre">src/osprey/apps/sdk/</span></code>; <code class="docutils literal notranslate"><span class="pre">packages/osprey-facility/src/osprey_facility/kinds.py</span></code>;
-<code class="docutils literal notranslate"><span class="pre">packages/osprey-connectors</span></code></p></td>
+<td><p>The <code class="docutils literal notranslate"><span class="pre">osprey-framework</span></code> package (<code class="docutils literal notranslate"><span class="pre">osprey.apps.sdk</span></code>), the <code class="docutils literal notranslate"><span class="pre">osprey-facility</span></code>
+package (<code class="docutils literal notranslate"><span class="pre">osprey_facility.kinds</span></code>) and the <code class="docutils literal notranslate"><span class="pre">osprey-connectors</span></code> package</p></td>
 </tr>
 <tr class="row-even"><td><p>Panel</p></td>
 <td><p>The panel rules; the exports of <code class="docutils literal notranslate"><span class="pre">page-ready.js</span></code>; the <code class="docutils literal notranslate"><span class="pre">osprey-*</span></code> primitive
 classes; the design tokens; the <code class="docutils literal notranslate"><span class="pre">type</span></code> of each <code class="docutils literal notranslate"><span class="pre">osprey-*</span></code> message the
 terminal posts to a panel</p></td>
-<td><p><code class="docutils literal notranslate"><span class="pre">osprey.interfaces.design_system.panels.validator</span></code>; <code class="docutils literal notranslate"><span class="pre">page-ready.js</span></code>,
-<code class="docutils literal notranslate"><span class="pre">primitives.css</span></code> and <code class="docutils literal notranslate"><span class="pre">tokens.css</span></code> under
-<code class="docutils literal notranslate"><span class="pre">src/osprey/interfaces/design_system/static/</span></code>; <code class="docutils literal notranslate"><span class="pre">panel-iframe-sync.js</span></code> under
-<code class="docutils literal notranslate"><span class="pre">src/osprey/interfaces/web_terminal/static/js/</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">osprey.interfaces.design_system.panels.validator</span></code>;
+<code class="docutils literal notranslate"><span class="pre">/design-system/js/page-ready.js</span></code>, <code class="docutils literal notranslate"><span class="pre">/design-system/css/primitives.css</span></code> and
+<code class="docutils literal notranslate"><span class="pre">/design-system/css/tokens.css</span></code> as the web terminal serves them;
+<code class="docutils literal notranslate"><span class="pre">panel-iframe-sync.js</span></code>, the web terminal’s own script</p></td>
 </tr>
 <tr class="row-odd"><td><p>Process</p></td>
 <td><p>The headers an app’s server receives (<code class="docutils literal notranslate"><span class="pre">X-Osprey-Owner</span></code>,
 <code class="docutils literal notranslate"><span class="pre">X-Osprey-Session</span></code>, <code class="docutils literal notranslate"><span class="pre">X-Osprey-Caller</span></code>, <code class="docutils literal notranslate"><span class="pre">X-Launch-Token</span></code>); the <code class="docutils literal notranslate"><span class="pre">OSPREY_*</span></code>
 environment variables handed to its container and tool server</p></td>
-<td><p><code class="docutils literal notranslate"><span class="pre">src/osprey/utils/owner_header.py</span></code>, <code class="docutils literal notranslate"><span class="pre">src/osprey/utils/launch_token.py</span></code>;
-<code class="docutils literal notranslate"><span class="pre">APP_ENVIRONMENT</span></code> in <code class="docutils literal notranslate"><span class="pre">src/osprey/apps/projection.py</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">osprey.apps.contract.APP_HEADERS</span></code>; <code class="docutils literal notranslate"><span class="pre">osprey.apps.projection.APP_ENVIRONMENT</span></code></p></td>
 </tr>
 </tbody>
 </table>
@@ -592,7 +590,8 @@ manifest, beside the profile’s own errors. The line names the file, then
 </tr>
 <tr class="row-odd"><td><p>Not an integer</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">&lt;value&gt;</span> <span class="pre">is</span> <span class="pre">not</span> <span class="pre">an</span> <span class="pre">integer;</span> <span class="pre">this</span> <span class="pre">OSPREY</span> <span class="pre">implements</span> <span class="pre">contract</span> <span class="pre">N.</span> <span class="pre">Add</span> <span class="pre">&quot;contract:</span> <span class="pre">N&quot;</span>
-<span class="pre">to</span> <span class="pre">app.yml.</span></code> <code class="docutils literal notranslate"><span class="pre">true</span></code>, <code class="docutils literal notranslate"><span class="pre">1.0</span></code> and <code class="docutils literal notranslate"><span class="pre">&quot;1&quot;</span></code> are not integers.</p></td>
+<span class="pre">to</span> <span class="pre">app.yml.</span></code> <code class="docutils literal notranslate"><span class="pre">contract:</span> <span class="pre">true</span></code>, <code class="docutils literal notranslate"><span class="pre">contract:</span> <span class="pre">1.0</span></code> and <code class="docutils literal notranslate"><span class="pre">contract:</span> <span class="pre">&quot;1&quot;</span></code> are
+not integers; the message shows them as <code class="docutils literal notranslate"><span class="pre">True</span></code>, <code class="docutils literal notranslate"><span class="pre">1.0</span></code> and <code class="docutils literal notranslate"><span class="pre">'1'</span></code>.</p></td>
 </tr>
 <tr class="row-even"><td><p>Lower</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">the</span> <span class="pre">app</span> <span class="pre">is</span> <span class="pre">written</span> <span class="pre">for</span> <span class="pre">contract</span> <span class="pre">M;</span> <span class="pre">this</span> <span class="pre">OSPREY</span> <span class="pre">implements</span> <span class="pre">N.</span> <span class="pre">Update</span> <span class="pre">the</span> <span class="pre">app</span> <span class="pre">to</span>
@@ -664,16 +663,17 @@ from those the build judged.</p>
 </div>
 <section id="before-contract-1">
 <h3>Before contract 1<a class="headerlink" href="#before-contract-1" title="Link to this heading">#</a></h3>
-<p>These changes broke apps before the number existed:</p>
+<p>These changes broke apps before the number existed, each in the release named:</p>
 <ul class="simple">
-<li><p><code class="docutils literal notranslate"><span class="pre">require.one_of</span></code> accepts readback names only (2026-11-09).</p></li>
-<li><p>Hook code in an app is refused (2026-11-11).</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">require.one_of</span></code> accepts readback names only (2026.11.0).</p></li>
+<li><p>Hook code in an app is refused (2026.11.0).</p></li>
 <li><p>A panel must load <code class="docutils literal notranslate"><span class="pre">page-ready.js</span></code> and call <code class="docutils literal notranslate"><span class="pre">markPageReady()</span></code>; a missing
 <code class="docutils literal notranslate"><span class="pre">theme-boot.js</span></code>, a missing fonts link and raw hex colours are refused (2026.11.1).</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">single_user_alias</span></code> is removed; <code class="docutils literal notranslate"><span class="pre">roster_grant:</span> <span class="pre">{}</span></code> names the one operator
-(2026-11-21).</p></li>
+(2026.11.1).</p></li>
 <li><p>The measurement-kinds module moved out of the framework to
-<code class="docutils literal notranslate"><span class="pre">osprey_facility.kinds</span></code> (2026-11-23).</p></li>
+<code class="docutils literal notranslate"><span class="pre">osprey_facility.kinds</span></code> (the framework release after 2026.11.1; the module ships
+in <code class="docutils literal notranslate"><span class="pre">osprey-facility</span></code> 2026.11.0).</p></li>
 </ul>
 </section>
 </section>
