@@ -30,6 +30,7 @@ from osprey.apps.manifest import help_page_refusal, launch_token_env
 from osprey.cli.scaffold_cmd import ScaffoldClaimError
 from osprey.interfaces._app_setup import configure_interface_app
 from osprey.interfaces._assets import AssetSet
+from osprey.interfaces._loop_delay import watch_loop_delay
 from osprey.interfaces.common_middleware import (
     UNSAFE_FORWARDED_VALUE,
     apply_url_prefix,
@@ -2198,6 +2199,12 @@ def _create_lifespan(
 
         reaper_task = asyncio.create_task(_reap_idle_chats())
 
+        # ── Event-loop watch ──
+        # Panel applications run on threads of this process, so work that holds
+        # the loop or the interpreter stalls every request; the watch logs each
+        # such stall with its length.
+        loop_watch_task = asyncio.create_task(watch_loop_delay("web terminal"))
+
         # ── Control-context ownership ──
         # This login keeps one control context, and it has one writer: the
         # web terminal whenever there is one, a controls server otherwise. The
@@ -2223,9 +2230,10 @@ def _create_lifespan(
         if app.state.code_review_switch_listener is not None:
             await app.state.code_review_switch_listener.close()
 
-        reaper_task.cancel()
-        with suppress(asyncio.CancelledError):
-            await reaper_task
+        for background in (reaper_task, loop_watch_task):
+            background.cancel()
+            with suppress(asyncio.CancelledError):
+                await background
 
         await app.state.proxy_client.aclose()
 
