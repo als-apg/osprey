@@ -467,8 +467,9 @@
 
 <span class="kn">from</span><span class="w"> </span><span class="nn">__future__</span><span class="w"> </span><span class="kn">import</span> <span class="n">annotations</span>
 
-<span class="kn">import</span><span class="w"> </span><span class="nn">copy</span>
 <span class="kn">import</span><span class="w"> </span><span class="nn">json</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">threading</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">time</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">collections.abc</span><span class="w"> </span><span class="kn">import</span> <span class="n">Iterator</span><span class="p">,</span> <span class="n">Mapping</span><span class="p">,</span> <span class="n">Sequence</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">dataclasses</span><span class="w"> </span><span class="kn">import</span> <span class="n">dataclass</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">pathlib</span><span class="w"> </span><span class="kn">import</span> <span class="n">Path</span><span class="p">,</span> <span class="n">PurePosixPath</span>
@@ -646,6 +647,41 @@
     <span class="k">return</span> <span class="n">value</span>
 
 
+<span class="nd">@overload</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">_copied</span><span class="p">(</span><span class="n">value</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">object</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">object</span><span class="p">]:</span> <span class="o">...</span>
+<span class="nd">@overload</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">_copied</span><span class="p">(</span><span class="n">value</span><span class="p">:</span> <span class="nb">object</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">object</span><span class="p">:</span> <span class="o">...</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">_copied</span><span class="p">(</span><span class="n">value</span><span class="p">:</span> <span class="nb">object</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">object</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;A copy of a JSON value that shares no container with it; lists stay lists.&quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">value</span><span class="p">,</span> <span class="n">Mapping</span><span class="p">):</span>
+        <span class="k">return</span> <span class="p">{</span><span class="n">key</span><span class="p">:</span> <span class="n">_copied</span><span class="p">(</span><span class="n">item</span><span class="p">)</span> <span class="k">for</span> <span class="n">key</span><span class="p">,</span> <span class="n">item</span> <span class="ow">in</span> <span class="n">value</span><span class="o">.</span><span class="n">items</span><span class="p">()}</span>
+    <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">value</span><span class="p">,</span> <span class="nb">list</span><span class="p">):</span>
+        <span class="k">return</span> <span class="p">[</span><span class="n">_copied</span><span class="p">(</span><span class="n">item</span><span class="p">)</span> <span class="k">for</span> <span class="n">item</span> <span class="ow">in</span> <span class="n">value</span><span class="p">]</span>
+    <span class="k">return</span> <span class="n">value</span>
+
+
+<span class="c1">#: A view file&#39;s ``(inode, size, mtime_ns)``, ``None`` for one that is absent.</span>
+<span class="n">_FileStat</span> <span class="o">=</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">int</span><span class="p">,</span> <span class="nb">int</span><span class="p">,</span> <span class="nb">int</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span>
+
+<span class="c1">#: How long after a view file&#39;s last write its stat is not yet trusted to name</span>
+<span class="c1">#: its content: a second write inside the file system&#39;s timestamp step leaves</span>
+<span class="c1">#: the same size and time on a different file.</span>
+<span class="n">_SETTLE_NS</span> <span class="o">=</span> <span class="mi">2_000_000_000</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_signature</span><span class="p">(</span><span class="n">path</span><span class="p">:</span> <span class="n">Path</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">tuple</span><span class="p">[</span><span class="n">_FileStat</span><span class="p">,</span> <span class="o">...</span><span class="p">]:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;The stat of each view file under ``path``, in :data:`SCHEMAS` order.&quot;&quot;&quot;</span>
+    <span class="n">stats</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="n">_FileStat</span><span class="p">]</span> <span class="o">=</span> <span class="p">[]</span>
+    <span class="k">for</span> <span class="n">name</span> <span class="ow">in</span> <span class="n">SCHEMAS</span><span class="p">:</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">stat</span> <span class="o">=</span> <span class="p">(</span><span class="n">path</span> <span class="o">/</span> <span class="n">name</span><span class="p">)</span><span class="o">.</span><span class="n">stat</span><span class="p">()</span>
+        <span class="k">except</span> <span class="ne">OSError</span><span class="p">:</span>
+            <span class="n">stats</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="kc">None</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">stats</span><span class="o">.</span><span class="n">append</span><span class="p">((</span><span class="n">stat</span><span class="o">.</span><span class="n">st_ino</span><span class="p">,</span> <span class="n">stat</span><span class="o">.</span><span class="n">st_size</span><span class="p">,</span> <span class="n">stat</span><span class="o">.</span><span class="n">st_mtime_ns</span><span class="p">))</span>
+    <span class="k">return</span> <span class="nb">tuple</span><span class="p">(</span><span class="n">stats</span><span class="p">)</span>
+
+
 <span class="k">def</span><span class="w"> </span><span class="nf">_schema_error</span><span class="p">(</span><span class="n">path</span><span class="p">:</span> <span class="n">Path</span><span class="p">,</span> <span class="n">found</span><span class="p">:</span> <span class="nb">object</span><span class="p">,</span> <span class="n">expected</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">ViewSchemaError</span><span class="p">:</span>
     <span class="k">return</span> <span class="n">ViewSchemaError</span><span class="p">(</span>
         <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">path</span><span class="si">}</span><span class="s2"> is schema </span><span class="si">{</span><span class="n">found</span><span class="si">!r}</span><span class="s2">; this OSPREY reads </span><span class="si">{</span><span class="n">expected</span><span class="si">!r}</span><span class="s2">: rebuild with osprey build&quot;</span>
@@ -794,7 +830,7 @@
             <span class="n">plane</span><span class="o">=</span><span class="n">record</span><span class="p">[</span><span class="s2">&quot;plane&quot;</span><span class="p">],</span>
             <span class="n">refresh</span><span class="o">=</span><span class="n">record</span><span class="p">[</span><span class="s2">&quot;refresh&quot;</span><span class="p">],</span>
             <span class="n">element</span><span class="o">=</span><span class="n">record</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;element&quot;</span><span class="p">),</span>
-            <span class="n">record</span><span class="o">=</span><span class="n">MappingProxyType</span><span class="p">(</span><span class="n">copy</span><span class="o">.</span><span class="n">deepcopy</span><span class="p">(</span><span class="nb">dict</span><span class="p">(</span><span class="n">record</span><span class="p">))),</span>
+            <span class="n">record</span><span class="o">=</span><span class="n">MappingProxyType</span><span class="p">(</span><span class="n">_copied</span><span class="p">(</span><span class="n">record</span><span class="p">)),</span>
             <span class="n">marks</span><span class="o">=</span><span class="nb">frozenset</span><span class="p">(</span><span class="nb">str</span><span class="p">(</span><span class="n">mark</span><span class="p">)</span> <span class="k">for</span> <span class="n">mark</span> <span class="ow">in</span> <span class="n">record</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">_MARKS_KEY</span><span class="p">)</span> <span class="ow">or</span> <span class="p">()),</span>
             <span class="n">also</span><span class="o">=</span><span class="nb">tuple</span><span class="p">(</span><span class="nb">str</span><span class="p">(</span><span class="n">address</span><span class="p">)</span> <span class="k">for</span> <span class="n">address</span> <span class="ow">in</span> <span class="n">record</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;also&quot;</span><span class="p">)</span> <span class="ow">or</span> <span class="p">()),</span>
         <span class="p">)</span></div>
@@ -841,6 +877,16 @@
 <span class="sd">    once, on first use, and each is refused when its ``schema`` is not the</span>
 <span class="sd">    one this OSPREY reads.</span>
 
+<span class="sd">    :meth:`open`, and so :meth:`of_render`, :meth:`of_project` and</span>
+<span class="sd">    :meth:`find`, answer one view per directory for the life of the process:</span>
+<span class="sd">    a second call is given the view the first one read, for as long as the</span>
+<span class="sd">    stat of each view file (inode, size and modification time) is the one it</span>
+<span class="sd">    was read under. A file that changed, appeared or went drops it, and the</span>
+<span class="sd">    call reads the directory again; so does a file written in the two seconds</span>
+<span class="sd">    before the read, whose stat does not yet name its content. A view is read-only and safe to share</span>
+<span class="sd">    between threads; each of its files is parsed once however many threads</span>
+<span class="sd">    ask first. ``SimulatorView(path)`` always reads afresh.</span>
+
 <span class="sd">    Attributes:</span>
 <span class="sd">        path: The view&#39;s directory.</span>
 <span class="sd">        render_root: The render the view sits in, when the view is at</span>
@@ -859,6 +905,8 @@
         <span class="bp">self</span><span class="o">.</span><span class="n">_channel_records</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Channel</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">_record_addresses</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">str</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">_envelopes</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">tuple</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="o">...</span><span class="p">],</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">float</span><span class="p">]]</span> <span class="o">=</span> <span class="p">{}</span>
+        <span class="c1">#: Held over each first read, so that two threads asking first read once.</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_reading</span> <span class="o">=</span> <span class="n">threading</span><span class="o">.</span><span class="n">RLock</span><span class="p">()</span>
         <span class="k">if</span> <span class="ow">not</span> <span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">path</span> <span class="o">/</span> <span class="n">ADDRESSES_FILE</span><span class="p">)</span><span class="o">.</span><span class="n">is_file</span><span class="p">():</span>
             <span class="k">raise</span> <span class="n">NoSimulatorView</span><span class="p">(</span><span class="n">_NO_VIEW_MESSAGE</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">path</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">path</span><span class="p">))</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">document</span><span class="p">(</span><span class="n">ADDRESSES_FILE</span><span class="p">)</span></div>
@@ -868,14 +916,26 @@
 <a class="viewcode-back" href="../../../reference/connectors-api/simulation.html#osprey_connectors.simulation.view.SimulatorView.open">[docs]</a>
     <span class="nd">@classmethod</span>
     <span class="k">def</span><span class="w"> </span><span class="nf">open</span><span class="p">(</span><span class="bp">cls</span><span class="p">,</span> <span class="n">view_dir</span><span class="p">:</span> <span class="n">Path</span> <span class="o">|</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">SimulatorView</span><span class="p">:</span>
-<span class="w">        </span><span class="sd">&quot;&quot;&quot;Open the view in ``view_dir``.</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;The view in ``view_dir``: the one this process holds, read when it holds none.</span>
 
 <span class="sd">        Raises:</span>
 <span class="sd">            NoSimulatorView: ``view_dir`` has no ``addresses.json``.</span>
 <span class="sd">            ViewSchemaError: its ``addresses.json`` is not schema</span>
 <span class="sd">                :data:`ADDRESSES_SCHEMA`.</span>
 <span class="sd">        &quot;&quot;&quot;</span>
-        <span class="k">return</span> <span class="bp">cls</span><span class="p">(</span><span class="n">Path</span><span class="p">(</span><span class="n">view_dir</span><span class="p">))</span></div>
+        <span class="n">path</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="n">view_dir</span><span class="p">)</span>
+        <span class="k">with</span> <span class="n">_OPENED_LOCK</span><span class="p">:</span>
+            <span class="n">started_ns</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">time_ns</span><span class="p">()</span>
+            <span class="n">signature</span> <span class="o">=</span> <span class="n">_signature</span><span class="p">(</span><span class="n">path</span><span class="p">)</span>
+            <span class="n">held</span> <span class="o">=</span> <span class="n">_OPENED</span><span class="o">.</span><span class="n">get</span><span class="p">((</span><span class="bp">cls</span><span class="p">,</span> <span class="n">path</span><span class="p">))</span>
+            <span class="k">if</span> <span class="n">held</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="ow">and</span> <span class="n">held</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">==</span> <span class="n">signature</span><span class="p">:</span>
+                <span class="k">return</span> <span class="n">held</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span>
+            <span class="n">_OPENED</span><span class="o">.</span><span class="n">pop</span><span class="p">((</span><span class="bp">cls</span><span class="p">,</span> <span class="n">path</span><span class="p">),</span> <span class="kc">None</span><span class="p">)</span>
+            <span class="n">view</span> <span class="o">=</span> <span class="bp">cls</span><span class="p">(</span><span class="n">path</span><span class="p">)</span>
+            <span class="n">newest</span> <span class="o">=</span> <span class="nb">max</span><span class="p">((</span><span class="n">stat</span><span class="p">[</span><span class="mi">2</span><span class="p">]</span> <span class="k">for</span> <span class="n">stat</span> <span class="ow">in</span> <span class="n">signature</span> <span class="k">if</span> <span class="n">stat</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">),</span> <span class="n">default</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span>
+            <span class="k">if</span> <span class="n">signature</span> <span class="o">==</span> <span class="n">_signature</span><span class="p">(</span><span class="n">path</span><span class="p">)</span> <span class="ow">and</span> <span class="n">newest</span> <span class="o">+</span> <span class="n">_SETTLE_NS</span> <span class="o">&lt;</span> <span class="n">started_ns</span><span class="p">:</span>
+                <span class="n">_OPENED</span><span class="p">[(</span><span class="bp">cls</span><span class="p">,</span> <span class="n">path</span><span class="p">)]</span> <span class="o">=</span> <span class="p">(</span><span class="n">signature</span><span class="p">,</span> <span class="n">view</span><span class="p">)</span>
+            <span class="k">return</span> <span class="n">view</span></div>
 
 
 <div class="viewcode-block" id="SimulatorView.of_render">
@@ -966,12 +1026,14 @@
 <span class="sd">                ``SCHEMAS[name]`` nor an older one this OSPREY still reads.</span>
 <span class="sd">        &quot;&quot;&quot;</span>
         <span class="k">if</span> <span class="n">name</span> <span class="ow">not</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">_documents</span><span class="p">:</span>
-            <span class="n">document</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_parsed</span><span class="p">(</span><span class="n">name</span><span class="p">)</span>
-            <span class="k">if</span> <span class="n">name</span> <span class="o">==</span> <span class="n">VARIABLES_FILE</span><span class="p">:</span>
-                <span class="bp">self</span><span class="o">.</span><span class="n">_check_started_by</span><span class="p">()</span>
-            <span class="k">elif</span> <span class="n">name</span> <span class="o">==</span> <span class="n">SEEDS_FILE</span><span class="p">:</span>
-                <span class="bp">self</span><span class="o">.</span><span class="n">_check_responds</span><span class="p">(</span><span class="n">document</span><span class="p">)</span>
-            <span class="bp">self</span><span class="o">.</span><span class="n">_documents</span><span class="p">[</span><span class="n">name</span><span class="p">]</span> <span class="o">=</span> <span class="n">_freeze</span><span class="p">(</span><span class="n">document</span><span class="p">)</span>
+            <span class="k">with</span> <span class="bp">self</span><span class="o">.</span><span class="n">_reading</span><span class="p">:</span>
+                <span class="k">if</span> <span class="n">name</span> <span class="ow">not</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">_documents</span><span class="p">:</span>
+                    <span class="n">document</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_parsed</span><span class="p">(</span><span class="n">name</span><span class="p">)</span>
+                    <span class="k">if</span> <span class="n">name</span> <span class="o">==</span> <span class="n">VARIABLES_FILE</span><span class="p">:</span>
+                        <span class="bp">self</span><span class="o">.</span><span class="n">_check_started_by</span><span class="p">()</span>
+                    <span class="k">elif</span> <span class="n">name</span> <span class="o">==</span> <span class="n">SEEDS_FILE</span><span class="p">:</span>
+                        <span class="bp">self</span><span class="o">.</span><span class="n">_check_responds</span><span class="p">(</span><span class="n">document</span><span class="p">)</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">_documents</span><span class="p">[</span><span class="n">name</span><span class="p">]</span> <span class="o">=</span> <span class="n">_freeze</span><span class="p">(</span><span class="n">document</span><span class="p">)</span>
         <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_documents</span><span class="p">[</span><span class="n">name</span><span class="p">]</span></div>
 
 
@@ -1063,15 +1125,17 @@
     <span class="k">def</span><span class="w"> </span><span class="nf">_parsed</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">name</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">object</span><span class="p">]:</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;One view file as parsed, not frozen; refused when its ``schema`` is not read here.&quot;&quot;&quot;</span>
         <span class="k">if</span> <span class="n">name</span> <span class="ow">not</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">_raw</span><span class="p">:</span>
-            <span class="n">path</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">path</span> <span class="o">/</span> <span class="n">name</span>
-            <span class="n">parsed</span><span class="p">:</span> <span class="nb">object</span> <span class="o">=</span> <span class="n">json</span><span class="o">.</span><span class="n">loads</span><span class="p">(</span><span class="n">path</span><span class="o">.</span><span class="n">read_text</span><span class="p">(</span><span class="n">encoding</span><span class="o">=</span><span class="s2">&quot;utf-8&quot;</span><span class="p">))</span>
-            <span class="n">expected</span> <span class="o">=</span> <span class="n">SCHEMAS</span><span class="p">[</span><span class="n">name</span><span class="p">]</span>
-            <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">parsed</span><span class="p">,</span> <span class="nb">dict</span><span class="p">):</span>
-                <span class="k">raise</span> <span class="n">_schema_error</span><span class="p">(</span><span class="n">path</span><span class="p">,</span> <span class="kc">None</span><span class="p">,</span> <span class="n">expected</span><span class="p">)</span>
-            <span class="n">found</span> <span class="o">=</span> <span class="n">parsed</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;schema&quot;</span><span class="p">)</span>
-            <span class="k">if</span> <span class="n">found</span> <span class="o">!=</span> <span class="n">expected</span> <span class="ow">and</span> <span class="n">found</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">_ALSO_READ</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">name</span><span class="p">,</span> <span class="p">()):</span>
-                <span class="k">raise</span> <span class="n">_schema_error</span><span class="p">(</span><span class="n">path</span><span class="p">,</span> <span class="n">found</span><span class="p">,</span> <span class="n">expected</span><span class="p">)</span>
-            <span class="bp">self</span><span class="o">.</span><span class="n">_raw</span><span class="p">[</span><span class="n">name</span><span class="p">]</span> <span class="o">=</span> <span class="n">parsed</span>
+            <span class="k">with</span> <span class="bp">self</span><span class="o">.</span><span class="n">_reading</span><span class="p">:</span>
+                <span class="k">if</span> <span class="n">name</span> <span class="ow">not</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">_raw</span><span class="p">:</span>
+                    <span class="n">path</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">path</span> <span class="o">/</span> <span class="n">name</span>
+                    <span class="n">parsed</span><span class="p">:</span> <span class="nb">object</span> <span class="o">=</span> <span class="n">json</span><span class="o">.</span><span class="n">loads</span><span class="p">(</span><span class="n">path</span><span class="o">.</span><span class="n">read_text</span><span class="p">(</span><span class="n">encoding</span><span class="o">=</span><span class="s2">&quot;utf-8&quot;</span><span class="p">))</span>
+                    <span class="n">expected</span> <span class="o">=</span> <span class="n">SCHEMAS</span><span class="p">[</span><span class="n">name</span><span class="p">]</span>
+                    <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">parsed</span><span class="p">,</span> <span class="nb">dict</span><span class="p">):</span>
+                        <span class="k">raise</span> <span class="n">_schema_error</span><span class="p">(</span><span class="n">path</span><span class="p">,</span> <span class="kc">None</span><span class="p">,</span> <span class="n">expected</span><span class="p">)</span>
+                    <span class="n">found</span> <span class="o">=</span> <span class="n">parsed</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;schema&quot;</span><span class="p">)</span>
+                    <span class="k">if</span> <span class="n">found</span> <span class="o">!=</span> <span class="n">expected</span> <span class="ow">and</span> <span class="n">found</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">_ALSO_READ</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">name</span><span class="p">,</span> <span class="p">()):</span>
+                        <span class="k">raise</span> <span class="n">_schema_error</span><span class="p">(</span><span class="n">path</span><span class="p">,</span> <span class="n">found</span><span class="p">,</span> <span class="n">expected</span><span class="p">)</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">_raw</span><span class="p">[</span><span class="n">name</span><span class="p">]</span> <span class="o">=</span> <span class="n">parsed</span>
         <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_raw</span><span class="p">[</span><span class="n">name</span><span class="p">]</span>
 
     <span class="nd">@property</span>
@@ -1084,8 +1148,10 @@
     <span class="k">def</span><span class="w"> </span><span class="nf">models</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">tuple</span><span class="p">[</span><span class="n">Model</span><span class="p">,</span> <span class="o">...</span><span class="p">]:</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;Every model of the facility file, sorted by name.&quot;&quot;&quot;</span>
         <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_models</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
-            <span class="n">entries</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_parsed</span><span class="p">(</span><span class="n">VARIABLES_FILE</span><span class="p">)[</span><span class="s2">&quot;models&quot;</span><span class="p">]</span>
-            <span class="bp">self</span><span class="o">.</span><span class="n">_models</span> <span class="o">=</span> <span class="nb">tuple</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_model</span><span class="p">(</span><span class="n">entry</span><span class="p">)</span> <span class="k">for</span> <span class="n">entry</span> <span class="ow">in</span> <span class="n">entries</span><span class="p">)</span>
+            <span class="k">with</span> <span class="bp">self</span><span class="o">.</span><span class="n">_reading</span><span class="p">:</span>
+                <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_models</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+                    <span class="n">entries</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_parsed</span><span class="p">(</span><span class="n">VARIABLES_FILE</span><span class="p">)[</span><span class="s2">&quot;models&quot;</span><span class="p">]</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">_models</span> <span class="o">=</span> <span class="nb">tuple</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_model</span><span class="p">(</span><span class="n">entry</span><span class="p">)</span> <span class="k">for</span> <span class="n">entry</span> <span class="ow">in</span> <span class="n">entries</span><span class="p">)</span>
         <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_models</span></div>
 
 
@@ -1098,12 +1164,12 @@
             <span class="n">name</span><span class="o">=</span><span class="n">name</span><span class="p">,</span>
             <span class="n">engine</span><span class="o">=</span><span class="n">engine</span><span class="p">,</span>
             <span class="n">served</span><span class="o">=</span><span class="nb">bool</span><span class="p">(</span><span class="n">entry</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;served&quot;</span><span class="p">)),</span>
-            <span class="n">settings</span><span class="o">=</span><span class="n">MappingProxyType</span><span class="p">(</span><span class="n">copy</span><span class="o">.</span><span class="n">deepcopy</span><span class="p">(</span><span class="n">entry</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;settings&quot;</span><span class="p">)</span> <span class="ow">or</span> <span class="p">{})),</span>
+            <span class="n">settings</span><span class="o">=</span><span class="n">MappingProxyType</span><span class="p">(</span><span class="n">_copied</span><span class="p">(</span><span class="n">entry</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;settings&quot;</span><span class="p">)</span> <span class="ow">or</span> <span class="p">{})),</span>
             <span class="n">deck</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">path</span> <span class="o">/</span> <span class="n">deck</span> <span class="k">if</span> <span class="n">deck</span> <span class="k">else</span> <span class="kc">None</span><span class="p">,</span>
             <span class="n">bindings</span><span class="o">=</span><span class="p">()</span>
             <span class="k">if</span> <span class="n">engine</span> <span class="o">==</span> <span class="n">_TEXTURE</span>
             <span class="k">else</span> <span class="nb">tuple</span><span class="p">(</span><span class="n">Binding</span><span class="o">.</span><span class="n">from_record</span><span class="p">(</span><span class="n">name</span><span class="p">,</span> <span class="n">record</span><span class="p">)</span> <span class="k">for</span> <span class="n">record</span> <span class="ow">in</span> <span class="n">wiring</span><span class="p">),</span>
-            <span class="n">inputs</span><span class="o">=</span><span class="nb">tuple</span><span class="p">(</span><span class="n">_freeze</span><span class="p">(</span><span class="n">copy</span><span class="o">.</span><span class="n">deepcopy</span><span class="p">(</span><span class="n">record</span><span class="p">))</span> <span class="k">for</span> <span class="n">record</span> <span class="ow">in</span> <span class="n">entry</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;inputs&quot;</span><span class="p">)</span> <span class="ow">or</span> <span class="p">()),</span>
+            <span class="n">inputs</span><span class="o">=</span><span class="nb">tuple</span><span class="p">(</span><span class="n">_freeze</span><span class="p">(</span><span class="n">record</span><span class="p">)</span> <span class="k">for</span> <span class="n">record</span> <span class="ow">in</span> <span class="n">entry</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;inputs&quot;</span><span class="p">)</span> <span class="ow">or</span> <span class="p">()),</span>
         <span class="p">)</span>
 
 <div class="viewcode-block" id="SimulatorView.model">
@@ -1205,13 +1271,15 @@
 
     <span class="k">def</span><span class="w"> </span><span class="nf">_channels</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Channel</span><span class="p">]:</span>
         <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_channel_records</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
-            <span class="n">entries</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_parsed</span><span class="p">(</span><span class="n">VARIABLES_FILE</span><span class="p">)[</span><span class="s2">&quot;channels&quot;</span><span class="p">]</span>
-            <span class="bp">self</span><span class="o">.</span><span class="n">_channel_records</span> <span class="o">=</span> <span class="n">MappingProxyType</span><span class="p">(</span>
-                <span class="p">{</span>
-                    <span class="n">channel</span><span class="o">.</span><span class="n">address</span><span class="p">:</span> <span class="n">channel</span>
-                    <span class="k">for</span> <span class="n">channel</span> <span class="ow">in</span> <span class="p">(</span><span class="n">Channel</span><span class="o">.</span><span class="n">from_entry</span><span class="p">(</span><span class="n">entry</span><span class="p">)</span> <span class="k">for</span> <span class="n">entry</span> <span class="ow">in</span> <span class="n">entries</span><span class="p">)</span>
-                <span class="p">}</span>
-            <span class="p">)</span>
+            <span class="k">with</span> <span class="bp">self</span><span class="o">.</span><span class="n">_reading</span><span class="p">:</span>
+                <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_channel_records</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+                    <span class="n">entries</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_parsed</span><span class="p">(</span><span class="n">VARIABLES_FILE</span><span class="p">)[</span><span class="s2">&quot;channels&quot;</span><span class="p">]</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">_channel_records</span> <span class="o">=</span> <span class="n">MappingProxyType</span><span class="p">(</span>
+                        <span class="p">{</span>
+                            <span class="n">channel</span><span class="o">.</span><span class="n">address</span><span class="p">:</span> <span class="n">channel</span>
+                            <span class="k">for</span> <span class="n">channel</span> <span class="ow">in</span> <span class="p">(</span><span class="n">Channel</span><span class="o">.</span><span class="n">from_entry</span><span class="p">(</span><span class="n">entry</span><span class="p">)</span> <span class="k">for</span> <span class="n">entry</span> <span class="ow">in</span> <span class="n">entries</span><span class="p">)</span>
+                        <span class="p">}</span>
+                    <span class="p">)</span>
         <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_channel_records</span>
 
 <div class="viewcode-block" id="SimulatorView.channel">
@@ -1361,6 +1429,12 @@
         <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">path</span> <span class="o">/</span> <span class="n">SCENARIOS_DIR</span> <span class="o">/</span> <span class="n">name</span></div>
 </div>
 
+
+
+<span class="c1">#: The view :meth:`SimulatorView.open` last read for each directory, with the</span>
+<span class="c1">#: stat signature it was read under.</span>
+<span class="n">_OPENED</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">tuple</span><span class="p">[</span><span class="nb">type</span><span class="p">,</span> <span class="n">Path</span><span class="p">],</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">tuple</span><span class="p">[</span><span class="n">_FileStat</span><span class="p">,</span> <span class="o">...</span><span class="p">],</span> <span class="n">SimulatorView</span><span class="p">]]</span> <span class="o">=</span> <span class="p">{}</span>
+<span class="n">_OPENED_LOCK</span> <span class="o">=</span> <span class="n">threading</span><span class="o">.</span><span class="n">Lock</span><span class="p">()</span>
 
 
 <span class="k">def</span><span class="w"> </span><span class="nf">_bounds</span><span class="p">(</span><span class="n">value_range</span><span class="p">:</span> <span class="n">Sequence</span><span class="p">[</span><span class="nb">float</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">float</span><span class="p">,</span> <span class="nb">float</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>

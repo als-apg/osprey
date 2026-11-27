@@ -656,7 +656,10 @@ own.</p>
 nobody can change them from the panel. <a class="reference internal" href="canopy-library.html"><span class="doc">Share CANOPY Screens</span></a> explains how a
 screen gets in.</p></li>
 <li><p><strong>Your personal store</strong> holds the screens you or the agent built. It lives in
-your own agent data, survives rebuilds, and only you see it.</p></li>
+your own agent data, survives rebuilds, and only you see it. CANOPY keeps
+its listing of both stores’ screens in a <code class="docutils literal notranslate"><span class="pre">.cache</span></code> directory there, so a
+restart does not read every screen again; nothing is written into the
+library, and the directory can be deleted at any time.</p></li>
 </ul>
 <p>In a multi-user deployment, every login card has its own CANOPY. A
 <a class="reference internal" href="multi-user/login.html#multi-user-shared-card"><span class="std std-ref">shared card</span></a> is one CANOPY for everyone who
@@ -813,7 +816,9 @@ choice holds for every screen and every later visit. A zoom stepped to with
 <p>The sidebar lists the library’s screens by folder. A library that ships a
 <code class="docutils literal notranslate"><span class="pre">navigation.json</span></code> is listed in the order and under the names that file
 gives, followed by one collapsed group, <strong>All screens</strong>, with the folder tree
-(<a class="reference internal" href="canopy-library.html#canopy-library-navigation"><span class="std std-ref">Order the sidebar</span></a>).</p>
+(<a class="reference internal" href="canopy-library.html#canopy-library-navigation"><span class="std std-ref">Order the sidebar</span></a>). The list follows the stores without a
+reload: a screen you or the agent saves shows at once, and one that another
+process changes on disk shows within about two seconds.</p>
 <p><strong>A channel’s menu.</strong> Right-click any widget that shows a channel for a menu
 about that channel: its name (click to copy), description, value, time, alarm
 severity and limits, and entries to copy the name or the value, plot its

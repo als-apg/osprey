@@ -763,6 +763,7 @@ that only you can read:</p>
 <span class="nv">CANOPY_DRAFTS_DIR</span><span class="o">=</span><span class="s2">&quot;</span><span class="nv">$HOME</span><span class="s2">/my-assistant/data/canopy/library&quot;</span><span class="w"> </span><span class="se">\</span>
 <span class="nv">CANOPY_VIEWER_DIST</span><span class="o">=</span><span class="s2">&quot;</span><span class="nv">$HOME</span><span class="s2">/my-assistant/canopy_payload/viewer&quot;</span><span class="w"> </span><span class="se">\</span>
 <span class="nv">CANOPY_VIEWS_DIR</span><span class="o">=</span><span class="s2">&quot;</span><span class="nv">$HOME</span><span class="s2">/canopy-dev/views&quot;</span><span class="w"> </span><span class="se">\</span>
+<span class="nv">CANOPY_CACHE_DIR</span><span class="o">=</span><span class="s2">&quot;</span><span class="nv">$HOME</span><span class="s2">/canopy-dev/cache&quot;</span><span class="w"> </span><span class="se">\</span>
 <span class="nv">CANOPY_PV_MODE</span><span class="o">=</span>mock<span class="w"> </span><span class="se">\</span>
 <span class="nv">CANOPY_BROWSER_SANDBOX</span><span class="o">=</span><span class="m">1</span><span class="w"> </span><span class="se">\</span>
 ~/canopy-dev/venv/bin/python<span class="w"> </span>-m<span class="w"> </span>canopy_mcp<span class="w"> </span>--http<span class="w"> </span>--port<span class="w"> </span><span class="m">8765</span>
@@ -770,7 +771,12 @@ that only you can read:</p>
 </div>
 <p><code class="docutils literal notranslate"><span class="pre">CANOPY_DRAFTS_DIR</span></code> makes the library the store the tools write to.
 <code class="docutils literal notranslate"><span class="pre">CANOPY_VIEWS_DIR</span></code> keeps saved views out of it, since the library holds
-only screens and its report.</p>
+only screens and its report. <code class="docutils literal notranslate"><span class="pre">CANOPY_CACHE_DIR</span></code> does the same for the
+listing of the screens the server keeps between runs: without it the
+server writes that file to <code class="docutils literal notranslate"><span class="pre">.cache/</span></code> inside the store it serves, and a
+library that holds a <code class="docutils literal notranslate"><span class="pre">.cache</span></code> directory is refused by the report check
+and by <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code>. If you started the server without it, delete
+<code class="docutils literal notranslate"><span class="pre">data/canopy/library/.cache</span></code> before you regenerate the report.</p>
 </li>
 <li><p>Register the server with Claude Code, export the token, and start Claude
 Code in <code class="docutils literal notranslate"><span class="pre">~/canopy-dev/project</span></code>. The single quotes store the placeholder,
