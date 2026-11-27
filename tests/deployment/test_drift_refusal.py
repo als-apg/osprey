@@ -8,7 +8,7 @@ decide whether the refusal is trustworthy:
 - a comment-only edit to ``profile.yml`` is NOT drift — a check that fires on
   cosmetics trains operators to reach for ``--as-built`` reflexively, which
   costs the refusal all of its value;
-- an edit anywhere in the ``data/`` tree IS drift — the profile YAML is
+- an edit anywhere in the ``facility/`` tree IS drift — the profile YAML is
   untouched in exactly the case a facility changes its channel database, and a
   fingerprint blind to that would let ``up`` deploy last week's data while
   reporting itself in sync (SC-3);
@@ -66,10 +66,12 @@ def _write_manifest(repo: Path, **creation: object) -> Path:
 
 @pytest.fixture
 def repo(tmp_path):
-    """A minimal three-zone repo: profile at root, data beside it, build/ rendered."""
+    """A minimal three-zone repo: profile at root, facility beside it, build/ rendered."""
     root = tmp_path / "exemplar"
     _write(root / "profile.yml", PROFILE_YAML)
-    _write(root / "data" / "channel_databases" / "als.json", '{"channels": []}\n')
+    _write(
+        root / repo_layout.entry("facility").path / "records" / "channels.yaml", "channels: []\n"
+    )
     _write(root / "build" / "config.yml", "project: exemplar\nprotected_paths: []\n")
     _write_manifest(root)
     return root
