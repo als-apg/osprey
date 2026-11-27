@@ -1,6 +1,6 @@
 {
-  "_reproduce": "hand-maintained: update with the pin in the same commit",
-  "_description": "`facility` holds the counts the built demo facility must show and `facts` every other demo count, each held once; a test reads either through `tests/_census.py`. `entries` lists each file that states a count in its own text, one entry per stated value: `pin` is `json:KEY` / `json:len(KEY)` / `json:len()` (a JSON file's value or length), or `text:FRAGMENT` with `{value}` standing for the number (a literal fragment of the file, digits not running on either side).",
+  "_reproduce": "uv run python -m tests.facility.test_demo_census --write",
+  "_description": "`facility` holds the counts the built demo facility must show and `facts` every other demo count, each held once; a test reads either through `tests/_census.py`, and `_reproduce` rewrites both from a built demo (a fact no build output states is kept as it is). `entries` lists each file that states a count in its own text, one entry per stated value: `pin` is `json:KEY` / `json:len(KEY)` / `json:len()` (a JSON file's value or length), or `text:FRAGMENT` with `{value}` standing for the number (a literal fragment of the file, digits not running on either side). An entry moves by hand, with its pin.",
   "facility": {
     "channels": 4775,
     "devices": 1093,
