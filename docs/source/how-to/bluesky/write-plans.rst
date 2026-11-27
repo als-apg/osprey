@@ -245,8 +245,10 @@ The file has four lists:
   file states, and each run records it as an array of that length. A waveform
   of more than one dimension is no plan device; the build names each one.
 
-A settable's and a readable's name is its address, a detector's its device id;
-every column heading is an address. The run records which device recorded each
+A settable's and a readable's name is its address, a detector's its device id.
+A channel whose address holds ``.`` or ``/`` (an EPICS field such as ``.RBV``)
+is no plan device, since a run cannot record that name; the build names each
+one. Every column heading is an address. The run records which device recorded each
 column, so the run's figure and ``get_run_data``'s analysis find a detector's
 results under the device id the plan named.
 

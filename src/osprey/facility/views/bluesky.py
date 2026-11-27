@@ -73,6 +73,7 @@ from typing import Any
 
 from osprey.facility.views import ViewInputs
 from osprey_facility import FACILITY_FILE
+from osprey_facility.plan_names import is_plan_name
 from osprey_facility.records import FacilityRecords
 
 __all__ = [
@@ -229,6 +230,19 @@ def _beyond_one_dimension(records: list[Any]) -> str | None:
     return "\n".join((summary, *addresses))
 
 
+def _unnameable(records: list[Any]) -> str | None:
+    """The warning naming each channel whose address a run cannot record, or ``None``."""
+    addresses = [
+        record.address
+        for record in records
+        if record.direction in ("write", "read") and not is_plan_name(record.address)
+    ]
+    if not addresses:
+        return None
+    summary = f"{len(addresses)} channel(s) whose address holds `.` or `/` are no plan device"
+    return "\n".join((summary, *addresses))
+
+
 def bluesky_configured(inputs: ViewInputs) -> bool:
     """Whether the render runs a Bluesky lane.
 
@@ -280,4 +294,7 @@ def write_bluesky_view(root: Path, inputs: ViewInputs) -> list[Path]:
     left_out = _beyond_one_dimension(records)
     if left_out is not None:
         _warn_once(inputs, left_out)
+    unnamed = _unnameable(records)
+    if unnamed is not None:
+        _warn_once(inputs, unnamed)
     return [target]
