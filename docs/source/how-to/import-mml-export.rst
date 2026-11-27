@@ -218,10 +218,13 @@ is yours and is only drafted when absent. The authored files beside them ---
 ``measurement/<model>.yaml`` and ``scenarios/readout.yaml`` --- are created
 only when absent and never rewritten, so your edits to them survive a
 re-import. Beside an existing ``limits.yaml`` the import prints a
-``limits differ: <address> file [..] export [..]`` line for each record whose
-band the export states otherwise, and one ``limits not recorded:`` line
-counting the setpoints the export bands that the file has no record for,
-followed by the first ten with their band; it writes none of them. A
+``limits differ: <address>: file <what it states>; export <what it states>``
+line for each record whose band the export states otherwise, each side worded
+as the validate report words a record (for example ``min_value 0.0, no
+max_value``), and one ``limits not recorded:`` line counting the setpoints the
+export bands that the file has no record for, followed by the first ten, each
+as ``<address>: <what the export states>`` in the same words; it writes none
+of them. A
 ``Range`` given as one row per device whose row count is not the family's
 device count gives no band, and the import prints one ``limits table
 skipped:`` line for that field. ``classes.yaml`` is created when absent; when it exists, the import
