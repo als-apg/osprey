@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import gzip
+import re
 from pathlib import Path
+from urllib.parse import urljoin
 
 import pytest
 from starlette.applications import Starlette
@@ -236,3 +238,116 @@ class TestServing:
         for etag in (gzipped.headers["etag"], plain.headers["etag"]):
             resp = client.get("/static/js/big.js", headers={"if-none-match": etag})
             assert resp.status_code == 304
+
+
+class TestStyleBundles:
+    """Sheets of the set, served as one: same order, same rules, one request."""
+
+    @pytest.fixture
+    def sheets(self, static_dir: Path, design_dir: Path) -> tuple[str, ...]:
+        (design_dir / "css").mkdir()
+        (design_dir / "css" / "tokens.css").write_text(":root { --ink: #111; }\n")
+        (static_dir / "fonts").mkdir()
+        (static_dir / "fonts" / "body.woff2").write_bytes(b"\x00font")
+        (static_dir / "fonts" / "fonts.css").write_text(
+            '@charset "utf-8";\n'
+            "@font-face { font-family: Body; src: url('./body.woff2') format('woff2'); }\n"
+            ".mark { background: url(data:image/png;base64,AAAA); }\n"
+            ".far { background: url(https://example.org/far.png); }\n"
+        )
+        (static_dir / "css").mkdir()
+        (static_dir / "css" / "shell.css").write_text(
+            ".shell { background: url(../image.png); color: var(--ink); }\n" * 60
+        )
+        return ("/design-system/css/tokens.css", "/static/fonts/fonts.css", "/static/css/shell.css")
+
+    @pytest.fixture
+    def bundled(self, assets: AssetSet, sheets: tuple[str, ...]) -> AssetSet:
+        assets.define_bundle("shell", "/static", sheets)
+        return assets
+
+    def test_the_address_is_fingerprinted_under_the_mount(self, bundled):
+        assert bundled.bundle_url("shell") == f"/static/_v/{bundled.version()}/_bundle/shell.css"
+
+    def test_holds_every_sheet_once_in_the_order_given(self, bundled, sheets):
+        body = bundled.bundle("shell").body.decode()
+        marks = [body.index(f"/* {sheet} */") for sheet in sheets]
+        assert marks == sorted(marks)
+        assert body.index("--ink: #111") < body.index("font-family: Body")
+        assert body.index("font-family: Body") < body.index(".shell {")
+        assert body.count("font-family: Body") == 1
+
+    def test_a_relative_reference_still_reaches_its_file(self, bundled, client):
+        url = bundled.bundle_url("shell")
+        body = bundled.bundle("shell").body.decode()
+        references = re.findall(r'url\("([^":]+)"\)', body)
+        assert len(set(references)) == 2  # the font and the image
+        reached = {urljoin(url, reference) for reference in references}
+        version = bundled.version()
+        assert reached == {
+            f"/static/_v/{version}/fonts/body.woff2",
+            f"/static/_v/{version}/image.png",
+        }
+        for address in reached:
+            answer = client.get(address)
+            assert answer.status_code == 200
+            assert answer.headers["cache-control"] == CACHE_IMMUTABLE
+
+    def test_references_that_are_not_relative_are_left_alone(self, bundled):
+        body = bundled.bundle("shell").body.decode()
+        assert "url(data:image/png;base64,AAAA)" in body
+        assert "url(https://example.org/far.png)" in body
+
+    def test_a_charset_rule_is_dropped(self, bundled):
+        assert "@charset" not in bundled.bundle("shell").body.decode()
+
+    @pytest.mark.parametrize("rule", ["@import url('other.css');", "@namespace svg url(x);"])
+    def test_a_sheet_that_must_lead_its_own_file_is_not_bundled(self, bundled, static_dir, rule):
+        (static_dir / "css" / "shell.css").write_text(f"{rule}\n.shell {{}}\n")
+        assert bundled.bundle("shell") is None
+        assert bundled.bundle_url("shell") is None
+
+    def test_such_a_rule_inside_a_comment_does_not_count(self, bundled, static_dir):
+        (static_dir / "css" / "shell.css").write_text("/* @import is not used */\n.shell {}\n")
+        assert bundled.bundle_url("shell") is not None
+
+    def test_a_missing_sheet_or_an_unknown_name_gives_no_bundle(self, bundled, static_dir):
+        assert bundled.bundle_url("other") is None
+        (static_dir / "css" / "shell.css").unlink()
+        assert bundled.bundle_url("shell") is None
+
+    def test_follows_an_edit_to_any_sheet(self, bundled, design_dir):
+        before = bundled.bundle_url("shell")
+        (design_dir / "css" / "tokens.css").write_text(":root { --ink: #222; }\n")
+        assert bundled.bundle_url("shell") != before
+        assert "--ink: #222" in bundled.bundle("shell").body.decode()
+
+    def test_is_served_immutable_compressed_and_revalidated(self, bundled, client):
+        url = bundled.bundle_url("shell")
+        plain = client.get(url, headers={"Accept-Encoding": "identity"})
+        assert plain.status_code == 200
+        assert plain.headers["content-type"] == "text/css; charset=utf-8"
+        assert plain.headers["cache-control"] == CACHE_IMMUTABLE
+        assert "content-encoding" not in plain.headers
+        assert plain.content == bundled.bundle("shell").body
+
+        packed = client.get(url, headers={"Accept-Encoding": "gzip"})
+        assert packed.headers["content-encoding"] == "gzip"
+        assert packed.content == plain.content  # the client decodes it
+        assert int(packed.headers["content-length"]) < len(plain.content)
+
+        for etag in (plain.headers["etag"], packed.headers["etag"]):
+            again = client.get(url, headers={"If-None-Match": etag})
+            assert again.status_code == 304
+            assert again.content == b""
+
+    def test_a_stale_fingerprint_serves_the_bundle_but_is_not_kept(self, bundled, client):
+        assert bundled.bundle_url("shell") is not None
+        stale = client.get("/static/_v/0000000000000000/_bundle/shell.css")
+        assert stale.status_code == 200
+        assert stale.headers["cache-control"] == CACHE_REVALIDATE
+
+    def test_an_unknown_bundle_is_a_404(self, bundled, client):
+        version = bundled.version()
+        assert client.get(f"/static/_v/{version}/_bundle/other.css").status_code == 404
+        assert client.get(f"/static/_v/{version}/_bundle/shell.js").status_code == 404

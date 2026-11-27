@@ -56,6 +56,13 @@ whatever it holds. One exception: a regular file named exactly ``.DS_Store``
 is skipped, neither listed nor refused, since git ignores it and the image
 context drops it.
 
+A CANOPY server keeps its listing of the screens between runs in a ``.cache``
+directory, by default inside the store it writes to (``CANOPY_CACHE_DIR``
+moves it). The panel's server writes to the user's personal store, so a
+deployed library never holds one. A server started on a library as its own
+store does write it there, and the directory is then refused like any other
+entry beside ``screens/`` (``outside_screens``) until it is deleted.
+
 **Whether the navigation is one the viewer will draw** —
 :func:`navigation_faults`. ``navigation.json`` is a JSON list of entries. A
 leaf is ``{"screen": "library/<id>", "label": "..."}``, the label optional. A

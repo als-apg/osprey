@@ -661,6 +661,37 @@ async def test_active_alarms_say_whether_the_feed_is_live_or_a_replay(
     assert answer["feed"] == feed
 
 
+async def test_active_alarms_wait_no_longer_than_the_caller_allows_for_a_loading_feed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A caller that polls names a short wait and is told the feed is still loading.
+
+    Without one the read waits the configured timeout, which is what a caller
+    with a single chance to ask wants.
+    """
+    deadlines: list[float] = []
+
+    async def still_loading(self: Any, deadline: float) -> Any:  # noqa: ARG001 - a fake
+        deadlines.append(deadline)
+        await asyncio.sleep(max(deadline, 0.0))
+        return Unavailable("alarm feed still loading")
+
+    monkeypatch.setattr(FakeAlarmState, "states", still_loading)
+    page = _facts(_config(tmp_path, LIVE_BUILD, {**FACILITY, "alarm_state": KAFKA}), tmp_path)
+
+    short = await page.active_alarms(wait=0.0)
+    patient = await page.active_alarms()
+    capped = await page.active_alarms(wait=60.0)
+
+    assert short["outcome"] == "unavailable"
+    assert short["reason"] == "alarm feed still loading"
+    assert patient["reason"] == "alarm feed still loading"
+    assert deadlines[0] == 0.0
+    assert 0.0 < deadlines[1] <= 0.5
+    assert deadlines[2] <= 0.5, "a wait never outlasts the configured timeout"
+    assert capped["outcome"] == "unavailable"
+
+
 async def test_an_unknown_severity_leads_the_active_rows_as_the_fold_ranks_it(
     tmp_path: Path,
 ) -> None:

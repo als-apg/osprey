@@ -43,7 +43,10 @@ A screen comes from one of two places:
   nobody can change them from the panel. :doc:`canopy-library` explains how a
   screen gets in.
 - **Your personal store** holds the screens you or the agent built. It lives in
-  your own agent data, survives rebuilds, and only you see it.
+  your own agent data, survives rebuilds, and only you see it. CANOPY keeps
+  its listing of both stores' screens in a ``.cache`` directory there, so a
+  restart does not read every screen again; nothing is written into the
+  library, and the directory can be deleted at any time.
 
 In a multi-user deployment, every login card has its own CANOPY. A
 :ref:`shared card <multi-user-shared-card>` is one CANOPY for everyone who
@@ -222,7 +225,9 @@ choice holds for every screen and every later visit. A zoom stepped to with
 The sidebar lists the library's screens by folder. A library that ships a
 ``navigation.json`` is listed in the order and under the names that file
 gives, followed by one collapsed group, **All screens**, with the folder tree
-(:ref:`canopy-library-navigation`).
+(:ref:`canopy-library-navigation`). The list follows the stores without a
+reload: a screen you or the agent saves shows at once, and one that another
+process changes on disk shows within about two seconds.
 
 **A channel's menu.** Right-click any widget that shows a channel for a menu
 about that channel: its name (click to copy), description, value, time, alarm
@@ -233,6 +238,15 @@ several channels has one menu; the chips above the entries pick the channel.
 Hold **Shift** for the browser's own menu. **PV details…** opens the page
 ``web.panels.canopy.pv_details_url`` names, with the channel's name in place
 of ``{pv}``; without that key the menu has no such entry.
+
+A widget that shows a number the screen computes from several channels (a
+``formula://`` binding) has a menu of its own. It names the number (the
+widget's ``menuTitle``), its value, how many channels feed it and the pattern
+of their names, and never lists them: **Inputs (N)…** opens a window with one
+row per channel, a filter by name and a largest-first order, and a right-click
+on a row is that channel's menu. Up to 12 inputs, **Plot history** plots the
+inputs; above that the entry is disabled. A number computed from one channel
+opens that channel's menu.
 
 **Which machine.** A badge names the machine the values come from. Switch the
 control target on the chip and CANOPY follows: the screens go blank for a

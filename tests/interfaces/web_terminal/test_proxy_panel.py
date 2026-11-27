@@ -108,28 +108,44 @@ class TestProxyForwardedPrefix:
 
 
 class TestProxyCacheControlDefault:
-    """The proxy-wide caching default (_DEFAULT_NO_CACHE): a proxied response
-    whose upstream set no Cache-Control gets no-cache stamped (unversioned
-    panel assets must never survive a redeploy in a browser cache), while an
-    upstream's own explicit caching decision passes through untouched."""
+    """The proxy-wide caching default (_DEFAULT_NO_CACHE): a proxied page or API
+    answer whose upstream set no Cache-Control is never stored. A static file
+    is stored and revalidated on every use instead (panel assets carry
+    unversioned names, so a stored copy must be checked, never trusted); the
+    revalidation contract is held in ``test_panel_answers.py``. An upstream's
+    own explicit caching decision passes through untouched."""
 
-    def test_headerless_upstream_gets_no_cache_default(self, app_and_client):
-        app, client = app_and_client
-
+    @staticmethod
+    def _answering(app, content_type):
         # ``httpx.AsyncClient.request``'s signature: the proxy names every field it sends,
         # and the body asserts on the ones this test is about.
         async def fake_request(*, method, url, headers, content, follow_redirects=True):  # noqa: ARG001
             return httpx.Response(
-                status_code=200,
-                text="body { color: red; }",
-                headers={"content-type": "text/css"},
+                status_code=200, text="{}", headers={"content-type": content_type}
             )
 
         app.state.proxy_client.request = AsyncMock(side_effect=fake_request)
 
-        resp = client.get("/panel/my-dash/panel.css")
+    @pytest.mark.parametrize("content_type", ["text/html", "application/json", "text/plain"])
+    def test_headerless_page_or_api_answer_is_never_stored(self, app_and_client, content_type):
+        app, client = app_and_client
+        self._answering(app, content_type)
+
+        resp = client.get("/panel/my-dash/api/state")
+
         assert resp.status_code == 200
         assert resp.headers["cache-control"] == "no-cache, no-store, must-revalidate"
+        assert "etag" not in resp.headers
+
+    def test_headerless_static_file_is_stored_and_revalidated(self, app_and_client):
+        app, client = app_and_client
+        self._answering(app, "text/css")
+
+        resp = client.get("/panel/my-dash/panel.css")
+
+        assert resp.status_code == 200
+        assert resp.headers["cache-control"] == "no-cache"
+        assert resp.headers["etag"]
 
 
 #: One framework panel, read from the registry-derived map rather than named, so

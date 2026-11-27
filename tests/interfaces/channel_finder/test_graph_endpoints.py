@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import os
 import threading
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -1013,3 +1014,88 @@ class TestDevice:
 
         assert resp.status_code == 404
         assert resp.json()["detail"] == "Not available for this pipeline type"
+
+
+class TestIndexAnswersAreReadOnce:
+    """The class tree and the badge counts depend on the index alone.
+
+    Every page load asks for both, and each read is a scan in a worker thread.
+    They are read once and then served from memory until the index file
+    changes or another index is opened.
+    """
+
+    @staticmethod
+    def _counting(client, monkeypatch, method: str) -> list[int]:
+        index = client.app.state.graph_index
+        calls: list[int] = []
+        real = getattr(index, method)
+
+        def counted():
+            calls.append(1)
+            return real()
+
+        monkeypatch.setattr(index, method, counted)
+        return calls
+
+    @pytest.mark.parametrize(
+        ("route", "method"),
+        [("/api/graph/ontology", "ontology"), ("/api/statistics", "statistics")],
+    )
+    def test_the_second_answer_is_the_first_without_a_read(
+        self, client, monkeypatch, route, method
+    ):
+        install_graph_paradigm(client, demo_context())
+        calls = self._counting(client, monkeypatch, method)
+
+        first = client.get(route)
+        second = client.get(route)
+
+        assert first.status_code == second.status_code == 200
+        assert first.headers["content-type"].startswith("application/json")
+        assert second.json() == first.json()
+        assert len(calls) == 1
+
+    def test_a_changed_index_file_is_read_again(self, client, monkeypatch):
+        install_graph_paradigm(client, demo_context())
+        calls = self._counting(client, monkeypatch, "ontology")
+        client.get("/api/graph/ontology")
+        path = client.app.state.graph_index.path
+        stat_result = path.stat()
+
+        os.utime(path, ns=(stat_result.st_atime_ns, stat_result.st_mtime_ns + 1_000_000_000))
+        try:
+            client.get("/api/graph/ontology")
+        finally:
+            os.utime(path, ns=(stat_result.st_atime_ns, stat_result.st_mtime_ns))
+
+        assert len(calls) == 2
+
+    def test_another_index_is_read_for_itself(self, client, monkeypatch, tmp_path):
+        install_graph_paradigm(client, demo_context())
+        demo = client.get("/api/graph/ontology").json()
+
+        with _index_over(corpora.DEEP_CHAIN, tmp_path) as other:
+            monkeypatch.setattr(client.app.state, "graph_index", other)
+            small = client.get("/api/graph/ontology").json()
+
+        assert small != demo
+
+    def test_a_failed_read_is_not_kept(self, client, monkeypatch):
+        install_graph_paradigm(client, demo_context())
+        index = client.app.state.graph_index
+        real = index.ontology
+        answers = iter([RuntimeError("scan failed"), None])
+
+        def flaky():
+            failure = next(answers)
+            if failure is not None:
+                raise failure
+            return real()
+
+        monkeypatch.setattr(index, "ontology", flaky)
+
+        failed = client.get("/api/graph/ontology")
+        recovered = client.get("/api/graph/ontology")
+
+        assert failed.status_code >= 500
+        assert recovered.status_code == 200

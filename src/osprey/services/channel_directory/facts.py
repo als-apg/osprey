@@ -178,7 +178,11 @@ class Facts:
         return await self._finished(await _guarded(self._alarm_state(name, self._timeout())))
 
     async def active_alarms(
-        self, *, severities: Sequence[str] = (), limit: int | None = None
+        self,
+        *,
+        severities: Sequence[str] = (),
+        limit: int | None = None,
+        wait: float | None = None,
     ) -> dict[str, Any]:
         """Every channel the alarm feed holds in alarm now, with the counts per severity.
 
@@ -190,8 +194,14 @@ class Facts:
             severities: Only rows of these severities; empty serves every active row.
             limit: The most rows served; a cut sets ``truncated`` and never changes
                 the counts. ``None`` serves every row.
+            wait: The most seconds to wait for a feed that is still loading;
+                ``None`` waits the configured timeout. A feed that has not
+                caught up by then answers ``unavailable`` with the reason
+                ``alarm feed still loading``, which a caller that polls reads
+                as "ask again".
         """
-        read = self._active_alarms(self._timeout(), tuple(severities), limit)
+        deadline = self._timeout() if wait is None else min(max(wait, 0.0), self._timeout())
+        read = self._active_alarms(deadline, tuple(severities), limit)
         return await self._finished(await _guarded(read))
 
     async def alarm_config(self, name: str) -> dict[str, Any]:

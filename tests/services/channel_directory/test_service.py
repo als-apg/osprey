@@ -496,6 +496,54 @@ async def test_a_snapshot_built_across_aclose_is_not_installed(
     assert directory._snapshot is None
 
 
+async def test_warm_starts_the_alarm_feed_before_anyone_reads_it(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A process starts the feed as it comes up, so the first read finds it loading or loaded."""
+    started: list[Any] = []
+
+    async def start(self: Any) -> None:
+        started.append(self)
+
+    monkeypatch.setattr(FakeAlarmState, "start", start)
+    directory = _alarmed_directory(tmp_path)
+
+    await directory.warm()
+    await directory.warm()
+    await asyncio.sleep(0)
+
+    assert len(started) == 1
+    assert started[0] is directory._snapshot.backend
+    await directory.aclose()
+
+
+async def test_warm_of_a_target_without_an_alarm_feed_starts_nothing(
+    tmp_path: Path, built: list[Any]
+) -> None:
+    directory = _service(_config(tmp_path, LIVE_BUILD, FACILITY), tmp_path)
+
+    await directory.warm()
+
+    assert directory._snapshot is None
+    assert not [backend for backend in built if isinstance(backend, FakeAlarmState)]
+    await directory.aclose()
+
+
+async def test_warm_leaves_a_feed_that_cannot_be_built_to_the_first_read(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    async def broken(*_args: Any, **_kwargs: Any) -> Any:
+        raise RuntimeError("no such backend")
+
+    patch_create_service(monkeypatch, "alarm_state", broken)
+    directory = _alarmed_directory(tmp_path)
+
+    await directory.warm()
+
+    assert directory._snapshot is None
+    await directory.aclose()
+
+
 async def test_count_answers_the_whole_directory(tmp_path: Path) -> None:
     FakeDirectory.rows = [_row("A"), _row("B")]
     directory = _service(_config(tmp_path, LIVE_BUILD, FACILITY, "A"), tmp_path)

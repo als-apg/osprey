@@ -64,6 +64,10 @@ _RETRY_S = 5.0
 #: How long a load may go without a message before the broker counts as lost. aiokafka
 #: retries a lost connection inside ``getmany`` and ``position``, so neither raises.
 _LOAD_DEADLINE_S = _STALE_WINDOW_S
+#: How many messages are folded before the event loop gets a turn. A topic's
+#: whole history arrives in a few large batches, and folding one without a
+#: pause would hold every other task of the process for its length.
+_FOLD_CHUNK = 200
 _now = time.monotonic
 
 
@@ -108,7 +112,8 @@ class PhoebusAlarmState(AlarmState):
     topic. A topic re-read after a lost consumer folds into a new snapshot, so the
     old one keeps answering until the new one has caught up. A read of a started
     feed waits up to its deadline for the load to catch up or to find the broker
-    unreachable.
+    unreachable. The fold gives the event loop a turn every ``_FOLD_CHUNK``
+    messages, so a long history does not hold the process's other tasks.
     """
 
     def __init__(
@@ -261,8 +266,14 @@ class PhoebusAlarmState(AlarmState):
                 batches = await consumer.getmany(timeout_ms=_POLL_TIMEOUT_MS)
                 received = False
                 for records in batches.values():
-                    for record in records:
-                        fold_message(fresh, record.key, record.value)
+                    for begin in range(0, len(records), _FOLD_CHUNK):
+                        if begin:
+                            # Between two chunks of one batch, never after the
+                            # last: what follows a batch reads the clock, and
+                            # must read it at the moment the batch arrived.
+                            await asyncio.sleep(0)
+                        for record in records[begin : begin + _FOLD_CHUNK]:
+                            fold_message(fresh, record.key, record.value)
                         received = True
                 if loading:
                     if received:
