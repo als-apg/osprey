@@ -580,6 +580,16 @@ class TestTolerancesAndMotionBands:
         assert "SR:DIAG:IMAGE" not in {entry["name"] for entry in document["readables"]}
         assert len(document["readables"]) == 2
 
+    def test_a_setpoint_of_more_than_one_dimension_is_no_settable(self) -> None:
+        image = ChannelRecord(
+            address="SR:DIAG:MASK:SP", source=_SOURCE, direction="write", shape=(4, 8)
+        )
+
+        document = devices_document((*_RECORDS, image))
+
+        assert "SR:DIAG:MASK:SP" not in {entry["name"] for entry in document["settables"]}
+        assert len(document["settables"]) == 2
+
     def test_no_mapping_writes_the_same_bytes(self, tmp_path: Path) -> None:
         """Roster-derived callers pass no mapping and see the file they always did."""
         plain = tmp_path / "plain.yml"

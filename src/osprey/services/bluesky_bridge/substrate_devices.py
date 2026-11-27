@@ -10,7 +10,7 @@ and the parser).
 Every channel the roster enumerated becomes a device: each write-direction
 record a settable -- or, for a command with a completion signal, a triggerable
 a plan fires and never sets -- and each read-direction record a readable,
-except a read channel of more than one dimension, which a run cannot record in
+except a channel of more than one dimension, which a run cannot record in
 its table and so is no device, a command a setpoint names as ``started_by``,
 which that setpoint's settable carries as its start act, or as ``stopped_by``,
 which it carries as its stop, and a command a detector names as ``acquire``,
@@ -178,13 +178,16 @@ def _write_entry(
     The one place a write record's device kind is decided: a command another
     device carries (``carried``) -- a positioner's start act or its stop, a
     detector's acquire -- is no device, nor is a record whose address a run
-    cannot record (:func:`is_plan_name`); any other command with a completion
+    cannot record (:func:`is_plan_name`) or one of more than one dimension; any
+    other command with a completion
     signal is a triggerable, every other write record a settable. A settable
     whose ``started_by`` command has a completion signal carries it as
     ``started_by``, after its ``readback``, and its ``stopped_by`` right after
     that.
     """
     if record.address in carried or not is_plan_name(record.address):
+        return None
+    if record.shape is not None and len(record.shape) > 1:
         return None
     completion = completions.get(record.address)
     if completion is not None:
@@ -290,8 +293,8 @@ def devices_document(
     channel the mapping names, after every other key.
 
     A readable on a waveform channel of one dimension carries ``shape: [n]``,
-    the length the facility states, after its ``unit``. A read record of more
-    than one dimension becomes no device: a run records each reading as one
+    the length the facility states, after its ``unit``. A record of more than
+    one dimension, read or write, becomes no device: a run records each reading as one
     cell of its table, which holds a 1-D array but not an image.
 
     A record whose address holds ``.`` or ``/`` becomes no device: a run records
@@ -416,7 +419,7 @@ _GENERATED_HEADER = """\
 # A device that states `acquire` and `results` is a detector, named by its id,
 # that fires its acquire command and records its results; its acquire command
 # is no device of its own.
-# A readback of more than one dimension is no device.
+# A setpoint or readback of more than one dimension is no device.
 # A channel whose address holds `.` or `/` is no device: a run cannot record it.
 """
 """Header the written file carries, filled with the roster source's

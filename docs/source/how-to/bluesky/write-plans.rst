@@ -243,7 +243,8 @@ The file has four lists:
 - **Readables** are recorded and never written. There is one per readback
   channel. A readback on a waveform channel carries the ``shape`` the facility
   file states, and each run records it as an array of that length. A waveform
-  of more than one dimension is no plan device; the build names each one.
+  of more than one dimension, setpoint or readback, is no plan device; the
+  build names each one.
 
 A settable's and a readable's name is its address, a detector's its device id.
 A channel whose address holds ``.`` or ``/`` (an EPICS field such as ``.RBV``)

@@ -217,17 +217,22 @@ def _warn_once(inputs: ViewInputs, warning: str) -> None:
     output.warn(summary, detail or None)
 
 
-def _beyond_one_dimension(records: list[Any]) -> str | None:
-    """The warning naming each readback of more than one dimension, or ``None``."""
-    addresses = [
-        record.address
-        for record in records
-        if record.direction == "read" and record.shape is not None and len(record.shape) > 1
-    ]
-    if not addresses:
-        return None
-    summary = f"{len(addresses)} readback channel(s) of more than one dimension are no plan device"
-    return "\n".join((summary, *addresses))
+def _beyond_one_dimension(records: list[Any]) -> list[str]:
+    """One warning per direction naming each channel of more than one dimension:
+    the setpoints, then the readbacks; none for a direction without one."""
+    warnings = []
+    for direction, kind in (("write", "setpoint"), ("read", "readback")):
+        addresses = [
+            record.address
+            for record in records
+            if record.direction == direction and record.shape is not None and len(record.shape) > 1
+        ]
+        if addresses:
+            summary = (
+                f"{len(addresses)} {kind} channel(s) of more than one dimension are no plan device"
+            )
+            warnings.append("\n".join((summary, *addresses)))
+    return warnings
 
 
 def _unnameable(records: list[Any]) -> str | None:
@@ -291,8 +296,7 @@ def write_bluesky_view(root: Path, inputs: ViewInputs) -> list[Path]:
     )
     for warning in tolerance_warnings(inputs.records, _lanes(inputs)):
         _warn_once(inputs, warning)
-    left_out = _beyond_one_dimension(records)
-    if left_out is not None:
+    for left_out in _beyond_one_dimension(records):
         _warn_once(inputs, left_out)
     unnamed = _unnameable(records)
     if unnamed is not None:

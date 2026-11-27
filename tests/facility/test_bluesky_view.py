@@ -294,6 +294,30 @@ def test_a_channel_a_run_cannot_name_is_left_out_and_named_once(
     assert specs.readables == []
 
 
+def test_a_setpoint_of_more_than_one_dimension_is_no_settable(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    doc = {
+        "channels": [
+            {**_channel("CAM1:MASK", "setpoint"), "value_type": "waveform", "shape": [4, 8]},
+            _waveform("CAM1:IMAGE", [4, 8]),
+            {**_channel("W:TABLE", "setpoint"), "value_type": "waveform", "shape": [500]},
+        ]
+    }
+    reported: set[str] = set()
+    for render in ("one", "two"):
+        write_bluesky_view(
+            tmp_path / render, _rendered(doc, {"bluesky": {}}, "virtual_accelerator", reported)
+        )
+
+    err = capsys.readouterr().err
+    assert err.count("1 setpoint channel(s) of more than one dimension are no plan device") == 1
+    assert err.count("1 readback channel(s) of more than one dimension are no plan device") == 1
+    assert "CAM1:MASK" in err and "W:TABLE" not in err
+    specs = specs_from_file(tmp_path / "one" / BLUESKY_DEVICES_FILE)
+    assert [spec.name for spec in specs.settables] == ["W:TABLE"]
+
+
 def _toleranced(scenarios: list[dict[str, Any]] | None = None) -> dict[str, Any]:
     """A setpoint toleranced at 0.05 A, its readback noisy, and an untoleranced pair."""
     return {
