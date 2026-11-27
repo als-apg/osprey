@@ -67,7 +67,7 @@ process, which speaks no Channel Access.
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
@@ -95,21 +95,17 @@ def _source(facility_file: Path) -> Any:
     )
 
 
-def _records(records: FacilityRecords, facility_file: Path) -> list[Any]:
-    from osprey.channel_roster import channel_record
+def _roster(records: FacilityRecords, facility_file: Path) -> Any:
+    """The channel roster of the facility file's channel records."""
+    from osprey.channel_roster import RosterResult, channel_record
 
     source = _source(facility_file)
-    return [channel_record(channel, source, records) for channel in records.of_kind("channel")]
-
-
-def _tolerances(records: FacilityRecords) -> dict[str, Mapping[str, float]]:
-    """Each setpoint's settle ``tolerance`` record, by address; a further address of a wiring record takes its record's."""
-    tolerances: dict[str, Mapping[str, float]] = {}
-    for channel in records.of_kind("channel"):
-        held = records.channel(channel["id"]) or channel
-        if held.get("tolerance"):
-            tolerances[channel["id"]] = held["tolerance"]
-    return tolerances
+    return RosterResult(
+        records=tuple(
+            channel_record(channel, source, records) for channel in records.of_kind("channel")
+        ),
+        source=source,
+    )
 
 
 def _motion_bands(records: FacilityRecords) -> dict[str, float]:
@@ -120,29 +116,6 @@ def _motion_bands(records: FacilityRecords) -> dict[str, float]:
         channel["id"]: motion_envelope(channel.get("simulation"))
         for channel in records.of_kind("channel")
     }
-
-
-def _units(records: FacilityRecords) -> dict[str, str]:
-    """Each channel's declared ``unit``, by address; a further address of a wiring record takes its record's."""
-    units: dict[str, str] = {}
-    for channel in records.of_kind("channel"):
-        unit = (records.channel(channel["id"]) or channel).get("unit")
-        if isinstance(unit, str) and unit:
-            units[channel["id"]] = unit
-    return units
-
-
-def _completions(records: list[Any], facility_file: Path) -> dict[str, Any]:
-    """Each command's completion signal, by address, as the roster states it."""
-    from osprey.channel_roster import RosterResult
-
-    roster = RosterResult(records=tuple(records), source=_source(facility_file))
-    completions = {}
-    for record in roster.write_records:
-        completion = roster.completion(record.address)
-        if completion is not None:
-            completions[record.address] = completion
-    return completions
 
 
 def _detectors(records: FacilityRecords) -> list[tuple[str, str, list[str]]]:
@@ -166,15 +139,8 @@ def bluesky_document(records: FacilityRecords) -> dict[str, list[dict[str, Any]]
     """
     from osprey.services.bluesky_bridge.substrate_devices import devices_document
 
-    roster = _records(records, Path(FACILITY_FILE))
-    return devices_document(
-        roster,
-        _tolerances(records),
-        _motion_bands(records),
-        _units(records),
-        _completions(roster, Path(FACILITY_FILE)),
-        _detectors(records),
-    )
+    roster = _roster(records, Path(FACILITY_FILE))
+    return devices_document(roster, _motion_bands(records), _detectors(records))
 
 
 def _lanes(inputs: ViewInputs) -> list[tuple[str, bool, float]]:
@@ -216,7 +182,7 @@ def _warn_once(inputs: ViewInputs, warning: str) -> None:
     output.warn(summary, detail or None)
 
 
-def _beyond_one_dimension(records: list[Any]) -> str | None:
+def _beyond_one_dimension(records: Sequence[Any]) -> str | None:
     """The warning naming each readback of more than one dimension, or ``None``."""
     addresses = [
         record.address
@@ -263,21 +229,18 @@ def write_bluesky_view(root: Path, inputs: ViewInputs) -> list[Path]:
     root.mkdir(parents=True, exist_ok=True)
     facility_file = root.parent / FACILITY_FILE
     target = root / BLUESKY_DEVICES_FILE
-    records = _records(inputs.records, facility_file)
+    roster = _roster(inputs.records, facility_file)
     write_devices_file(
         target,
-        records,
-        source=_source(facility_file),
+        roster,
+        source=roster.source,
         schema=BLUESKY_DEVICES_SCHEMA,
-        tolerances=_tolerances(inputs.records),
         motion_bands=_motion_bands(inputs.records),
-        units=_units(inputs.records),
-        completions=_completions(records, facility_file),
         detectors=_detectors(inputs.records),
     )
     for warning in tolerance_warnings(inputs.records, _lanes(inputs)):
         _warn_once(inputs, warning)
-    left_out = _beyond_one_dimension(records)
+    left_out = _beyond_one_dimension(roster.records)
     if left_out is not None:
         _warn_once(inputs, left_out)
     return [target]
