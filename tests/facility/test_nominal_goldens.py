@@ -1,27 +1,21 @@
 """The in-process simulator's served nominals against the per-address nominal golden, and its served noise against the seeds.
 
-``tests/facility/golden/nominal_in_process.json`` holds, for every demo
-address but the deck's tune and chromaticity instruments and the waveforms, the nominal the simulator served in process serves with no
-scenario active. It serves the demo build's simulator view through a composite, so these tests
-build that composite from the shared build and hold it to the golden to 1e-12
-on every address, except the declared re-baselines:
+``tests/facility/golden/nominal_in_process.json`` holds, for every scalar demo
+address, the value the in-process simulator holds with no scenario active: a
+number as held, a bool or enum as its label. Its ``_reproduce`` command
+captures it (:func:`capture`) from the demo build's simulator view through a
+composite; these tests build that composite from the shared build and hold
+every float to the golden to 1e-12, a beam position a physics model computes
+to the solver's precision, and every bool to the golden's label. A waveform
+has no scalar nominal, so the golden holds none.
 
-* every channel a lattice physics model computes, whose value the golden
-  does not decide: each ``SR`` beam position monitor's horizontal position,
-  which reads the deck's closed orbit, the wired RF cavity's frequency
-  setpoint and readback, which read the deck's RF frequency, and each ``BTS``
-  beam position monitor's position, which reads the single-pass trajectory
-  of the ``BTS`` deck, and each ``BR`` beam position monitor's position,
-  which reads the closed orbit of the ``BR`` deck. The golden holds another
-  value for each ``SR`` one; the ideal ``BTS`` trajectory reads the golden's
-  own zero, and the ideal ``BR`` orbit reads zero to the solver's precision;
-* every bool channel, which the golden holds as a number: a bool reads its
-  label, ``TRUE`` where the golden's nominal is non-zero, with no noise.
-
-Two records the capture predates join the deck's instruments as additions: the
-storage ring's beam lifetime and its operation mode, whose enum reads its label.
-The golden keeps the rows of the addresses the demo has retired
-(``demo_fingerprint_retired.json``); no test reads them.
+The channels a lattice physics model computes also read that model: each
+``SR`` beam position monitor's horizontal position reads the deck's closed
+orbit, the wired RF cavity's frequency setpoint and readback read the deck's RF
+frequency, each ``BTS`` beam position monitor's position reads the single-pass
+trajectory of the ``BTS`` deck, and each ``BR`` beam position monitor's
+position reads the closed orbit of the ``BR`` deck. The ideal decks' monitors
+read within a stated bound of zero.
 
 The served noise is the seed's: a float readback's read at an instant adds its
 seed's ``noise`` times the channel's keyed normal draw for the instant, on top
@@ -40,14 +34,18 @@ from typing import Any
 import numpy as np
 import pytest
 
-from tests.facility.conftest import BuiltProject
-from tests.facility.test_cf_view_parity import retired_addresses
+from tests._builds import BuiltProject
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 GOLDEN = REPO_ROOT / "tests/facility/golden/nominal_in_process.json"
 
 #: A served value's tolerance against the golden.
 TOLERANCE = 1e-12
+
+#: A physics-computed beam position's tolerance against the golden, in millimetres:
+#: solver round-off is platform-dependent (FMA and BLAS paths differ between macOS arm64
+#: and Linux x86_64).
+ORBIT_TOLERANCE = 1e-9
 
 #: The labels of a bool channel.
 TRUE, FALSE = "TRUE", "FALSE"
@@ -61,32 +59,10 @@ BTS_MODEL = "BTS"
 #: The periodic physics model that serves the ``BR`` beam position monitors.
 BR_MODEL = "BR"
 
-#: The deck machine's instruments the golden's capture predates.
-ADDITIONS = frozenset(
-    {"SR:BEAM:USER_MODE", "SR:DIAG:CHROM:X", "SR:DIAG:CHROM:Y", "SR:DIAG:TUNE:X", "SR:DIAG:TUNE:Y"}
-)
-
-#: The records the golden's capture predates: the beam lifetime the top-off
-#: current decays with, and the storage ring's operation mode.
+#: The storage ring's beam lifetime, which the top-off current decays with,
+#: and its operation mode.
 LIFETIME = "SR:DIAG:DCCT:01:LIFETIME:RB"
 MODE = "SR:OPS:MODE:RB"
-RECORD_ADDITIONS = frozenset({LIFETIME, MODE})
-
-#: The scalar records of end station ES1, a sample stage and a detector, which
-#: the golden's capture predates.
-STATION_ADDITIONS = frozenset(
-    {
-        "ES1:DET:MCA:01:ACQUIRE:SP",
-        "ES1:DET:MCA:01:COUNTS:RB",
-        "ES1:DET:MCA:01:STATUS:ACQUIRE",
-        "ES1:DET:MCA:01:TEMPERATURE:RB",
-        "ES1:MOT:STAGE:01:MOVE:SP",
-        "ES1:MOT:STAGE:01:POSITION:RB",
-        "ES1:MOT:STAGE:01:POSITION:SP",
-        "ES1:MOT:STAGE:01:STATUS:MOVE",
-        "ES1:MOT:STAGE:01:STOP:SP",
-    }
-)
 
 #: The operation mode's first option and the label it serves at nominal.
 MODE_FIRST = "User operation"
@@ -125,23 +101,14 @@ INSTANTS = 1.7e9 + 0.137 * np.arange(16)
 
 
 @cache
-def frozen() -> dict[str, dict[str, float]]:
+def golden() -> dict[str, dict[str, Any]]:
     """Every row of the golden file: ``{address: {nominal}}``."""
-    channels: dict[str, dict[str, float]] = json.loads(GOLDEN.read_text(encoding="utf-8"))[
-        "channels"
-    ]
+    channels: dict[str, dict[str, Any]] = json.loads(GOLDEN.read_text(encoding="utf-8"))["channels"]
     return channels
 
 
-@cache
-def golden() -> dict[str, dict[str, float]]:
-    """The golden's channels the demo still serves: every row but the retired."""
-    retired = retired_addresses()
-    return {address: row for address, row in frozen().items() if address not in retired}
-
-
-def close(actual: float, expected: float) -> bool:
-    return math.isclose(actual, expected, rel_tol=TOLERANCE, abs_tol=TOLERANCE)
+def close(actual: float, expected: float, tolerance: float = TOLERANCE) -> bool:
+    return math.isclose(actual, expected, rel_tol=tolerance, abs_tol=tolerance)
 
 
 class Served:
@@ -177,14 +144,31 @@ def served(built_demo: BuiltProject) -> Served:
     return Served(built_demo.build_dir / "data" / "simulator")
 
 
-def rebaselined() -> set[str]:
-    """The physics channels whose served value the golden does not decide."""
-    return (
-        {address for address in golden() if SR_BPM_X.fullmatch(address)}
-        | set(WIRED_CAVITY)
-        | bts_monitors()
-        | br_monitors()
-    )
+def capture(built: BuiltProject) -> dict[str, Any]:
+    """The golden document for ``built``: every scalar address's held value, sorted."""
+    from tests.facility.test_demo_census import REPRODUCE
+
+    served = Served(built.build_dir / "data" / "simulator")
+    addresses = sorted(a for a in served.channels if served.value_type(a) != "waveform")
+    header = {
+        "substrate": "in_process",
+        "render": "the example facility's simulator view, built by tests._builds.build_demo",
+        "active_scenarios": [],
+        "addresses": {"count": len(addresses), "excluded": "every waveform"},
+        "nominal": (
+            "the composite's held value, without texture or noise; a bool or enum as its label"
+        ),
+    }
+    return {
+        "_reproduce": REPRODUCE,
+        "header": {"command": REPRODUCE, **header},
+        "channels": {address: {"nominal": served.held[address]} for address in addresses},
+    }
+
+
+def sr_monitors() -> set[str]:
+    """The ``SR`` beam position monitors' horizontal positions, served from the deck."""
+    return {address for address in golden() if SR_BPM_X.fullmatch(address)}
 
 
 def bts_monitors() -> set[str]:
@@ -197,20 +181,14 @@ def br_monitors() -> set[str]:
     return {address for address in golden() if BR_BPM.fullmatch(address)}
 
 
-def test_the_golden_keeps_the_retired_rows_and_serves_none_of_them(served: Served) -> None:
-    assert retired_addresses() <= set(frozen())
-    assert not retired_addresses() & set(served.channels)
-    assert set(frozen()) - set(golden()) == retired_addresses()
-
-
-def test_the_golden_holds_every_served_channel_but_the_added_ones(served: Served) -> None:
+def test_the_golden_holds_every_served_channel_but_the_waveforms(served: Served) -> None:
     unheld = set(served.channels) - set(golden())
-    assert unheld == ADDITIONS | RECORD_ADDITIONS | STATION_ADDITIONS | WAVEFORMS
+    assert unheld == WAVEFORMS
     assert {a for a in served.channels if served.value_type(a) == "waveform"} == WAVEFORMS
     assert set(golden()) <= set(served.channels)
 
 
-def test_the_added_records_serve_the_lifetime_and_the_mode_label(served: Served) -> None:
+def test_the_lifetime_reads_the_topoff_seed_and_the_mode_its_label(served: Served) -> None:
     from osprey_connectors.simulation import topoff
 
     assert served.value_type(LIFETIME) == "float"
@@ -225,29 +203,32 @@ def test_the_added_records_serve_the_lifetime_and_the_mode_label(served: Served)
     assert topoff.topoff_record(served.seeds[SR_DCCT]) is not None
 
 
-def test_float_nominals_equal_the_golden_but_the_declared_rebaselines(served: Served) -> None:
+def test_float_nominals_equal_the_golden(served: Served) -> None:
     floats = [a for a in golden() if served.value_type(a) == "float"]
+    orbit = sr_monitors() | bts_monitors() | br_monitors()
     moved = {
         a
         for a in floats
-        if a not in br_monitors() and not close(float(served.held[a]), golden()[a]["nominal"])
+        if not close(
+            float(served.held[a]),
+            golden()[a]["nominal"],
+            ORBIT_TOLERANCE if a in orbit else TOLERANCE,
+        )
     }
-    assert len(floats) == 2663
-    assert sorted(moved) == sorted(rebaselined() - bts_monitors() - br_monitors())
+    assert len(floats) == 2672
+    assert sorted(moved) == []
 
 
-def test_the_rebaselined_channels_read_the_physics_model(served: Served) -> None:
-    owners = {served.channels[a]["owner"] for a in rebaselined() - bts_monitors() - br_monitors()}
+def test_the_physics_channels_read_the_physics_model(served: Served) -> None:
+    owners = {served.channels[a]["owner"] for a in sr_monitors() | set(WIRED_CAVITY)}
     assert owners == {PHYSICS_MODEL}
     assert {served.channels[a]["owner"] for a in bts_monitors()} == {BTS_MODEL}
     assert {served.channels[a]["owner"] for a in br_monitors()} == {BR_MODEL}
     assert len(br_monitors()) == 40
     for address in sorted(br_monitors()):
-        assert golden()[address]["nominal"] == 0.0, address
         assert abs(float(served.held[address])) < TRAJECTORY_BOUND_MM, address
-    monitors = sorted(a for a in rebaselined() if SR_BPM_X.fullmatch(a))
-    assert len(monitors) == 72
-    for address in monitors:
+    assert len(sr_monitors()) == 72
+    for address in sorted(sr_monitors()):
         assert abs(float(served.held[address])) < CLOSED_ORBIT_BOUND_MM, address
     assert len(bts_monitors()) == 12
     for address in sorted(bts_monitors()):
@@ -256,14 +237,14 @@ def test_the_rebaselined_channels_read_the_physics_model(served: Served) -> None
         assert abs(float(served.held[address]) - DECK_RF_MHZ) < DECK_RF_TOLERANCE_MHZ, address
 
 
-def test_bool_labels_follow_the_golden(served: Served) -> None:
+def test_bool_labels_equal_the_golden(served: Served) -> None:
     bools = [a for a in golden() if served.value_type(a) == "bool"]
-    assert len(bools) == 2091
+    assert len(bools) == 2096
     read = served.composite.get(bools)
     for address in bools:
         label = served.held[address]
         assert label in (TRUE, FALSE), address
-        assert (label == TRUE) == (golden()[address]["nominal"] != 0.0), address
+        assert label == golden()[address]["nominal"], address
         assert read[address] == label, address
 
 
@@ -291,4 +272,4 @@ def test_a_read_adds_the_seed_noise_times_the_channel_s_keyed_draw(served: Serve
         expected = sigma * series.keyed_normals(key, counters_ms)
         np.testing.assert_allclose(reading, expected, rtol=1e-9, atol=TOLERANCE, err_msg=address)
         checked += 1
-    assert checked == 784
+    assert checked == 786

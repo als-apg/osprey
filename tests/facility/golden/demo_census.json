@@ -163,22 +163,22 @@
     {
       "file": "tests/facility/golden/nominal_in_process.json",
       "pin": "json:len(channels)",
-      "value": 4821
+      "value": 4773
     },
     {
       "file": "tests/facility/test_nominal_goldens.py",
       "pin": "text:assert len(floats) == {value}",
-      "value": 2663
+      "value": 2672
     },
     {
       "file": "tests/facility/test_nominal_goldens.py",
       "pin": "text:assert len(bools) == {value}",
-      "value": 2091
+      "value": 2096
     },
     {
       "file": "tests/facility/test_nominal_goldens.py",
       "pin": "text:assert checked == {value}",
-      "value": 784
+      "value": 786
     },
     {
       "file": "tests/facility/golden/nominal_va.json",
