@@ -552,12 +552,12 @@ def test_the_facility_declares_the_root_connectors_floor__mutation_a_scratch_roo
 
 
 def test_the_facility_window_is_empty_at_head() -> None:
-    """No framework release depends on a released osprey-facility yet; HEAD
-    declares the floor the next one will."""
+    """No framework release depends on a released osprey-facility yet, and HEAD
+    declares no floor: it reads facility modules no release carries."""
     assert compat.supported_frameworks(compat.FACILITY) == []
     assert compat.retired_frameworks(compat.FACILITY) == []
     assert compat.source_text_tests(compat.FACILITY) == []
-    assert compat.floor(compat.FACILITY) is not None
+    assert compat.floor(compat.FACILITY) is None
 
 
 # -- the command line -------------------------------------------------------------
