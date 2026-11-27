@@ -7,7 +7,10 @@ fixed so the rebased times are the shared fixture's.
 
 from __future__ import annotations
 
+import asyncio
 import json
+import threading
+import time
 from collections.abc import Iterator
 from contextlib import contextmanager
 from datetime import UTC, datetime
@@ -108,3 +111,40 @@ def test_a_target_with_no_alarm_state_source_answers_the_no_source_form(
         "reason": "not available for this target",
         "caveats": [],
     }
+
+
+def test_the_lifespan_starts_the_feed_before_any_request(
+    start, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The feed reads its history while nothing is asking, not on a page's first read."""
+    started = threading.Event()
+    real_start = _replay.ReplayAlarmState.start
+
+    async def start_feed(self: Any) -> None:
+        started.set()
+        await real_start(self)
+
+    monkeypatch.setattr(_replay.ReplayAlarmState, "start", start_feed)
+
+    with start(_config(tmp_path, VA_BUILD, DEMO_FEED), "va"):
+        assert started.wait(5.0), "the lifespan did not start the alarm feed"
+
+
+def test_a_feed_still_loading_answers_at_once_and_says_so(
+    start, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A page is not held by a feed reading a long history; it is told to ask again."""
+
+    async def never_loaded(self: Any) -> None:  # noqa: ARG001 - a fake
+        await asyncio.Event().wait()
+
+    monkeypatch.setattr(_replay.ReplayAlarmState, "start", never_loaded)
+
+    with start(_config(tmp_path, VA_BUILD, DEMO_FEED), "va") as client:
+        began = time.monotonic()
+        answer = _alarms(client)
+        took = time.monotonic() - began
+
+    assert answer["outcome"] == "unavailable"
+    assert answer["reason"] == "alarm feed still loading"
+    assert took < 2.0, f"the route held the page for {took:.1f} s"

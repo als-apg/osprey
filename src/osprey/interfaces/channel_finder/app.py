@@ -511,7 +511,10 @@ def _create_lifespan(
 
         # The channel directory, only when its section is configured: the service
         # follows the session's control target and builds its backends on
-        # first use, so starting it dials nothing.
+        # first use. The one thing started here is the alarm feed, in a task
+        # of its own so a slow broker never delays the app: it reads its
+        # history while nothing is asking, and the first alarms request finds
+        # it loaded instead of starting it.
         if channel_directory is not None:
             from osprey.services.channel_directory.service import DirectoryService
 
@@ -519,6 +522,9 @@ def _create_lifespan(
             app.state.channel_directory = channel_directory
             app.state.directory_service = DirectoryService(
                 config, project_dir=resolve_config_path().parent
+            )
+            app.state.directory_warm = asyncio.create_task(
+                app.state.directory_service.warm(), name="alarm-feed-start"
             )
 
             # Current values are read by a supervised child, never here.
@@ -549,6 +555,10 @@ def _create_lifespan(
         directory_values = getattr(app.state, "directory_values", None)
         if directory_values is not None:
             await asyncio.to_thread(directory_values.stop)
+        directory_warm = getattr(app.state, "directory_warm", None)
+        if directory_warm is not None:
+            directory_warm.cancel()
+            await asyncio.gather(directory_warm, return_exceptions=True)
         directory_service = getattr(app.state, "directory_service", None)
         if directory_service is not None:
             await directory_service.aclose()

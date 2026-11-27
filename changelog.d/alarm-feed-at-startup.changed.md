@@ -1,0 +1,1 @@
+The channel finder starts the alarm feed when it comes up instead of on the first `alarms` request, that route waits at most 0.25 s for a feed still loading before answering `alarm feed still loading`, and the graph index's `statistics` and `ontology` answers are served from memory until the index file changes.

@@ -21,7 +21,8 @@ from collections.abc import Callable, Iterable, Mapping
 from typing import TYPE_CHECKING, Any, Literal, TypeVar
 
 from fastapi import APIRouter, HTTPException, Query, Request
-from fastapi.responses import JSONResponse
+from fastapi.encoders import jsonable_encoder
+from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel
 
 from osprey.build.modes import VALID_CHANNEL_FINDER_MODES
@@ -261,7 +262,22 @@ def _index_unavailable(index: GraphIndex, exc: BaseException) -> bool:
     return isinstance(exc, RuntimeError) and index.closed
 
 
-async def _serve_index_read(request: Request, subject: str, read: Any) -> Any:
+def _index_signature(index: Any) -> tuple[int, int, int] | None:
+    """What says the index file is still the one an answer was read from, or ``None``.
+
+    The handle's identity with the file's modification time and size. An index
+    with no file to stat has no signature, and its answers are never kept.
+    """
+    try:
+        stat_result = index.path.stat()
+    except (AttributeError, OSError, TypeError):
+        return None
+    return id(index), stat_result.st_mtime_ns, stat_result.st_size
+
+
+async def _serve_index_read(
+    request: Request, subject: str, read: Any, *, keep: bool = False
+) -> Any:
     """Answer a graph-paradigm request from the search index the app opened.
 
     The mirror of :func:`_serve_graph_read` for the reads that come from the
@@ -279,6 +295,9 @@ async def _serve_index_read(request: Request, subject: str, read: Any) -> Any:
         subject: What is being read, for the log lines.
         read: Callable taking the index and returning the payload, run in a
             worker thread.
+        keep: Whether the answer depends on the index alone. Such an answer is
+            read once and served from memory, already serialised, until the
+            index file changes or another index is opened.
 
     Returns:
         Whatever *read* returns, or a 503 :class:`JSONResponse` carrying the
@@ -300,8 +319,20 @@ async def _serve_index_read(request: Request, subject: str, read: Any) -> Any:
             content=_graph_index_error_payload(index, load_osprey_config()),
         )
 
+    signature = _index_signature(index) if keep else None
+    kept: dict[str, tuple[Any, bytes]] | None = getattr(request.app.state, "index_answers", None)
+    if kept is None:
+        kept = request.app.state.index_answers = {}
+    if signature is not None and subject in kept and kept[subject][0] == signature:
+        return Response(content=kept[subject][1], media_type="application/json")
+
     try:
-        return await asyncio.to_thread(read, index)
+        payload = await asyncio.to_thread(read, index)
+        if signature is None:
+            return payload
+        body = await asyncio.to_thread(_json_bytes, payload)
+        kept[subject] = (signature, body)
+        return Response(content=body, media_type="application/json")
     except HTTPException:
         raise
     except Exception as exc:
@@ -317,6 +348,13 @@ async def _serve_index_read(request: Request, subject: str, read: Any) -> Any:
                 "suggestions": list(_INDEX_READ_FAILED_SUGGESTIONS),
             },
         )
+
+
+def _json_bytes(payload: Any) -> bytes:
+    """*payload* as the JSON body FastAPI would send for it."""
+    return json.dumps(
+        jsonable_encoder(payload), ensure_ascii=False, allow_nan=False, separators=(",", ":")
+    ).encode("utf-8")
 
 
 async def _serve_graph_read(request: Request, subject: str, read: Any) -> Any:
@@ -613,7 +651,9 @@ async def get_statistics(request: Request):
     pt = _pipeline_type(request)
     if pt == "graph":
         # The reader answers the badge counts off the index's own meta row.
-        return await _serve_index_read(request, "statistics", lambda index: index.statistics())
+        return await _serve_index_read(
+            request, "statistics", lambda index: index.statistics(), keep=True
+        )
 
     try:
         if pt == "in_context":
@@ -743,7 +783,7 @@ async def graph_ontology(request: Request):
     """
     if _pipeline_type(request) != "graph":
         raise HTTPException(status_code=404, detail="Not available for this pipeline type")
-    return await _serve_index_read(request, "ontology", _read_graph_ontology)
+    return await _serve_index_read(request, "ontology", _read_graph_ontology, keep=True)
 
 
 def _read_graph_ontology(index: GraphIndex) -> dict[str, Any]:

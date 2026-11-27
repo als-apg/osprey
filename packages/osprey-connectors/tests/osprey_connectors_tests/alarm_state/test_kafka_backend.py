@@ -769,3 +769,42 @@ async def test_the_last_contact_moves_on_an_offset_check(wall):
     assert states.last_contact == _iso(wall.now) != first
     assert states.stale is False
     await backend.aclose()
+
+
+async def test_a_long_history_is_folded_in_turns_with_the_rest_of_the_process(monkeypatch):
+    """One batch of many messages does not hold the event loop for its whole fold.
+
+    The topic's history arrives in a few large batches. Another task of the
+    process must get a turn every ``_FOLD_CHUNK`` messages: it sees the fold in
+    progress, where a fold without a pause would show it only the two ends.
+    """
+    monkeypatch.setattr(_phoebus_kafka, "_FOLD_CHUNK", 10)
+    folded = 0
+    fold_message = _phoebus_kafka.fold_message
+
+    def counting(snapshot, key, value):
+        nonlocal folded
+        folded += 1
+        fold_message(snapshot, key, value)
+
+    monkeypatch.setattr(_phoebus_kafka, "fold_message", counting)
+    records = [Record(f"state:/Demo/RF/PV:{i}".encode(), _major()) for i in range(100)]
+    backend = _backend(FakeConsumer(records))
+    seen: list[int] = []
+
+    async def another_task():
+        while not backend._caught_up:
+            seen.append(folded)
+            await asyncio.sleep(0)
+
+    watcher = asyncio.create_task(another_task())
+    await backend.start()
+    await _caught_up(backend)
+    await watcher
+
+    midway = {count for count in seen if 0 < count < len(records)}
+    assert len(midway) >= 9, sorted(set(seen))
+    assert all(count % 10 == 0 for count in midway)
+    rows = await backend.states(deadline=1.0)
+    assert len(rows.rows) == len(records)
+    await backend.aclose()

@@ -323,6 +323,24 @@ class DirectoryService:
                 self._snapshot = AlarmSnapshot(backend, target)
         return self._snapshot
 
+    async def warm(self) -> None:
+        """Start the current target's alarm feed, if it has one, without waiting for it.
+
+        A process that serves alarm reads calls this as it comes up: the feed
+        then catches up while nothing is asking, and the first read finds a
+        loaded snapshot, or says the feed is still loading, without having to
+        start it. A feed that cannot be built or started is logged and left to
+        the first read, which answers why.
+        """
+        try:
+            snapshot = await self.snapshot()
+            if snapshot is not None:
+                snapshot.start()
+        except Exception:
+            logger.warning(
+                "the alarm feed could not be started ahead of its first read", exc_info=True
+            )
+
     async def probes(self, kinds: Iterable[str] | None = None) -> dict[str, dict[str, Any]]:
         """Each configured service's probe on the current target, by kind.
 
