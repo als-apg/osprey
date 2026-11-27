@@ -237,12 +237,11 @@ dependencies = [
     # names only a stable connectors release already on PyPI.
     "osprey-connectors>=2026.11.16",
     # The facility description (facility.json, its schema, the layers that build
-    # it). Versions on its own osprey-facility-v* tags (see its pyproject.toml).
-    # A floor names a stable release already on PyPI whose tag is reachable
-    # from main, as for osprey-connectors. No floor while the framework reads
-    # facility modules no such release carries: the floor returns with the
-    # next osprey-facility release.
-    "osprey-facility",
+    # it). Versions on its own osprey-facility-v* tags (see its pyproject.toml)
+    # and stays backward-compatible, so a floor and no ceiling, as for
+    # osprey-connectors: the floor names a stable release already on PyPI whose
+    # tag is reachable from main.
+    "osprey-facility>=2026.11.1",
     # pyAML control-system backend over the connector; versions with this repo's
     # own calendar stream (same v-tags, same describe), so the floor is the last
     # stable framework release tag, which any same-checkout build satisfies.
