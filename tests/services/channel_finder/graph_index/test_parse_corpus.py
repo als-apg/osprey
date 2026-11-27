@@ -16,6 +16,7 @@ import textwrap
 from pathlib import Path
 
 import pytest
+from tests._census import census
 from tests.services.channel_finder.graph_index import corpora
 
 from osprey.services.channel_finder.core.exceptions import GraphIndexBuildError
@@ -37,16 +38,16 @@ BINDING = corpora.BINDING
 #: ``DEMO_DEVICES`` counts every binding owner: the 1026 typed devices and the
 #: top place ``SR``, which carries the tune, chromaticity, user beam mode
 #: and operation-mode channels itself.
-DEMO_DEVICES = 1027
-DEMO_TYPED_DEVICES = 1026
-DEMO_BINDINGS = 4775
-DEMO_WRITE_ONLY = 681
-DEMO_READ_ONLY = 4089
-DEMO_MAGNETS = 480
+DEMO_DEVICES = census("bound_devices")
+DEMO_TYPED_DEVICES = census("typed_devices")
+DEMO_BINDINGS = census("channels")
+DEMO_WRITE_ONLY = census("setpoints")
+DEMO_READ_ONLY = census("graph_read_only")
+DEMO_MAGNETS = census("bound_magnets")
 #: 49 ``owl:Class`` subjects less the leaves that pruning drops: ``SemanticSignal``,
 #: ``ChannelBinding`` and the eight infrastructure classes whose devices bind no
 #: channel. Their parent ``Infrastructure`` stays, as the parent of a class.
-DEMO_CLASS_COUNT = 38
+DEMO_CLASS_COUNT = census("graph_classes")
 #: The channels bound to the top place rather than to a device: no system, no
 #: class.
 DEMO_PLACE_BOUND = frozenset(

@@ -41,12 +41,13 @@ from osprey.channel_roster import (
     RosterSourceKind,
     registered_channels,
 )
+from tests._census import census
 from tests._facility_file import channel_tree, write_demo_facility_file, write_facility_file
 
 #: What the facility file of the shipped demo tree holds.
-DEMO_CHANNELS = 4775
-DEMO_WRITES = 681
-DEMO_READS = 4094
+DEMO_CHANNELS = census("channels")
+DEMO_WRITES = census("setpoints")
+DEMO_READS = census("readables")
 
 #: The demo's unpaired setpoints: each vacuum gauge's trip reset and the ES1
 #: stage's stop command, commands with no readback of their own.

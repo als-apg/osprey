@@ -42,6 +42,7 @@ import yaml
 from osprey.agent_runner import expected_mcp_servers
 from osprey.services.channel_finder.benchmarks.models import BenchmarkRun, QueryResult
 from osprey.services.channel_finder.benchmarks.runner import BenchmarkRunner
+from tests._census import census
 
 # The container and its plugins come from tests/_graphdb_container.py; the two
 # patches that point a build at a store come from the graph MCP acceptance
@@ -78,10 +79,9 @@ PERFECT_THRESHOLD = 0.80
 JUDGE_MODEL = "claude-haiku-5-5"
 
 #: Channel bindings in the shipped demo corpus — what ``osprey up`` puts in
-#: the store and what the graph lane's census must find. It equals
-#: ``EXPECTED_BINDINGS`` in ``tests/templates/test_demo_ttl.py``,
-#: which owns the corpus-side pin; this is the benchmark-side one.
-GRAPH_CHANNEL_COUNT = 4775
+#: the store and what the graph lane's census must find: the demo census's
+#: channel count, which ``tests/templates/test_demo_ttl.py`` holds the corpus to.
+GRAPH_CHANNEL_COUNT = census("channels")
 
 
 def perfect_match_rate(run: BenchmarkRun) -> float:

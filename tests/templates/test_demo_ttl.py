@@ -22,6 +22,7 @@ from pathlib import Path
 
 import pytest
 from tests._builds import BuiltProject
+from tests._census import census
 
 #: NARAD property namespace — the one the emitter binds as ``narad_p:``.
 NARAD_PROPERTY = "https://narad.example.org/property/"
@@ -43,19 +44,19 @@ NON_DEVICE_CLASSES = {"ChannelBinding", "Claim", "Group", "SemanticSignal"}
 #: mode, the storage ring's 1390 peripheral channels, and end station ES1's 10
 #: channels. A channel that names no signal is neither written nor read: the
 #: four tune and chromaticity channels and the user beam mode.
-EXPECTED_DEVICES = 1093
-EXPECTED_BINDINGS = 4775
-EXPECTED_WRITES = 681
-EXPECTED_READS = 4089
+EXPECTED_DEVICES = census("devices")
+EXPECTED_BINDINGS = census("channels")
+EXPECTED_WRITES = census("setpoints")
+EXPECTED_READS = census("graph_read_only")
 
 #: Devices placed in a system, each carrying its system's description and
 #: SYSTEM token: every device but the nine the facility places nowhere.
-EXPECTED_SYSTEM_DESCRIBED = 1084
+EXPECTED_SYSTEM_DESCRIBED = census("system_described")
 
 #: Devices a described group names, each carrying its family's description:
 #: every device that has channels is in one, and so are the booster's 56
 #: magnets on the three supplies they share.
-EXPECTED_FAMILY_DESCRIBED = 1082
+EXPECTED_FAMILY_DESCRIBED = census("family_described")
 
 #: Prose predicates carried once by every ``narad_sem:ChannelBinding``: the
 #: channel's own sentence.
