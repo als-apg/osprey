@@ -17,6 +17,8 @@ from osprey.apps.origin import AppOrigin, installed_apps
 from tests.apps import _installed
 from tests.apps._installed import DIRECTORY, DIST, MODULE, NAME, VERSION, entry_point
 
+from ._contract import CONTRACT
+
 
 @pytest.fixture
 def site(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -121,7 +123,8 @@ def test_deployment_and_installed_apps_load_together_sorted_by_name(tmp_path: Pa
     root = _deployment(tmp_path)
     (root / "apps" / "aaa").mkdir()
     (root / "apps" / "aaa" / "app.yml").write_text(
-        "name: aaa\ncontainers:\n  aaa:\n    runtime: osprey\n", encoding="utf-8"
+        f"contract: {CONTRACT}\nname: aaa\ncontainers:\n  aaa:\n    runtime: osprey\n",
+        encoding="utf-8",
     )
 
     manifests = load(root, ["aaa", NAME], installed=installed_apps([entry_point()]))

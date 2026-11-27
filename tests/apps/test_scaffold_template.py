@@ -11,12 +11,14 @@ from types import ModuleType, SimpleNamespace
 from typing import Any
 
 import pytest
+import yaml
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from starlette.middleware import Middleware
 
 import osprey.apps
 from osprey.apps.boundary import check_package
+from osprey.apps.contract import APP_CONTRACT
 from osprey.apps.loader import load
 from osprey.apps.manifest import launch_token_env
 from osprey.apps.sdk import LAUNCH_TOKEN_HEADER, OWNER_STATE_KEY
@@ -31,6 +33,35 @@ TOKEN = "launch-token-value"
 OWNER = "alice"
 CHANNEL = "DEMO:CHANNEL:SP"
 CHANNEL_SETTING = "apps.scaffold-app.config.channel"
+
+
+_TESTS = Path(__file__).resolve().parents[1]
+
+#: Every app.yml that holds the contract number as a literal rather than through
+#: the tests' helper: the template and the fixture applications.
+DECLARING_MANIFESTS = [
+    TEMPLATE / "app.yml",
+    _TESTS / "apps/fixtures/controls_admin_like/app.yml",
+    _TESTS / "apps/fixtures/js_check_app/app.yml",
+    _TESTS / "apps/fixtures/installed_app/fixture_installed_app/app.yml",
+    _TESTS / "config/application_deployment/apps/gauge/app.yml",
+    _TESTS / "config/application_deployment/apps/ledger/app.yml",
+]
+
+
+@pytest.mark.parametrize("path", DECLARING_MANIFESTS, ids=lambda p: p.parent.name)
+def test_the_template_and_each_fixture_declare_the_current_contract(path: Path) -> None:
+    data = yaml.safe_load(path.read_text(encoding="utf-8"))
+    assert type(data["contract"]) is int
+    assert data["contract"] == APP_CONTRACT
+
+
+def test_every_fixture_app_yml_is_listed() -> None:
+    found = {
+        *(_TESTS / "apps/fixtures").rglob("app.yml"),
+        *(_TESTS / "config/application_deployment").rglob("app.yml"),
+    }
+    assert found == {p.resolve() for p in DECLARING_MANIFESTS[1:]}
 
 
 @pytest.fixture

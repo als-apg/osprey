@@ -18,39 +18,42 @@ import yaml
 from osprey.deployment.web_terminals.render_naming import render_project
 from osprey.profiles.web_panels import panel_spec_enabled
 from osprey_connectors.types import tier_writes
+from tests.apps._contract import with_contract
 from tests.cli._lifecycle_build import invoke_build, rendered_config, stub_build
 from tests.fixtures.lifecycle_repo import EXEMPLAR_DIRNAME, build_exemplar_repo
 
-KNOB: dict[str, Any] = {
-    "name": "knob",
-    "containers": {
-        "knob": {
-            "runtime": "osprey",
-            "command": ["python", "-m", "knob_app.server"],
-            "health": "/health",
-            "drives_target": True,
+KNOB: dict[str, Any] = with_contract(
+    {
+        "name": "knob",
+        "containers": {
+            "knob": {
+                "runtime": "osprey",
+                "command": ["python", "-m", "knob_app.server"],
+                "health": "/health",
+                "drives_target": True,
+            },
         },
-    },
-    "panel": {
-        "label": "Knob",
-        "container": "knob",
-        "launch_token": True,
-        "agent_routes": [["GET", "/api/state"], ["POST", "/api/set"]],
-        "roster_grant": {},
-    },
-    "tools": {
-        "module": "knob_app.tools",
-        "shown_when": "panel",
-        "read": ["knob_read"],
-        "approval": [
-            {
-                "tool": "knob_zero",
-                "prompt": "Zero the knob",
-                "require": {"all_of": ["approved_target"]},
-            }
-        ],
-    },
-}
+        "panel": {
+            "label": "Knob",
+            "container": "knob",
+            "launch_token": True,
+            "agent_routes": [["GET", "/api/state"], ["POST", "/api/set"]],
+            "roster_grant": {},
+        },
+        "tools": {
+            "module": "knob_app.tools",
+            "shown_when": "panel",
+            "read": ["knob_read"],
+            "approval": [
+                {
+                    "tool": "knob_zero",
+                    "prompt": "Zero the knob",
+                    "require": {"all_of": ["approved_target"]},
+                }
+            ],
+        },
+    }
+)
 
 #: A requirement the framework's own pin of the package refuses.
 MOVED_PIN = "lume-base==0.0.1"
@@ -855,13 +858,15 @@ def test_the_text_summary_carries_the_application_block() -> None:
 # --- applications with no container ------------------------------------------------
 
 #: A tool server with read tools only: no container, no panel.
-DIAL_TOOLS: dict[str, Any] = {
-    "name": "dial",
-    "tools": {"module": "dial_app.tools", "read": ["dial_read"]},
-}
+DIAL_TOOLS: dict[str, Any] = with_contract(
+    {
+        "name": "dial",
+        "tools": {"module": "dial_app.tools", "read": ["dial_read"]},
+    }
+)
 
 #: An application that carries a skill and nothing else.
-GUIDE: dict[str, Any] = {"name": "guide", "skills": ["guide-tune"]}
+GUIDE: dict[str, Any] = with_contract({"name": "guide", "skills": ["guide-tune"]})
 
 GUIDE_SKILL = "---\nname: guide-tune\ndescription: Tune the guide.\n---\n\nGently.\n"
 
@@ -938,29 +943,33 @@ def test_config_for_an_application_with_no_container_is_refused(
     ("manifest", "refusal"),
     [
         (
-            {"name": "dial", "panel": {"label": "Dial", "container": "dial"}},
+            with_contract({"name": "dial", "panel": {"label": "Dial", "container": "dial"}}),
             "it declares no container",
         ),
         (
-            {
-                "name": "dial",
-                "tools": {
-                    "module": "dial_app.tools",
-                    "approval": [{"tool": "dial_zero", "prompt": "Zero the dial"}],
-                },
-            },
+            with_contract(
+                {
+                    "name": "dial",
+                    "tools": {
+                        "module": "dial_app.tools",
+                        "approval": [{"tool": "dial_zero", "prompt": "Zero the dial"}],
+                    },
+                }
+            ),
             "that sets drives_target: true",
         ),
         (
-            {
-                "name": "dial",
-                "tools": {
-                    "module": "dial_app.tools",
-                    "approval": [
-                        {"tool": "dial_zero", "prompt": "Zero", "state_path": "/api/state"}
-                    ],
-                },
-            },
+            with_contract(
+                {
+                    "name": "dial",
+                    "tools": {
+                        "module": "dial_app.tools",
+                        "approval": [
+                            {"tool": "dial_zero", "prompt": "Zero", "state_path": "/api/state"}
+                        ],
+                    },
+                }
+            ),
             "the application has none",
         ),
     ],

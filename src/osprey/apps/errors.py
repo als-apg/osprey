@@ -4,8 +4,12 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 from osprey_connectors.errors import BuildProfileError
+
+if TYPE_CHECKING:
+    from osprey.apps.manifest import AppManifest
 
 
 @dataclass(frozen=True)
@@ -64,6 +68,8 @@ class AppManifestError(ValueError):
         field: The first violation's dotted field path.
         rule: The first violation's rule name.
         message: The first violation's message.
+        loaded: The manifests that did load in the same run, when the refusal
+            comes from :func:`osprey.apps.loader.load`; empty otherwise.
     """
 
     def __init__(
@@ -74,7 +80,9 @@ class AppManifestError(ValueError):
         message: str,
         *,
         violations: Sequence[Violation] = (),
+        loaded: Sequence[AppManifest] = (),
     ) -> None:
+        self.loaded: tuple[AppManifest, ...] = tuple(loaded)
         self.violations: tuple[Violation, ...] = tuple(violations) or (
             Violation(app, field, rule, message),
         )
@@ -90,12 +98,26 @@ class AppManifestError(ValueError):
             super().__init__(f"{len(self.violations)} violations:\n{lines}")
 
     @classmethod
-    def from_violations(cls, violations: Sequence[Violation]) -> AppManifestError:
-        """Build one refusal carrying every violation in *violations* (at least one)."""
+    def from_violations(
+        cls, violations: Sequence[Violation], *, loaded: Sequence[AppManifest] = ()
+    ) -> AppManifestError:
+        """Build one refusal carrying every violation in *violations* (at least one).
+
+        Args:
+            violations: Every violation, in the order found.
+            loaded: The manifests that loaded beside the refused ones.
+        """
         if not violations:
             raise ValueError("a refusal needs at least one violation")
         first = violations[0]
-        return cls(first.app, first.field, first.rule, first.message, violations=violations)
+        return cls(
+            first.app,
+            first.field,
+            first.rule,
+            first.message,
+            violations=violations,
+            loaded=loaded,
+        )
 
 
 class AppsRefusedError(BuildProfileError):

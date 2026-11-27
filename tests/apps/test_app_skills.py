@@ -14,13 +14,17 @@ from osprey.apps.rules import AppSelection, LoginSelection
 from osprey.cli.build_cmd import _copy_app_skills
 from osprey_connectors.errors import BuildProfileError
 
+from ._contract import with_contract
+
 
 def _manifest(name: str, skills: list[str]) -> AppManifest:
-    data = {
-        "name": name,
-        "containers": {name: {"runtime": "osprey", "health": "/health"}},
-        "skills": skills,
-    }
+    data = with_contract(
+        {
+            "name": name,
+            "containers": {name: {"runtime": "osprey", "health": "/health"}},
+            "skills": skills,
+        }
+    )
     return parse_manifest(data, app=name)
 
 
@@ -41,7 +45,9 @@ def _skill(root: Path, app: str, skill: str) -> Path:
 
 
 def test_skills_default_to_none():
-    data = {"name": "knob", "containers": {"knob": {"runtime": "osprey", "health": "/health"}}}
+    data = with_contract(
+        {"name": "knob", "containers": {"knob": {"runtime": "osprey", "health": "/health"}}}
+    )
     assert parse_manifest(data, app="knob").skills == []
 
 

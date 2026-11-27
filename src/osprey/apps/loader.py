@@ -91,7 +91,10 @@ def load(
         AppManifestError: A manifest is refused, its ``name`` differs from its
             directory or entry point, a directory holds no ``app.yml``, an
             ``apps/<name>/`` directory has an installed application's name, or
-            ``apps/`` holds a plain ``<name>.yml`` login file.
+            ``apps/`` holds a plain ``<name>.yml`` login file. Every such refusal
+            of the run is collected and raised once, after both sources are read;
+            :attr:`~osprey.apps.errors.AppManifestError.loaded` holds the
+            manifests that did load.
     """
     if installed is None:
         installed = installed_apps()
@@ -105,53 +108,72 @@ def load(
     if shadowing:
         raise AppManifestError.from_violations(shadowing)
     manifests: list[AppManifest] = []
+    refused: list[Violation] = []
     for entry in entries:
         if entry.is_file():
             if entry.suffix in (".yml", ".yaml"):
-                raise AppManifestError(
-                    entry.stem,
-                    "",
-                    "plain_app_file",
-                    f"{APPS_DIR}/{entry.name} is a login file; apps/ holds application "
-                    "directories only. Run `osprey init --revalidate` to move it to tiers/",
+                refused.append(
+                    Violation(
+                        entry.stem,
+                        "",
+                        "plain_app_file",
+                        f"{APPS_DIR}/{entry.name} is a login file; apps/ holds application "
+                        "directories only. Run `osprey init --revalidate` to move it to tiers/",
+                    )
                 )
             continue
         if names is not None and entry.name not in names:
             continue
         manifest_path = entry / MANIFEST_FILE
         if not manifest_path.is_file():
-            raise AppManifestError(
-                entry.name,
-                "",
-                "missing_manifest",
-                f"{APPS_DIR}/{entry.name}/ has no {MANIFEST_FILE}",
+            refused.append(
+                Violation(
+                    entry.name,
+                    "",
+                    "missing_manifest",
+                    f"{APPS_DIR}/{entry.name}/ has no {MANIFEST_FILE}",
+                )
             )
-        manifest = _read_manifest(manifest_path, entry.name, None)
+            continue
+        try:
+            manifest = _read_manifest(manifest_path, entry.name, None)
+        except AppManifestError as exc:
+            refused.extend(exc.violations)
+            continue
         if manifest.name != entry.name:
-            raise AppManifestError(
-                entry.name,
-                "name",
-                "name_matches_directory",
-                f"name {manifest.name!r} must equal the directory name {entry.name!r}",
+            refused.append(
+                Violation(
+                    entry.name,
+                    "name",
+                    "name_matches_directory",
+                    f"name {manifest.name!r} must equal the directory name {entry.name!r}",
+                )
             )
+            continue
         manifests.append(manifest.bind_origin(deployment_origin(deployment_root, entry.name)))
     for name in sorted(set(names or ()) & set(installed)):
         origin = installed[name]
-        manifest = _read_manifest(origin.directory / MANIFEST_FILE, name, origin)
+        try:
+            manifest = _read_manifest(origin.directory / MANIFEST_FILE, name, origin)
+        except AppManifestError as exc:
+            refused.extend(exc.violations)
+            continue
         if manifest.name != name:
-            raise AppManifestError.from_violations(
-                [
-                    Violation(
-                        name,
-                        "name",
-                        "name_matches_entry_point",
-                        f"name {manifest.name!r} must equal the entry-point name {name!r}",
-                        source=origin.manifest_source,
-                    )
-                ]
+            refused.append(
+                Violation(
+                    name,
+                    "name",
+                    "name_matches_entry_point",
+                    f"name {manifest.name!r} must equal the entry-point name {name!r}",
+                    source=origin.manifest_source,
+                )
             )
+            continue
         manifests.append(manifest.bind_origin(origin))
-    return sorted(manifests, key=lambda m: m.name)
+    loaded = sorted(manifests, key=lambda m: m.name)
+    if refused:
+        raise AppManifestError.from_violations(refused, loaded=loaded)
+    return loaded
 
 
 def _skipped(entry: Path) -> bool:

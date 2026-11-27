@@ -5,8 +5,8 @@ The skill was reviewed against one state of the files that define what an applic
 author writes: the manifest schema, the rules, the import boundary, the SDK's names, the
 ``osprey app`` command and the scaffold. ``contract-fingerprint.json`` beside ``scripts/``
 records a SHA-256 of each. This script hashes the same files of the OSPREY it finds and
-says which differ, then prints the contract as that OSPREY's source states it: every
-manifest key with its type and default, every rule name with its message, the modules an
+says which differ, then prints the contract as that OSPREY's source states it: the
+contract number an ``app.yml`` declares, every manifest key with its type and default, every rule name with its message, the modules an
 application may import, the SDK's names, the command's options and the scaffold's files.
 
 It reads source and never imports OSPREY, so it runs on any Python 3.9+ and reports the
@@ -39,6 +39,11 @@ FINGERPRINT = SKILL_DIR / "contract-fingerprint.json"
 #: package directory, each with what it decides and the parts of SKILL.md that rest on it.
 #: An entry ending in ``/`` is a directory, hashed file by file.
 WATCHED: tuple[tuple[str, str, str], ...] = (
+    (
+        "apps/contract.py",
+        "the contract number an app.yml declares, its refusal, and the headers an app reads",
+        "Step 0; step 3 (manifest); Contract snapshot",
+    ),
     (
         "apps/manifest.py",
         "the app.yml schema: keys, types, defaults",
@@ -99,6 +104,36 @@ WATCHED: tuple[tuple[str, str, str], ...] = (
         "the design-system primitive classes a panel may use",
         "step 6 (panel)",
     ),
+    (
+        "apps/sdk/testing/__init__.py",
+        "the SDK's test helpers",
+        "step 4 (backend); step 6 (panel and its tests)",
+    ),
+    (
+        "interfaces/design_system/static/js/page-ready.js",
+        "the page-ready module a panel loads and calls",
+        "step 6 (panel); step 8 (verify)",
+    ),
+    (
+        "interfaces/web_terminal/static/js/panel-iframe-sync.js",
+        "the messages the terminal posts to a panel frame",
+        "step 6 (panel)",
+    ),
+    (
+        "apps/projection.py",
+        "the OSPREY_* environment a container and the tool server receive",
+        "step 2 (config); step 4 (backend); step 5 (tool server)",
+    ),
+    (
+        "utils/owner_header.py",
+        "the owner, session and caller headers an app reads",
+        "Product rules (the session's control target); step 4 (backend)",
+    ),
+    (
+        "utils/launch_token.py",
+        "the launch-token header a write route verifies",
+        "step 4 (backend); Writes and approvals",
+    ),
 )
 
 #: The modules ``osprey app check`` reaches through ``cli/app_cmd.py`` and the watched
@@ -113,11 +148,13 @@ NOT_CONTRACT: tuple[tuple[str, str], ...] = (
     ),
     ("cli/output.py", "how the CLI prints a line or a failure"),
     ("cli/repo_resolver.py", "how the command finds the deployment repository"),
+    ("docs_links.py", "the published documentation addresses a message links to"),
     ("interfaces/design_system/errors.py", "the shared shape of a validator finding"),
     (
         "interfaces/design_system/panels/manifest.py",
         "the manifest of a discovered panel; an application's panel has none",
     ),
+    ("utils/bearer.py", "how a token is encoded for a constant-time comparison"),
     ("utils/config_writer.py", "how the profile is read and written back"),
     ("utils/workspace.py", "the deployment's directory names"),
 )
@@ -295,11 +332,41 @@ def drift(package: Path) -> tuple[list[str], dict[str, object]]:
     return sorted(differing), record
 
 
+def contract_number(package: Path) -> int | None:
+    """``APP_CONTRACT`` as *package*'s ``apps/contract.py`` states it, or ``None``."""
+    path = package / "apps" / "contract.py"
+    tree = _parse(path) if path.is_file() else None
+    for node in tree.body if tree is not None else []:
+        if (
+            isinstance(node, (ast.Assign, ast.AnnAssign))
+            and node.value is not None
+            and any(
+                isinstance(target, ast.Name) and target.id == "APP_CONTRACT"
+                for target in (node.targets if isinstance(node, ast.Assign) else [node.target])
+            )
+        ):
+            try:
+                value = ast.literal_eval(node.value)
+            except ValueError:
+                return None
+            return value if type(value) is int else None
+    return None
+
+
+def contract_line(package: Path) -> str:
+    """The line naming the number an ``app.yml`` for *package* declares."""
+    number = contract_number(package)
+    if number is None:
+        return "contract: none (this OSPREY predates the contract number)"
+    return f"contract: {number}  (the number every app.yml declares)"
+
+
 def report_drift(package: Path, how: str) -> bool:
     """Print the drift report; return whether anything differs."""
     version = osprey_version(package)
     print("== Skill versus this OSPREY ==")
     print(f"OSPREY read: {package}  (version {version}; found by {how})")
+    print(contract_line(package))
     if not FINGERPRINT.is_file():
         print(f"No fingerprint at {FINGERPRINT}: nothing to compare. Treat every contract")
         print("fact in SKILL.md as unverified and use the summary below.")
@@ -622,7 +689,9 @@ def main(argv: list[str] | None = None) -> int:
         refresh(package)
         return 0
     differs = False
-    if not args.summary_only:
+    if args.summary_only:
+        print(contract_line(package))
+    else:
         differs = report_drift(package, how)
     if not args.drift_only:
         summarize(package)

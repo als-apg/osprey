@@ -80,11 +80,12 @@ the code.
 
    osprey app check
 
-This runs what ``osprey build`` checks of every listed app — the manifest,
-each login's selection, ports, pinned versions — and then what only the app's
-own source can tell: the import rule over its Python, ESLint over ``panel/``
-and its JavaScript tests under ``tests/``. It builds nothing and prints every
-violation with the app and the field it is in. The scaffold passes as copied.
+This runs what ``osprey build`` checks of every listed app — the contract
+number, the manifest, each login's selection, ports, pinned versions, the
+import rules over its Python — and then its panel: the panel rules, ESLint
+over ``panel/`` and its JavaScript tests under ``tests/``. It builds nothing
+and prints every violation with the app and the field it is in. The scaffold
+passes as copied.
 The first run installs a pinned JavaScript toolchain into your user cache,
 which needs ``npm`` and network access once.
 
@@ -148,6 +149,11 @@ copied:
 
 .. literalinclude:: ../../../../src/osprey/apps/scaffold-app/app.yml
    :language: yaml
+
+``contract`` is the version of the application contract the app is written
+for — the manifest keys, SDK names and panel rules it relies on. OSPREY
+refuses an app whose number differs from its own, so an app a change would
+break stops at the build (:doc:`/reference/contracts/app-contract`).
 
 The first three blocks describe one part each:
 
@@ -782,6 +788,9 @@ Every level refuses unknown keys. Defaults in brackets.
 
    * - Key
      - Meaning
+   * - ``contract``
+     - Required. The application contract number the app is written for
+       (`The manifest`_).
    * - ``name``
      - The app's name, ``[a-z0-9-]+``; also its directory, its panel id and
        its tool server's name.

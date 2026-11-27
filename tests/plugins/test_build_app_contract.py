@@ -13,12 +13,15 @@ from __future__ import annotations
 import ast
 import importlib.util
 import json
+import re
 import shutil
 import sys
 from pathlib import Path
 from types import ModuleType
 
 import pytest
+
+from osprey.apps.contract import APP_CONTRACT, SURFACE_SOURCES
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _SKILL = "plugins/osprey/skills/build-app"
@@ -49,7 +52,9 @@ def test_skill_was_reviewed_against_the_current_contract(contract: ModuleType) -
     assert not differing, (
         "The app contract changed since the build-app skill was last reviewed against it:\n  "
         + "\n  ".join(differing)
-        + f"\n\n1. Read {_SKILL}/SKILL.md against the change (the script's WATCHED table "
+        + "\n\nDoes this change break apps? Then raise `APP_CONTRACT` and add a history row "
+        "(docs/source/reference/contracts/app-contract.rst).\n"
+        f"\n1. Read {_SKILL}/SKILL.md against the change (the script's WATCHED table "
         "names the sections that rest on each file) and correct what is now wrong.\n"
         "2. Record the review:\n"
         f"     uv run python {_SKILL}/scripts/app_contract.py --refresh\n"
@@ -165,3 +170,47 @@ def test_every_module_the_app_check_judges_with_is_watched_or_named_not_contract
     )
     stale = sorted(not_contract - reached)
     assert not stale, f"NOT_CONTRACT names modules the check no longer reaches: {stale}"
+
+
+def test_every_surface_source_in_the_package_is_watched(contract: ModuleType) -> None:
+    """A file the app contract's surface is read from is one the skill rests on too."""
+    prefix = "src/osprey/"
+    sources = {
+        path.removeprefix(prefix)
+        for paths in SURFACE_SOURCES.values()
+        for path in paths
+        if path.startswith(prefix)
+    }
+    unwatched = sorted(path for path in sources if not _watched(contract, path))
+    assert not unwatched, f"SURFACE_SOURCES files app_contract.py does not watch: {unwatched}"
+
+
+def test_the_printed_contract_number_is_the_one_osprey_implements(
+    contract: ModuleType, capsys: pytest.CaptureFixture[str]
+) -> None:
+    assert contract.main(["--root", str(_PACKAGE), "--drift-only"]) == 0
+    printed = re.findall(r"^contract: (\d+)\b", capsys.readouterr().out, re.MULTILINE)
+    assert printed == [str(APP_CONTRACT)]
+
+    assert contract.main(["--root", str(_PACKAGE), "--summary-only"]) == 0
+    printed = re.findall(r"^contract: (\d+)\b", capsys.readouterr().out, re.MULTILINE)
+    assert printed == [str(APP_CONTRACT)]
+
+
+def test_an_osprey_before_the_contract_number_prints_none(
+    contract: ModuleType, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    package = tmp_path / "osprey"
+    (package / "apps").mkdir(parents=True)
+    (package / "__init__.py").touch()
+    (package / "apps" / "manifest.py").touch()
+    assert contract.main(["--root", str(package), "--drift-only"]) == 0
+    out = capsys.readouterr().out
+    assert "contract: none (this OSPREY predates the contract number)" in out
+
+
+def test_skill_states_no_contract_number_and_no_bump_rule() -> None:
+    """The number is printed by the script and the bump rule lives on the reference page."""
+    skill = (_REPO_ROOT / _SKILL / "SKILL.md").read_text(encoding="utf-8")
+    assert not re.search(r"contract:\s*\d", skill), "SKILL.md states a literal contract number"
+    assert "raises the number by one" not in skill, "SKILL.md restates the bump rule"

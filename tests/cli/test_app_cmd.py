@@ -19,6 +19,7 @@ from osprey.interfaces.design_system.panels.page_ready import READY_IMPORT, WRIT
 from osprey.interfaces.design_system.panels.validator import refusing, validate_entry
 from tests._scoped_stdlib import scoped
 from tests.apps import _installed
+from tests.apps._contract import CONTRACT
 from tests.apps._installed import DIST, MODULE, NAME, entry_point
 from tests.cli._lifecycle_build import invoke_build
 
@@ -44,6 +45,7 @@ def _write(app_dir: Path, relative: str, text: str) -> None:
 
 def _manifest(name: str) -> str:
     return (
+        f"contract: {CONTRACT}\n"
         f"name: {name}\n"
         f"containers:\n  {name}-service:\n    runtime: osprey\n"
         "    command: [python, -m, server]\n    health: /health\n"
@@ -239,7 +241,7 @@ def test_only_an_applications_packages_face_the_boundary(
 ) -> None:
     app_dir = _app(lifecycle_repo)
     _write(app_dir, "knob_app/__init__.py", "")
-    _write(app_dir, "knob_app/server.py", "from osprey.apps.sdk import run\n")
+    _write(app_dir, "knob_app/server.py", "from osprey.apps.sdk import serve_tools\n")
     _write(app_dir, ".venv/site-packages/x.py", LOADER_IMPORT)
     _write(app_dir, "tests/helper.py", LOADER_IMPORT)
 

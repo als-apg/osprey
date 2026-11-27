@@ -14,7 +14,7 @@ import warnings
 from collections.abc import Callable, Collection, Iterator, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import yaml
 
@@ -96,6 +96,9 @@ from .build_profile_va_faults import (
 )
 from .derived_keys import derived_key_errors
 from .profile_conventions import library_selection, validate_convention_sources
+
+if TYPE_CHECKING:
+    from osprey.apps.errors import Violation
 
 DISPATCH_PAIR_SERVICES = ("event_dispatcher", "dispatch_worker")
 """The two services the ``dispatch:`` block deploys as one unit. They share a
@@ -654,7 +657,7 @@ class BuildProfile:
         entry = self.apps.get(name)
         return entry is not None and entry.panel_hidden is True
 
-    def _validate_apps(self, profile_dir: Path) -> list[str]:
+    def _validate_apps(self, profile_dir: Path) -> tuple[list[str], tuple[Violation, ...]]:
         """Return validation errors for the ``apps:`` block, closed against the manifests.
 
         Every listed name must be an application under ``apps/<name>/`` or one an
@@ -667,17 +670,18 @@ class BuildProfile:
             profile_dir: The profile root, whose ``apps/`` holds the applications.
 
         Returns:
-            Human-readable error messages; empty when the block is valid.
-
-        Raises:
-            AppManifestError: A listed application's manifest is refused; :meth:`validate`
-                keeps its violations whole, so each is printed with its rule as
-                ``osprey app check`` prints it, never folded into a profile error.
-                So is a ``corpora`` name the profile's ``services.qmd.corpora``
-                cannot serve (:func:`~osprey.apps.loader.corpus_violations`).
+            The human-readable error messages, and the violations of every listed
+            application whose manifest is refused. :meth:`validate` keeps the
+            violations whole, so each is printed with its rule as ``osprey app
+            check`` prints it, never folded into a profile error. A refused
+            application is checked no further and is not reported as naming no
+            application; the others are checked as usual. A ``corpora`` name the
+            profile's ``services.qmd.corpora`` cannot serve is a violation too
+            (:func:`~osprey.apps.loader.corpus_violations`). Both empty when the
+            block is valid.
         """
         if not self.apps:
-            return []
+            return [], ()
         from osprey.apps.errors import AppManifestError
         from osprey.apps.loader import MANIFEST_FILE, corpus_violations
         from osprey.apps.loader import load as load_apps
@@ -686,13 +690,22 @@ class BuildProfile:
         from .application_material import application_dirs
 
         installed = installed_apps()
-        manifests = {m.name: m for m in load_apps(profile_dir, self.apps, installed=installed)}
+        refused: tuple[Violation, ...] = ()
+        try:
+            loaded = load_apps(profile_dir, self.apps, installed=installed)
+        except AppManifestError as exc:
+            loaded = list(exc.loaded)
+            refused = exc.violations
+        manifests = {m.name: m for m in loaded}
+        refused_names = {v.app for v in refused}
 
         errors: list[str] = []
         dirs = application_dirs(profile_dir)
         found = [d.name for d in dirs if (d / MANIFEST_FILE).is_file()]
         known = ", ".join(sorted({*found, *installed})) or "none"
         for name, entry in sorted(self.apps.items()):
+            if name in refused_names:
+                continue
             manifest = manifests.get(name)
             if manifest is None:
                 errors.append(
@@ -722,9 +735,7 @@ class BuildProfile:
         unservable = corpus_violations(
             manifests.values(), _config_service_block(self.config, QMD_SERVICE_NAME)
         )
-        if unservable:
-            raise AppManifestError.from_violations(unservable)
-        return errors
+        return errors, (*refused, *unservable)
 
     def resolved_facility_roots(self, profile_dir: Path) -> FacilityRoots | None:
         """Resolve where this deployment reads machine facts and its own content.
@@ -853,8 +864,9 @@ class BuildProfile:
             profile_dir: The profile root the applications are loaded from.
 
         Returns:
-            ``panel id -> (application name, panel label)``. A manifest that
-            does not load contributes none; its refusal is :meth:`_validate_apps`'.
+            ``panel id -> (application name, panel label)``, of the applications
+            that load. A refused manifest contributes none; its refusal is
+            :meth:`_validate_apps`'.
         """
         shown = [name for name in self.apps if self.app_shown(name)]
         if not shown:
@@ -864,8 +876,8 @@ class BuildProfile:
 
         try:
             manifests = load_apps(profile_dir, shown)
-        except AppManifestError:
-            return {}
+        except AppManifestError as exc:
+            manifests = list(exc.loaded)
         return {m.panel.id: (m.name, m.panel.label) for m in manifests if m.panel is not None}
 
     def _validate_environment(self) -> list[str]:
@@ -1986,13 +1998,10 @@ class BuildProfile:
         # The one conditionally derived key, judged here where the condition
         # (whether this deployment serves web terminals) is known.
         errors.extend(health_url_key_errors(self.config))
-        from osprey.apps.errors import AppManifestError, AppsRefusedError, Violation
+        from osprey.apps.errors import AppsRefusedError
 
-        refused: tuple[Violation, ...] = ()
-        try:
-            errors.extend(self._validate_apps(profile_dir))
-        except AppManifestError as manifest_refusal:
-            refused = manifest_refusal.violations
+        app_errors, refused = self._validate_apps(profile_dir)
+        errors.extend(app_errors)
 
         if (
             self.channel_finder_mode is not None
@@ -2283,7 +2292,10 @@ class BuildProfile:
         # like `default_panel: areil`, and a built-in the profile never selected,
         # both of which would silently fall back to the frontend
         # DEFAULT_PANEL_FALLBACK at runtime.
-        app_panels = self._shown_app_panels(profile_dir)
+        # A refused application's panel id is unknown (its manifest did not
+        # load); the id it defaults to, the application's name, is taken as
+        # known so the refusal is the one finding it draws.
+        app_panels = self._shown_app_panels(profile_dir) | {v.app for v in refused}
 
         def known_panel(pid: str) -> bool:
             return self._is_known_panel_id(pid, app_panels)

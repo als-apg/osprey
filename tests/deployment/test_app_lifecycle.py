@@ -17,22 +17,27 @@ from osprey.apps.projection import project_deployment
 from osprey.apps.rules import builtin_credential_names
 from osprey.deployment import container_lifecycle
 from osprey.deployment.compose_generator import AGENT_RECORD_TEMPLATE_DIR
+from tests.apps._contract import with_contract
 from tests.deployment._dotenv import project_env
 
-KNOB: dict[str, Any] = {
-    "name": "knob-demo",
-    "containers": {
-        "knob-demo": {"runtime": "osprey", "command": ["python", "-m", "knob_demo.server"]},
-        "knob-cache": {"image": "redis:7.2", "fragment": "compose/knob-cache/"},
-    },
-    "panel": {"label": "Knob", "container": "knob-demo", "launch_token": True},
-}
+KNOB: dict[str, Any] = with_contract(
+    {
+        "name": "knob-demo",
+        "containers": {
+            "knob-demo": {"runtime": "osprey", "command": ["python", "-m", "knob_demo.server"]},
+            "knob-cache": {"image": "redis:7.2", "fragment": "compose/knob-cache/"},
+        },
+        "panel": {"label": "Knob", "container": "knob-demo", "launch_token": True},
+    }
+)
 
-VIEWER: dict[str, Any] = {
-    "name": "viewer",
-    "containers": {"viewer": {"image": "ghcr.io/example/viewer:1.0"}},
-    "panel": {"label": "Viewer", "container": "viewer", "launch_token": True},
-}
+VIEWER: dict[str, Any] = with_contract(
+    {
+        "name": "viewer",
+        "containers": {"viewer": {"image": "ghcr.io/example/viewer:1.0"}},
+        "panel": {"label": "Viewer", "container": "viewer", "launch_token": True},
+    }
+)
 
 
 def _deploy_config(*apps: dict[str, Any]) -> dict[str, Any]:

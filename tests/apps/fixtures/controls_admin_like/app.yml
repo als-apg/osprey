@@ -1,6 +1,7 @@
 # A read-only controls-admin shaped application: every deployment fact it needs
 # comes through the application fragment context. Assembled under a deployment
 # as apps/controls-admin-like/.
+contract: 1
 name: controls-admin-like
 containers:
   controls-admin:

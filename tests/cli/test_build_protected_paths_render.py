@@ -19,6 +19,7 @@ import pytest
 import yaml
 
 from osprey.utils.workspace import ProtectedPathsState, read_protected_paths
+from tests.apps._contract import with_contract
 from tests.cli._lifecycle_build import invoke_build_in
 from tests.fixtures.lifecycle_repo import (
     EXEMPLAR_DIRNAME,
@@ -38,16 +39,18 @@ LOGIN_PLAN_DIR = "login_plans"
 LOGIN_WITH_PLANS = "readwrite"
 
 #: The application the deployment installs.
-APP: dict[str, Any] = {
-    "name": "knob",
-    "containers": {
-        "knob": {
-            "runtime": "osprey",
-            "command": ["python", "-m", "knob_app.server"],
-            "health": "/health",
+APP: dict[str, Any] = with_contract(
+    {
+        "name": "knob",
+        "containers": {
+            "knob": {
+                "runtime": "osprey",
+                "command": ["python", "-m", "knob_app.server"],
+                "health": "/health",
+            },
         },
-    },
-}
+    }
+)
 
 
 def _load(path: Path) -> dict[str, Any]:

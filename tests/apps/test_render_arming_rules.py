@@ -11,18 +11,22 @@ from osprey.apps.errors import AppManifestError
 from osprey.apps.manifest import AppManifest, parse_manifest
 from osprey.apps.rules import AppSelection, LoginSelection, Reserved, validate
 
+from ._contract import with_contract
+
 EMPTY = Reserved(services=frozenset(), panels=frozenset(), servers=frozenset(), names=frozenset())
 
 #: An application with one write tool and no container driving the target.
-DIAL: dict[str, Any] = {
-    "name": "dial",
-    "containers": {"dial": {"runtime": "osprey", "port": 8200}},
-    "tools": {
-        "module": "dial.tools",
-        "read": ["read_dial"],
-        "approval": [{"tool": "set_dial", "prompt": "Set {{ input.value }}"}],
-    },
-}
+DIAL: dict[str, Any] = with_contract(
+    {
+        "name": "dial",
+        "containers": {"dial": {"runtime": "osprey", "port": 8200}},
+        "tools": {
+            "module": "dial.tools",
+            "read": ["read_dial"],
+            "approval": [{"tool": "set_dial", "prompt": "Set {{ input.value }}"}],
+        },
+    }
+)
 
 
 def _app(drives_target: bool = False, *, approval: bool = True, name: str = "dial") -> AppManifest:
