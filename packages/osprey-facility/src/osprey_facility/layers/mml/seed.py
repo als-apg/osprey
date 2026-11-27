@@ -213,8 +213,8 @@ def seed_once(
     limits = facility_dir / LIMITS_FILE
     if limits.exists():
         existing = _load(limits)
-        seeded.lines.extend(_differences(existing, records))
-        seeded.lines.extend(_unrecorded(existing, records))
+        seeded.lines.extend(_differences(existing, records, value_types))
+        seeded.lines.extend(_unrecorded(existing, records, value_types))
     else:
         if records:
             seeded.written.append(_write(limits, {"records": records}))
@@ -394,13 +394,18 @@ def _limit_records(
     return records, not_writable
 
 
-def _edge(value: Any) -> str:
-    number = exported_number(value)
-    return "-" if number is None else f"{number:g}"
+def _record_text(record: dict[str, Any], value_type: str) -> str:
+    """What a setpoint's limits record states and lacks, in the validate report's words."""
+    from osprey_facility.validate import missing_text, record_missing
+
+    return missing_text(record, record_missing(record, SETPOINT_ROLE, value_type) or ())
 
 
-def _differences(document: Any, records: list[dict[str, Any]]) -> list[str]:
-    """One line per record of an existing file whose band is not the export's."""
+def _differences(
+    document: Any, records: list[dict[str, Any]], value_types: dict[str, str]
+) -> list[str]:
+    """One line per record of an existing file whose band is not the export's,
+    naming what each side states and lacks."""
     rows = document.get("records") if isinstance(document, dict) else None
     stated = {
         str(row.get("address")): row
@@ -415,10 +420,10 @@ def _differences(document: Any, records: list[dict[str, Any]]) -> list[str]:
         ours = (exported_number(record.get("min_value")), exported_number(record.get("max_value")))
         theirs = (exported_number(row.get("min_value")), exported_number(row.get("max_value")))
         if ours != theirs:
+            value_type = value_types[record["address"]]
             lines.append(
-                f"limits differ: {record['address']} "
-                f"file [{_edge(theirs[0])},{_edge(theirs[1])}] "
-                f"export [{_edge(ours[0])},{_edge(ours[1])}]"
+                f"limits differ: {record['address']}: file {_record_text(row, value_type)}; "
+                f"export {_record_text(record, value_type)}"
             )
     return lines
 
@@ -427,10 +432,13 @@ def _differences(document: Any, records: list[dict[str, Any]]) -> list[str]:
 NAMED_ADDRESSES = 10
 
 
-def _unrecorded(document: Any, records: list[dict[str, Any]]) -> list[str]:
+def _unrecorded(
+    document: Any, records: list[dict[str, Any]], value_types: dict[str, str]
+) -> list[str]:
     """The setpoints the export bands that an existing ``limits.yaml`` has no record
     for, as one count line and the first :data:`NAMED_ADDRESSES` addresses with
-    their band. The file is authored, so the import names them and writes nothing."""
+    what each record states and lacks. The file is authored, so the import names
+    them and writes nothing."""
     rows = document.get("records") if isinstance(document, dict) else None
     stated = {
         str(row.get("address"))
@@ -445,8 +453,8 @@ def _unrecorded(document: Any, records: list[dict[str, Any]]) -> list[str]:
         f"record in {LIMITS_FILE}; the import writes none of them"
     ]
     for record in missing[:NAMED_ADDRESSES]:
-        low, high = record.get("min_value"), record.get("max_value")
-        lines.append(f"  {record['address']} export [{_edge(low)},{_edge(high)}]")
+        address = record["address"]
+        lines.append(f"  {address}: {_record_text(record, value_types[address])}")
     if len(missing) > NAMED_ADDRESSES:
         lines.append(f"  and {len(missing) - NAMED_ADDRESSES} more")
     return lines

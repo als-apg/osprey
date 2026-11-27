@@ -387,10 +387,63 @@ def test_a_later_import_reports_each_differing_range_and_applies_none(
 
     lines = [line for line in capsys.readouterr().out.splitlines() if "limits differ" in line]
     assert lines == [
-        "limits differ: QK:IDGAP:1:CUR:SP file [0,60] export [0,80]",
-        "limits differ: QK:IDGAP:2:CUR:SP file [0,60] export [0,80]",
+        "limits differ: QK:IDGAP:1:CUR:SP: file min_value 0.0, max_value 60.0; "
+        "export min_value 0.0, max_value 80.0",
+        "limits differ: QK:IDGAP:2:CUR:SP: file min_value 0.0, max_value 60.0; "
+        "export min_value 0.0, max_value 80.0",
     ]
     assert _authored(facility) == before
+
+
+def test_an_import_line_spells_a_record_in_the_limits_reports_words(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], imports: Callable[[str], _Imported]
+) -> None:
+    from osprey.facility.views.limits import limits_findings
+
+    facility = imports("synthetic").copy(tmp_path)
+    address = "QK:IDGAP:1:CUR:SP"
+    path = facility / "limits.yaml"
+    document = yaml.safe_load(path.read_text(encoding="utf-8"))
+    (row,) = [r for r in document["records"] if r["address"] == address]
+    assert "writable" not in row
+    del row["max_value"]
+    path.write_text(yaml.safe_dump(document, sort_keys=False), encoding="utf-8")
+
+    def widen(document: dict[str, Any]) -> None:
+        document["IDGAP"]["Setpoint"]["Range"] = [0, 80]
+
+    ao = _edited(tmp_path, "synthetic", "quokka.sr", widen)
+    capsys.readouterr()
+
+    import_mml([ao], facility)
+
+    head = f"limits differ: {address}: file "
+    (line,) = [line for line in capsys.readouterr().out.splitlines() if line.startswith(head)]
+    phrase = line.removeprefix(head).split("; export ")[0]
+
+    (stated,) = [
+        r
+        for r in yaml.safe_load(path.read_text(encoding="utf-8"))["records"]
+        if r["address"] == address
+    ]
+    (channel,) = [
+        c for c in read_yaml(facility / LAYER_DIR / "channels.yaml") if c["id"] == address
+    ]
+    records = FacilityRecords(
+        {
+            "channels": [
+                {
+                    "id": address,
+                    "role": "setpoint",
+                    "value_type": channel.get("value_type") or "float",
+                }
+            ],
+            "limits": {"records": [stated]},
+        }
+    )
+    reported = f"  {address}: "
+    (listed,) = [entry for entry in limits_findings(records, True) if entry.startswith(reported)]
+    assert phrase == listed.removeprefix(reported)
 
 
 def test_a_later_import_names_each_banded_setpoint_the_file_has_no_record_for(
@@ -415,8 +468,10 @@ def test_a_later_import_names_each_banded_setpoint_the_file_has_no_record_for(
         f"limits not recorded: {len(dropped)} setpoints have a band in the export and no "
         "record in limits.yaml; the import writes none of them"
     )
-    named = [line.split()[0] for line in out[out.index(head) + 1 :][: len(dropped)]]
+    listed = out[out.index(head) + 1 :][: len(dropped)]
+    named = [line.split()[0].rstrip(":") for line in listed]
     assert named == dropped
+    assert listed[0] == f"  {dropped[0]}: min_value 0.0, max_value 60.0"
     assert _authored(facility) == before  # named, never written
 
 
