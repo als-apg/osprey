@@ -549,7 +549,7 @@
   <section id="describe-your-facility">
 <span id="how-to-describe-your-facility"></span><h1>Describe your facility<a class="headerlink" href="#describe-your-facility" title="Link to this heading">#</a></h1>
 <p>A deployment describes its facility once, as source files under
-<code class="docutils literal notranslate"><span class="pre">data/facility/</span></code>. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> combines them into one facility file,
+<code class="docutils literal notranslate"><span class="pre">facility/</span></code>. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> combines them into one facility file,
 <code class="docutils literal notranslate"><span class="pre">build/facility.json</span></code>, and writes every file a service reads from it: the
 channel finder’s index, the limits database, the simulator’s channel list, the
 knowledge graph. Nothing else in the deployment lists a channel. The machine
@@ -561,7 +561,7 @@ an importer, and through a fix. What the build writes from the result is in
 <a class="reference internal" href="../architecture/facility-file.html"><span class="doc">Facility File and Its Views</span></a>.</p>
 <section id="the-tree">
 <h2>The tree<a class="headerlink" href="#the-tree" title="Link to this heading">#</a></h2>
-<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>data/facility/
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>facility/
   identity.yaml             who the facility is
   records/
     places.yaml             the facility&#39;s own tree of places
@@ -569,29 +569,32 @@ an importer, and through a fix. What the build writes from the result is in
     channels.yaml           the control-system channels
     groups.yaml             named sets of devices
     relations.yaml          claims that two records are related
-  classes.yaml              device classes the facility adds
-  signals.yaml              signal roles the facility adds
-  models.yaml               the simulation models and their wiring
-  decks/                    the decks those models name
+  vocabulary/
+    classes.yaml            device classes the facility adds
+    signals.yaml            signal roles the facility adds
+  provenance/
+    documents.yaml          the source documents records and claims cite
+    policy.yaml             how the build ranks competing claims
+    fixes.yaml              corrections to records another source states
+  simulation/
+    models.yaml             the simulation models and their wiring
+    decks/                  the decks those models name
+    seeds.yaml              how a channel no model wires behaves when simulated
+    measurement/&lt;model&gt;.yaml  the measurements a model allows
+    scenarios/&lt;name&gt;.yaml   ways the simulated machine departs from its baseline
   limits.yaml               the write limits
-  seeds.yaml                how a channel no model wires behaves when simulated
-  measurement/&lt;model&gt;.yaml  the measurements a model allows
-  scenarios/&lt;name&gt;.yaml     ways the simulated machine departs from its baseline
-  documents.yaml            the source documents records and claims cite
-  policy.yaml               how the build ranks competing claims
-  fixes.yaml                corrections to records another source states
   imported/&lt;layer&gt;/         records an importer wrote
   knowledge/                the facility knowledge pages
   ariel/vocabulary.yml      the logbook shorthand ARIEL expands
   benchmarks/               the channel-finder benchmark queries
 </pre></div>
 </div>
-<p>Every file is optional. A deployment with no <code class="docutils literal notranslate"><span class="pre">data/facility/</span></code> at all builds
+<p>Every file is optional. A deployment with no <code class="docutils literal notranslate"><span class="pre">facility/</span></code> at all builds
 a facility with no channel, and each file added states more. The
-demo preset ships all of them except <code class="docutils literal notranslate"><span class="pre">signals.yaml</span></code>, <code class="docutils literal notranslate"><span class="pre">fixes.yaml</span></code> and
+demo preset ships all of them except <code class="docutils literal notranslate"><span class="pre">vocabulary/signals.yaml</span></code>, <code class="docutils literal notranslate"><span class="pre">provenance/fixes.yaml</span></code> and
 <code class="docutils literal notranslate"><span class="pre">imported/</span></code>; the hello-world preset ships
 <code class="docutils literal notranslate"><span class="pre">identity.yaml</span></code>, <code class="docutils literal notranslate"><span class="pre">records/channels.yaml</span></code>, <code class="docutils literal notranslate"><span class="pre">limits.yaml</span></code> and
-<code class="docutils literal notranslate"><span class="pre">seeds.yaml</span></code>.</p>
+<code class="docutils literal notranslate"><span class="pre">simulation/seeds.yaml</span></code>.</p>
 <p>Check the tree at any time, without writing anything:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>facility<span class="w"> </span>validate
 osprey<span class="w"> </span>facility<span class="w"> </span>show
@@ -606,6 +609,10 @@ record counts, the models and the views; given an id it prints that record
 with the layer and file each of its fields came from, the fields the build
 filled and the fixes applied. Both are described in full under
 <a class="reference internal" href="../reference/cli.html#cli-osprey-facility"><span class="std std-ref">osprey facility</span></a>.</p>
+<p>A tree that still holds a file at a retired path is refused before anything is
+read, with the commands that move it (<a class="reference internal" href="build-profiles.html#profile-root-migration"><span class="std std-ref">A repository at a retired layout</span></a>).
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">init</span> <span class="pre">--revalidate</span></code> makes the same moves
+(<a class="reference internal" href="../reference/cli.html#cli-osprey-init-revalidate"><span class="std std-ref">–revalidate</span></a>).</p>
 </section>
 <section id="identity">
 <h2>Identity<a class="headerlink" href="#identity" title="Link to this heading">#</a></h2>
@@ -648,7 +655,7 @@ that are not coarse all name one place; the claim’s unit is not copied.</p>
 </div>
 <p><strong>Devices</strong> name a <code class="docutils literal notranslate"><span class="pre">class</span></code>, either one of the shared vocabulary’s classes
 (<code class="docutils literal notranslate"><span class="pre">Quadrupole</span></code>, <code class="docutils literal notranslate"><span class="pre">BeamPositionMonitor</span></code>, <code class="docutils literal notranslate"><span class="pre">Gauge</span></code>) or one the facility adds
-in <code class="docutils literal notranslate"><span class="pre">classes.yaml</span></code>. A device may state its <code class="docutils literal notranslate"><span class="pre">place</span></code>, a <code class="docutils literal notranslate"><span class="pre">label</span></code>, other
+in <code class="docutils literal notranslate"><span class="pre">vocabulary/classes.yaml</span></code>. A device may state its <code class="docutils literal notranslate"><span class="pre">place</span></code>, a <code class="docutils literal notranslate"><span class="pre">label</span></code>, other
 <code class="docutils literal notranslate"><span class="pre">names</span></code> people use for it, and a position: <code class="docutils literal notranslate"><span class="pre">s</span></code> in metres along the deck of
 its <code class="docutils literal notranslate"><span class="pre">model</span></code>. A device a model wires takes its position from the deck.</p>
 <p><strong>Channels</strong> are the control-system addresses. A channel’s id is its full
@@ -789,8 +796,8 @@ seven conditions:</p>
 <li><p>a required attribute is missing;</p></li>
 <li><p>the subject and object name the same end, port included.</p></li>
 </ul>
-<p><code class="docutils literal notranslate"><span class="pre">policy.yaml</span></code> ranks competing claims by the kind of document they cite, as
-declared in <code class="docutils literal notranslate"><span class="pre">documents.yaml</span></code>: <code class="docutils literal notranslate"><span class="pre">relations.precedence</span></code> lists kinds per
+<p><code class="docutils literal notranslate"><span class="pre">provenance/policy.yaml</span></code> ranks competing claims by the kind of document they cite, as
+declared in <code class="docutils literal notranslate"><span class="pre">provenance/documents.yaml</span></code>: <code class="docutils literal notranslate"><span class="pre">relations.precedence</span></code> lists kinds per
 relation type or as <code class="docutils literal notranslate"><span class="pre">default</span></code>. Between claims whose documents rank the same,
 a stated claim breaks the tie over an inferred one unless
 <code class="docutils literal notranslate"><span class="pre">stated_over_inferred:</span> <span class="pre">false</span></code>. Without a policy, competing claims stay
@@ -800,14 +807,14 @@ accepted claim is a plain edge, a contested one a separate contested edge, a
 superseded one no edge. Each claim is also a node carrying its source, so a
 query can go from an edge to the document behind it
 (<a class="reference internal" href="../reference/contracts/facility-graph.html#reference-facility-graph"><span class="std std-ref">Facility Graph Contracts</span></a>).</p>
-<p><code class="docutils literal notranslate"><span class="pre">classes.yaml</span></code> adds device classes the shared vocabulary lacks, each as the
+<p><code class="docutils literal notranslate"><span class="pre">vocabulary/classes.yaml</span></code> adds device classes the shared vocabulary lacks, each as the
 child of an existing class:</p>
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">class</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">Undulator</span>
 <span class="w">  </span><span class="nt">parent</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">Magnet</span>
 <span class="w">  </span><span class="nt">aliases</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">insertion device</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">ID</span><span class="p p-Indicator">]</span>
 </pre></div>
 </div>
-<p><code class="docutils literal notranslate"><span class="pre">signals.yaml</span></code> adds signal roles the vocabulary lacks; one it already has is
+<p><code class="docutils literal notranslate"><span class="pre">vocabulary/signals.yaml</span></code> adds signal roles the vocabulary lacks; one it already has is
 refused:</p>
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">taper_setpoint</span>
 <span class="w">  </span><span class="nt">aliases</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">gap taper</span><span class="p p-Indicator">]</span>
@@ -834,7 +841,7 @@ strength), <code class="docutils literal notranslate"><span class="pre">Kick</sp
 <section id="layers">
 <h2>Layers<a class="headerlink" href="#layers" title="Link to this heading">#</a></h2>
 <p>Records reach the build from several sources at once, and each source is a
-<em>layer</em>. <code class="docutils literal notranslate"><span class="pre">records/</span></code>, <code class="docutils literal notranslate"><span class="pre">models.yaml</span></code>, <code class="docutils literal notranslate"><span class="pre">seeds.yaml</span></code> and <code class="docutils literal notranslate"><span class="pre">measurement/</span></code>
+<em>layer</em>. <code class="docutils literal notranslate"><span class="pre">records/</span></code>, <code class="docutils literal notranslate"><span class="pre">simulation/models.yaml</span></code>, <code class="docutils literal notranslate"><span class="pre">simulation/seeds.yaml</span></code> and <code class="docutils literal notranslate"><span class="pre">simulation/measurement/</span></code>
 are the layer <code class="docutils literal notranslate"><span class="pre">authored</span></code>; each directory under <code class="docutils literal notranslate"><span class="pre">imported/</span></code> is the layer of
 that name. A layer states only
 the fields its source states.</p>
@@ -848,14 +855,14 @@ until they agree or a <code class="docutils literal notranslate"><span class="pr
 <code class="docutils literal notranslate"><span class="pre">scheme_names</span></code> are joined too, so a layer can add a name to a record another
 layer states; one name in one scheme that two layers state with different
 content is still a <code class="docutils literal notranslate"><span class="pre">layer-conflict</span></code>.
-A channel’s seed (<code class="docutils literal notranslate"><span class="pre">simulation</span></code>, which <code class="docutils literal notranslate"><span class="pre">seeds.yaml</span></code> states too) is joined
+A channel’s seed (<code class="docutils literal notranslate"><span class="pre">simulation</span></code>, which <code class="docutils literal notranslate"><span class="pre">simulation/seeds.yaml</span></code> states too) is joined
 per key: one layer may state <code class="docutils literal notranslate"><span class="pre">follows</span></code> and another the seed’s values, and
 only one key two layers state differently is a <code class="docutils literal notranslate"><span class="pre">layer-conflict</span></code>.</p>
 <p>A place, device, channel or group record may say what the fields it states rest
 on. <code class="docutils literal notranslate"><span class="pre">basis:</span> <span class="pre">inferred</span></code> with a <code class="docutils literal notranslate"><span class="pre">rule</span></code> says a named rule derived them, not a
 source; with neither, they are stated. A producer that pairs channels by their
 names writes such a layer:</p>
-<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="c1"># data/facility/imported/names/channels.yaml</span>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="c1"># facility/imported/names/channels.yaml</span>
 <span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">id</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">BR:DIAG:TV:01:PADDLE:SP</span>
 <span class="w">  </span><span class="nt">pair</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">BR:DIAG:TV:01:PADDLE:RB</span>
 <span class="w">  </span><span class="nt">basis</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">inferred</span>
@@ -872,7 +879,7 @@ as two layers.</p>
 <section id="a-matlab-middle-layer-export">
 <h3>A MATLAB Middle Layer export<a class="headerlink" href="#a-matlab-middle-layer-export" title="Link to this heading">#</a></h3>
 <p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">facility</span> <span class="pre">import</span> <span class="pre">mml</span></code> reads a MATLAB Middle Layer export into
-<code class="docutils literal notranslate"><span class="pre">data/facility/imported/mml/</span></code>. From the export to a served model it is five
+<code class="docutils literal notranslate"><span class="pre">facility/imported/mml/</span></code>. From the export to a served model it is five
 steps; each is described in <a class="reference internal" href="import-mml-export.html"><span class="doc">Import a MATLAB Middle Layer export</span></a>.</p>
 <ol class="arabic simple">
 <li><p><strong>Export.</strong> <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">facility</span> <span class="pre">import</span> <span class="pre">mml</span> <span class="pre">--print-exporter</span> <span class="pre">&gt;</span> <span class="pre">mml_export.m</span></code>
@@ -911,10 +918,10 @@ the export was sampled on.</p></li>
 </ol>
 <p>The record files under <code class="docutils literal notranslate"><span class="pre">imported/mml/</span></code> belong to the import and are
 rewritten by every run; <code class="docutils literal notranslate"><span class="pre">mapping.yaml</span></code> is yours and is only drafted when
-absent. The import also creates <code class="docutils literal notranslate"><span class="pre">limits.yaml</span></code>, <code class="docutils literal notranslate"><span class="pre">seeds.yaml</span></code>,
-<code class="docutils literal notranslate"><span class="pre">identity.yaml</span></code>, <code class="docutils literal notranslate"><span class="pre">measurement/&lt;model&gt;.yaml</span></code> and <code class="docutils literal notranslate"><span class="pre">scenarios/readout.yaml</span></code>
+absent. The import also creates <code class="docutils literal notranslate"><span class="pre">limits.yaml</span></code>, <code class="docutils literal notranslate"><span class="pre">simulation/seeds.yaml</span></code>,
+<code class="docutils literal notranslate"><span class="pre">identity.yaml</span></code>, <code class="docutils literal notranslate"><span class="pre">simulation/measurement/&lt;model&gt;.yaml</span></code> and <code class="docutils literal notranslate"><span class="pre">simulation/scenarios/readout.yaml</span></code>
 when they do not exist, and never rewrites them afterwards. It creates
-<code class="docutils literal notranslate"><span class="pre">classes.yaml</span></code> when absent; when the file exists, the import appends only
+<code class="docutils literal notranslate"><span class="pre">vocabulary/classes.yaml</span></code> when absent; when the file exists, the import appends only
 the classes it lacks and leaves its rows as written. It replaces a bundled
 facility, saying so in one line, and refuses only hand-written records of the
 kinds it writes, naming each file. That refusal guards the first import: once
@@ -924,7 +931,7 @@ every later import, and the build combines them with the layers.</p>
 <section id="a-channel-list">
 <h3>A channel list<a class="headerlink" href="#a-channel-list" title="Link to this heading">#</a></h3>
 <p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">facility</span> <span class="pre">import</span> <span class="pre">list</span> <span class="pre">FILE</span></code> reads a CSV of channel addresses into
-<code class="docutils literal notranslate"><span class="pre">data/facility/imported/list/</span></code>. A header row names <code class="docutils literal notranslate"><span class="pre">address</span></code> and any of
+<code class="docutils literal notranslate"><span class="pre">facility/imported/list/</span></code>. A header row names <code class="docutils literal notranslate"><span class="pre">address</span></code> and any of
 <code class="docutils literal notranslate"><span class="pre">role</span></code>, <code class="docutils literal notranslate"><span class="pre">pair</span></code>, <code class="docutils literal notranslate"><span class="pre">device</span></code>, <code class="docutils literal notranslate"><span class="pre">place</span></code>, <code class="docutils literal notranslate"><span class="pre">unit</span></code>, <code class="docutils literal notranslate"><span class="pre">description</span></code>,
 <code class="docutils literal notranslate"><span class="pre">tags</span></code>, <code class="docutils literal notranslate"><span class="pre">s</span></code> and <code class="docutils literal notranslate"><span class="pre">model</span></code>; a file with no <code class="docutils literal notranslate"><span class="pre">address</span></code> column holds one
 address per line.</p>
@@ -938,7 +945,7 @@ SR:MAG:QF:01:CURRENT:RB,,,QF01,1.5,A,Focusing quadrupole current readback
 </div>
 <p>The files under <code class="docutils literal notranslate"><span class="pre">imported/list/</span></code> belong to the import and are replaced by
 each run, so they are never edited by hand: a correction goes into the CSV or
-into <code class="docutils literal notranslate"><span class="pre">fixes.yaml</span></code>. Each device a row names is written to
+into <code class="docutils literal notranslate"><span class="pre">provenance/fixes.yaml</span></code>. Each device a row names is written to
 <code class="docutils literal notranslate"><span class="pre">imported/list/devices.yaml</span></code>, with its <code class="docutils literal notranslate"><span class="pre">s</span></code> where a row gives one; a
 <code class="docutils literal notranslate"><span class="pre">model</span></code> column names the model whose deck <code class="docutils literal notranslate"><span class="pre">s</span></code> is measured along. A
 misspelt <code class="docutils literal notranslate"><span class="pre">device</span></code> cell makes a device of its own: when other sources declare
@@ -950,7 +957,7 @@ a list against your own deck, models and places.</p>
 <section id="relation-tables">
 <span id="how-to-describe-your-facility-relations"></span><h3>Relation tables<a class="headerlink" href="#relation-tables" title="Link to this heading">#</a></h3>
 <p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">facility</span> <span class="pre">import</span> <span class="pre">relations</span> <span class="pre">TABLE</span> <span class="pre">--layer</span> <span class="pre">NAME</span></code> reads relation claims,
-from a cable schedule or a rack list, into <code class="docutils literal notranslate"><span class="pre">data/facility/imported/&lt;NAME&gt;/</span></code>.
+from a cable schedule or a rack list, into <code class="docutils literal notranslate"><span class="pre">facility/imported/&lt;NAME&gt;/</span></code>.
 <code class="docutils literal notranslate"><span class="pre">TABLE</span></code> holds the claims; three optional tables hold what the claims lean on.
 Each is UTF-8 CSV with a header row naming its columns in any order; an empty
 cell is absent.</p>
@@ -1067,7 +1074,7 @@ refusal is reported and the import writes nothing. The layer name matches
 </section>
 <section id="fixes">
 <h2>Fixes<a class="headerlink" href="#fixes" title="Link to this heading">#</a></h2>
-<p><code class="docutils literal notranslate"><span class="pre">fixes.yaml</span></code> corrects a record another source states, without editing that
+<p><code class="docutils literal notranslate"><span class="pre">provenance/fixes.yaml</span></code> corrects a record another source states, without editing that
 source. Each fix names a record and gives the reason. These two correct the
 channel list above:</p>
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">schema</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">osprey.facility.fixes/1</span>
@@ -1356,7 +1363,7 @@ limits. The hello-world and demo presets ship <code class="docutils literal notr
 </section>
 <section id="seeds">
 <h2>Seeds<a class="headerlink" href="#seeds" title="Link to this heading">#</a></h2>
-<p><code class="docutils literal notranslate"><span class="pre">seeds.yaml</span></code> says how a channel behaves in the simulator when no model
+<p><code class="docutils literal notranslate"><span class="pre">simulation/seeds.yaml</span></code> says how a channel behaves in the simulator when no model
 wires it. It is keyed by address. The preset’s booster current starts at
 1.2 mA with Gaussian noise (its <code class="docutils literal notranslate"><span class="pre">gate</span></code> key, described below, is left out
 here):</p>
@@ -1476,12 +1483,12 @@ see the same gated value.</p>
 </section>
 <section id="models-and-decks">
 <h2>Models and decks<a class="headerlink" href="#models-and-decks" title="Link to this heading">#</a></h2>
-<p><code class="docutils literal notranslate"><span class="pre">models.yaml</span></code> lists the simulation models. A model has a <code class="docutils literal notranslate"><span class="pre">name</span></code>, the
+<p><code class="docutils literal notranslate"><span class="pre">simulation/models.yaml</span></code> lists the simulation models. A model has a <code class="docutils literal notranslate"><span class="pre">name</span></code>, the
 <code class="docutils literal notranslate"><span class="pre">engine</span></code> that runs it, the <code class="docutils literal notranslate"><span class="pre">deck</span></code> it runs over, the engine’s <code class="docutils literal notranslate"><span class="pre">settings</span></code>
 and a <code class="docutils literal notranslate"><span class="pre">wiring</span></code> list that ties channel addresses to elements of the deck:</p>
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">BTS</span>
 <span class="w">  </span><span class="nt">engine</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">pyat</span>
-<span class="w">  </span><span class="nt">deck</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">decks/BTS.json</span>
+<span class="w">  </span><span class="nt">deck</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">simulation/decks/BTS.json</span>
 <span class="w">  </span><span class="nt">settings</span><span class="p">:</span>
 <span class="w">    </span><span class="nt">pyat</span><span class="p">:</span>
 <span class="w">      </span><span class="nt">solve</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">single_pass</span>
@@ -1617,11 +1624,11 @@ records name it, and when two records read the same axis of one monitor.</p>
 </section>
 <section id="measurement">
 <h2>Measurement<a class="headerlink" href="#measurement" title="Link to this heading">#</a></h2>
-<p><code class="docutils literal notranslate"><span class="pre">measurement/&lt;model&gt;.yaml</span></code> states which measurements a model allows and
+<p><code class="docutils literal notranslate"><span class="pre">simulation/measurement/&lt;model&gt;.yaml</span></code> states which measurements a model allows and
 what they use. The demo preset ships this one for its storage
 ring:</p>
 <div class="literal-block-wrapper docutils container" id="id6">
-<div class="code-block-caption"><span class="caption-text">measurement/SR.yaml</span><a class="headerlink" href="#id6" title="Link to this code">#</a></div>
+<div class="code-block-caption"><span class="caption-text">simulation/measurement/SR.yaml</span><a class="headerlink" href="#id6" title="Link to this code">#</a></div>
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">kinds</span><span class="p">:</span>
 <span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">orm</span>
 <span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">dispersion</span>
@@ -1707,7 +1714,7 @@ that run these measurements are in <a class="reference internal" href="pyaml/ind
 </section>
 <section id="scenarios">
 <h2>Scenarios<a class="headerlink" href="#scenarios" title="Link to this heading">#</a></h2>
-<p>Each file under <code class="docutils literal notranslate"><span class="pre">scenarios/</span></code> is one way the simulated machine departs from
+<p>Each file under <code class="docutils literal notranslate"><span class="pre">simulation/scenarios/</span></code> is one way the simulated machine departs from
 its baseline: value overrides, model and channel faults, its own motion
 (drivers, couplings, noise), archive history and logbook entries. The
 simulator activates the scenarios marked <code class="docutils literal notranslate"><span class="pre">start:</span> <span class="pre">true</span></code> when it first comes

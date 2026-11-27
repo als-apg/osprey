@@ -227,7 +227,7 @@ write a health plugin:
    file (``./health/facility_checks.py``).
 
 A relative file path is resolved against the project root, the same anchor
-``data/`` and ``plans/`` use. So a deployment can keep its checks beside its
+``facility/`` and ``plans/`` use. So a deployment can keep its checks beside its
 profile without packaging them or setting ``PYTHONPATH``. A file loaded that
 way is given a synthetic module name derived from its path. It is
 **re-executed** every time the health config is reloaded, so it must not keep

@@ -837,7 +837,8 @@ Every rewrite is reported back with the results, so a hit that looks
 surprising always arrives with the reason it appeared.</p>
 <p>Nothing is built in. With no vocabulary configured, no query is ever rewritten.
 <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> turns expansion on when the facility ships
-<code class="docutils literal notranslate"><span class="pre">data/facility/ariel/vocabulary.yml</span></code>, and states that path. The example
+<code class="docutils literal notranslate"><span class="pre">facility/ariel/vocabulary.yml</span></code>, and states the copy the render reads,
+<code class="docutils literal notranslate"><span class="pre">data/facility/ariel/vocabulary.yml</span></code>. The example
 facility ships one as a starting point and a format tutorial; it is meant to be
 edited down to what your control room actually says.</p>
 <section id="the-vocabulary-file">
@@ -1022,7 +1023,7 @@ expansion on, drop that one mode rather than the feature:</p>
 <p><code class="docutils literal notranslate"><span class="pre">ariel.vocabulary.enabled:</span> <span class="pre">false</span></code> switches the whole thing off: nothing is
 read, and a stale <code class="docutils literal notranslate"><span class="pre">path</span></code> left behind is inert rather than a startup failure.
 A profile that states <code class="docutils literal notranslate"><span class="pre">true</span></code> and no <code class="docutils literal notranslate"><span class="pre">path</span></code> of its own, for a facility that
-ships no <code class="docutils literal notranslate"><span class="pre">data/facility/ariel/vocabulary.yml</span></code>, is refused at <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code>.</p>
+ships no <code class="docutils literal notranslate"><span class="pre">facility/ariel/vocabulary.yml</span></code>, is refused at <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code>.</p>
 <p>For a single search, every surface takes an <code class="docutils literal notranslate"><span class="pre">expand_query</span></code> argument:</p>
 <ul class="simple">
 <li><p>the <strong>Expand vocabulary</strong> toggle in the web interface’s advanced options;</p></li>
@@ -1156,7 +1157,7 @@ defaults.</p>
 <section id="checking-the-file-and-reading-the-status">
 <h4>Checking the file, and reading the status<a class="headerlink" href="#checking-the-file-and-reading-the-status" title="Link to this heading">#</a></h4>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>ariel<span class="w"> </span>vocab-check<span class="w">                            </span><span class="c1"># the configured file</span>
-osprey<span class="w"> </span>ariel<span class="w"> </span>vocab-check<span class="w"> </span>data/facility/ariel/vocabulary.yml<span class="w">  </span><span class="c1"># any file</span>
+osprey<span class="w"> </span>ariel<span class="w"> </span>vocab-check<span class="w"> </span>facility/ariel/vocabulary.yml<span class="w">  </span><span class="c1"># any file</span>
 osprey<span class="w"> </span>ariel<span class="w"> </span>vocab-check<span class="w"> </span>--json<span class="w">                     </span><span class="c1"># one JSON document</span>
 </pre></div>
 </div>

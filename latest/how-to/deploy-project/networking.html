@@ -576,7 +576,7 @@ namespace instead. That is <code class="docutils literal notranslate"><span clas
 <span class="c1"># a facility-owned service</span>
 <span class="nt">services</span><span class="p">:</span>
 <span class="w">  </span><span class="nt">my-service</span><span class="p">:</span>
-<span class="w">    </span><span class="nt">template</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">services/my-service</span>
+<span class="w">    </span><span class="nt">template</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">ops/services/my-service</span>
 <span class="w">    </span><span class="nt">config</span><span class="p">:</span>
 <span class="w">      </span><span class="nt">network</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">host</span>
 </pre></div>
@@ -676,11 +676,11 @@ themselves; a facility service on the host network declares it beside
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="c1"># profile</span>
 <span class="nt">services</span><span class="p">:</span>
 <span class="w">  </span><span class="nt">site_api</span><span class="p">:</span>
-<span class="w">    </span><span class="nt">template</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">services/site_api</span>
+<span class="w">    </span><span class="nt">template</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">ops/services/site_api</span>
 <span class="w">    </span><span class="nt">config</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">network</span><span class="p">:</span><span class="w"> </span><span class="nv">host</span><span class="p p-Indicator">,</span><span class="nt"> bind_env</span><span class="p">:</span><span class="w"> </span><span class="nv">SITE_BIND</span><span class="p p-Indicator">}</span>
 </pre></div>
 </div>
-<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="c1"># services/site_api/docker-compose.yml.j2</span>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="c1"># ops/services/site_api/docker-compose.yml.j2</span>
 <span class="w">    </span><span class="nt">environment</span><span class="p">:</span>
 <span class="w">      </span><span class="nt">SITE_BIND</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;127.0.0.1&quot;</span>
 </pre></div>

@@ -573,7 +573,7 @@ control target.</p></li>
 <h2>When the tools are there<a class="headerlink" href="#when-the-tools-are-there" title="Link to this heading">#</a></h2>
 <p>The build writes <code class="docutils literal notranslate"><span class="pre">data/pyaml/&lt;model&gt;/configuration.yaml</span></code> for each served
 model that names a deck and has a measurement file under
-<code class="docutils literal notranslate"><span class="pre">data/facility/measurement/</span></code> (see <a class="reference internal" href="../describe-your-facility.html"><span class="doc">Describe your facility</span></a>). This file
+<code class="docutils literal notranslate"><span class="pre">facility/simulation/measurement/</span></code> (see <a class="reference internal" href="../describe-your-facility.html"><span class="doc">Describe your facility</span></a>). This file
 is the model’s <em>pyAML view</em>.</p>
 <p>A render with at least one such view registers three things: both tools, the
 <code class="docutils literal notranslate"><span class="pre">pyaml-tools</span></code> skill, and the prompt section that teaches them. A render with
@@ -663,7 +663,7 @@ is refused before any setpoint moves.</p>
 <h2>What happens to the machine<a class="headerlink" href="#what-happens-to-the-machine" title="Link to this heading">#</a></h2>
 <p>Each step starts as the measurement file’s value. The tool shrinks it until no
 setpoint’s largest single write exceeds half its <code class="docutils literal notranslate"><span class="pre">max_step</span></code> in
-<code class="docutils literal notranslate"><span class="pre">data/facility/limits.yaml</span></code>. A strength, <code class="docutils literal notranslate"><span class="pre">max_step</span></code> or write that is not a
+<code class="docutils literal notranslate"><span class="pre">facility/limits.yaml</span></code>. A strength, <code class="docutils literal notranslate"><span class="pre">max_step</span></code> or write that is not a
 finite number refuses the measurement.</p>
 <p>Every write of one measurement runs under the control target’s run lock:</p>
 <ul class="simple">

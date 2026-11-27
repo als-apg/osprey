@@ -128,8 +128,8 @@ The twelve skills
      - Resolves what the facility build flags, with the maintainer of the
        facility repository: starts from ``osprey facility validate``, groups
        the stops and warnings that share a cause, asks one question per
-       group, and writes each confirmed answer to ``fixes.yaml`` or
-       ``policy.yaml``. Never edits an imported layer and never commits.
+       group, and writes each confirmed answer to ``provenance/fixes.yaml`` or
+       ``provenance/policy.yaml``. Never edits an imported layer and never commits.
    * - ``/osprey:upstream-scout``
      - Investigates whether something a facility needs is an Osprey gap, a
        deployment gap, or already supported; judges whether the fix is

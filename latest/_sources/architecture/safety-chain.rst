@@ -195,7 +195,7 @@ Setting one up
 --------------
 
 A watchdog is an entry in the profile's ``watchdogs:`` block plus an instructions file at
-``watchdogs/<name>/instructions.md``, and ``enabled: true`` and a rebuild turn it on. Run
+``agent/watchdogs/<name>/instructions.md``, and ``enabled: true`` and a rebuild turn it on. Run
 ``osprey watchdog replay`` over labelled prompts before enabling one: the thresholds are not
 calibrated for any facility. A decision watchdog sends session history to TypeSafe (hosted in
 the US) or OpenRouter; an agent watchdog uses the deployment's own LLM provider. Each adds its
@@ -251,7 +251,7 @@ or a chromaticity routine; pyAML, the Python accelerator middle layer, calls the
 --- on the control target. It is not how the agent measures: the agent reads channels, runs
 its own Python and queues plans for that. It is the one path on which the executor runs code
 OSPREY ships rather than code the agent wrote: the pyAML view the build rendered from the
-facility description, with the tool's settings from ``data/facility/measurement/``. The call
+facility description, with the tool's settings from ``facility/simulation/measurement/``. The call
 passes the write verdict and the approval prompt. The prompt lists the model, the kind, the
 digest of the view the tool runs on and every setpoint the call steps; a call that would step
 more setpoints than a prompt can list is refused without asking. The tool then runs in the
@@ -407,7 +407,7 @@ notebook, before it is saved. Nothing else is reviewed: channel writes, plans an
 pyAML tools carry no code of the agent's, and cells a person writes are the person's own.
 
 The reviewer judges by rules the deployment writes itself, in a Markdown file in the project
-(``data/code_review/reviewer.md``): which channels must never be written, when writes need
+(``agent/code_review/reviewer.md``): which channels must never be written, when writes need
 extra care, which procedures a write has to follow. OSPREY ships that file with one worked
 rule for the demo facility and nothing more, so a deployment gets the checks it wrote and
 pays only for those. The reviewer has no tools and takes one turn, and anything

@@ -581,16 +581,17 @@ of truth and <code class="docutils literal notranslate"><span class="pre">build/
 scaffolding that goes with it:</p>
 <div class="highlight-text notranslate"><div class="highlight"><pre><span></span>demo-facility/
 ├── profile.yml                       the manifest you own — edit this
-├── data/                             channel databases, knowledge, lattice
+├── facility/                         the facility tree: records, limits, knowledge
+├── web/                              the CANOPY screens and the landing notices
 ├── tiers/                            one file per login, shared cards included
-├── services/facility-mcp/            the facility&#39;s own container
-├── scripts/verify.sh                 the post-deploy health check
+├── ops/services/facility-mcp/        the facility&#39;s own container
+├── ops/scripts/verify.sh             the post-deploy health check
+├── ops/ci-extra.yml                  your own CI jobs; never regenerated
 ├── .env                              the deployment&#39;s secrets
 ├── .env.agent-record.*               agent record credentials, one file per login
 ├── build/                            render target, kept out of git
 ├── var/                              agent memory and audit log, kept out of git
 ├── .gitlab-ci.yml                    emitted from the profile&#39;s deploy: block
-├── ci-extra.yml                      your own CI jobs; never regenerated
 └── .gitignore
 </pre></div>
 </div>
@@ -727,9 +728,9 @@ service, and the agent containers have no route to the control system.</p>
 </pre></div>
 </div>
 <p>The command writes the whole repository, runs <code class="docutils literal notranslate"><span class="pre">git</span> <span class="pre">init</span></code> at its root, and
-commits nothing. It prints the handful of entries you edit: the profile, the
-data directory, the six login files it wrote in <code class="docutils literal notranslate"><span class="pre">tiers/</span></code>, the two env files,
-and the README.</p>
+commits nothing. It prints the handful of entries you edit: the profile,
+<code class="docutils literal notranslate"><span class="pre">facility/</span></code> and <code class="docutils literal notranslate"><span class="pre">web/</span></code>, the six login files it wrote in <code class="docutils literal notranslate"><span class="pre">tiers/</span></code>, the two
+env files, and the README.</p>
 <p>The folder name is read once, here. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">init</span></code> records it in
 <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code> as the deployment’s name on a host:</p>
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">Demo Facility</span><span class="w">          </span><span class="c1"># display text</span>
@@ -785,7 +786,7 @@ limit layers a live machine would use. The preset already ships this value; it
 is written out here because it is the line that changes when the deployment
 goes live (<a class="reference internal" href="#changing-something-later">Changing something later</a>).</p>
 <p>The facility’s display name is not a config key. Open
-<code class="docutils literal notranslate"><span class="pre">data/facility/identity.yaml</span></code> (<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">init</span></code> wrote it with the facility
+<code class="docutils literal notranslate"><span class="pre">facility/identity.yaml</span></code> (<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">init</span></code> wrote it with the facility
 code) and add the name:</p>
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">code</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">ca</span>
 <span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">Demo Facility</span>
@@ -843,7 +844,7 @@ with it, and there is no second copy of the name to keep in step.</p>
 line and the commented <code class="docutils literal notranslate"><span class="pre">mcp_servers:</span></code> example with:</p>
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">services</span><span class="p">:</span>
 <span class="w">  </span><span class="nt">facility-mcp</span><span class="p">:</span>
-<span class="w">    </span><span class="nt">template</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">services/facility-mcp</span>
+<span class="w">    </span><span class="nt">template</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">ops/services/facility-mcp</span>
 <span class="w">    </span><span class="nt">config</span><span class="p">:</span>
 <span class="w">      </span><span class="nt">port</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">10900</span>
 <span class="w">      </span><span class="nt">http</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
@@ -869,7 +870,7 @@ parties: the container publishes it, and the agent dials it. <code class="docuti
 first port of the facility band, the hundred ports the framework publishes
 nothing in so that a facility’s own services can claim them without ever
 colliding — see <a class="reference internal" href="../reference/ports.html#reference-ports-facility"><span class="std std-ref">The facility band</span></a>.</p>
-<p>Now create <code class="docutils literal notranslate"><span class="pre">services/facility-mcp/</span></code> with four files.</p>
+<p>Now create <code class="docutils literal notranslate"><span class="pre">ops/services/facility-mcp/</span></code> with four files.</p>
 <p><code class="docutils literal notranslate"><span class="pre">requirements.txt</span></code>:</p>
 <div class="highlight-text notranslate"><div class="highlight"><pre><span></span>mcp==1.9.4
 </pre></div>
@@ -1088,7 +1089,7 @@ holding the private key for the deploy-host account. The SSH key is CI-only —
 it authenticates the deploy job and is never part of the deployment’s own
 environment, which is why it is not in <code class="docutils literal notranslate"><span class="pre">env.required</span></code>.</p>
 </dd>
-<dt><code class="docutils literal notranslate"><span class="pre">scripts/verify.sh</span></code></dt><dd><p>The post-deploy health check, at the repository root: every container of the
+<dt><code class="docutils literal notranslate"><span class="pre">ops/scripts/verify.sh</span></code></dt><dd><p>The post-deploy health check, under <code class="docutils literal notranslate"><span class="pre">ops/</span></code>: every container of the
 deployment, then the endpoints it can probe.</p>
 </dd>
 </dl>
@@ -1096,7 +1097,7 @@ deployment, then the endpoints it can probe.</p>
 safe to re-run: a file whose content already matches is left untouched, and a
 file the scaffolder did not write is reported and left alone unless you pass
 <code class="docutils literal notranslate"><span class="pre">--force</span></code>.</p>
-<p><code class="docutils literal notranslate"><span class="pre">ci-extra.yml</span></code>, which <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">init</span></code> created in Step 1, is the
+<p><code class="docutils literal notranslate"><span class="pre">ops/ci-extra.yml</span></code>, which <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">init</span></code> created in Step 1, is the
 facility’s own include point. A job you add there runs beside the scaffolded
 ones; reusing a scaffolded job’s name merges the two and the scaffolded
 pipeline’s own keys win, so give a job of your own its own name. Nothing ever
@@ -1162,7 +1163,7 @@ workflow.</p>
 <p>The first run is slow: the virtual accelerator and the facility’s own image are
 both built locally. When the containers are up, <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> prints a summary
 of the published endpoints and, on a deployment with the web tier, runs
-<code class="docutils literal notranslate"><span class="pre">scripts/verify.sh</span></code> itself; without the web tier, nothing runs it for you.</p>
+<code class="docutils literal notranslate"><span class="pre">ops/scripts/verify.sh</span></code> itself; without the web tier, nothing runs it for you.</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>status
 </pre></div>
 </div>
@@ -1171,9 +1172,9 @@ of the published endpoints and, on a deployment with the web tier, runs
 fix is <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code>, not a restart.</p>
 <p>You can run the health check by hand at any time, and it is worth doing once
 before you trust it:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>./scripts/verify.sh<span class="w">              </span><span class="c1"># every group</span>
-./scripts/verify.sh<span class="w"> </span>containers<span class="w">   </span><span class="c1"># one group</span>
-./scripts/verify.sh<span class="w"> </span>--strict<span class="w">     </span><span class="c1"># exit 1 if anything is flagged</span>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>./ops/scripts/verify.sh<span class="w">              </span><span class="c1"># every group</span>
+./ops/scripts/verify.sh<span class="w"> </span>containers<span class="w">   </span><span class="c1"># one group</span>
+./ops/scripts/verify.sh<span class="w"> </span>--strict<span class="w">     </span><span class="c1"># exit 1 if anything is flagged</span>
 </pre></div>
 </div>
 <p>It checks the deployment <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> recorded in <code class="docutils literal notranslate"><span class="pre">var/deployment.json</span></code>;
@@ -1283,10 +1284,10 @@ systemd user unit that does it for you.</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>scaffold<span class="w"> </span>systemd
 </pre></div>
 </div>
-<p>It writes <code class="docutils literal notranslate"><span class="pre">osprey.service</span></code> at the repository root — and, beside it,
-<code class="docutils literal notranslate"><span class="pre">scripts/osprey-boot-hook.sh</span></code>, covered below — and prints the commands that
+<p>It writes <code class="docutils literal notranslate"><span class="pre">ops/osprey.service</span></code> — and, beside it,
+<code class="docutils literal notranslate"><span class="pre">ops/scripts/osprey-boot-hook.sh</span></code>, covered below — and prints the commands that
 install the unit on this machine:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>cp<span class="w"> </span>/path/to/repo/osprey.service<span class="w"> </span>~/.config/systemd/user/
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>cp<span class="w"> </span>/path/to/repo/ops/osprey.service<span class="w"> </span>~/.config/systemd/user/
 systemctl<span class="w"> </span>--user<span class="w"> </span>daemon-reload
 systemctl<span class="w"> </span>--user<span class="w"> </span><span class="nb">enable</span><span class="w"> </span>--now<span class="w"> </span>osprey.service
 </pre></div>
@@ -1353,7 +1354,7 @@ order against, so the manager starts exactly as before. <code class="docutils li
 apart — check <code class="docutils literal notranslate"><span class="pre">systemctl</span> <span class="pre">list-units</span> <span class="pre">-t</span> <span class="pre">mount,automount</span></code> for your home to know
 which you have. For a daemon-managed home, and for any host where nobody with
 root is available, the same run has already written the other route:
-<code class="docutils literal notranslate"><span class="pre">scripts/osprey-boot-hook.sh</span></code>, beside the unit. It waits for the home, the
+<code class="docutils literal notranslate"><span class="pre">ops/scripts/osprey-boot-hook.sh</span></code>, beside the unit. It waits for the home, the
 deployment and the user manager to appear, then reloads the unit files and
 starts the unit — the script an affected site otherwise ends up writing by
 hand. Wire it into the account’s own crontab with the lines the command
@@ -1361,7 +1362,7 @@ prints, all of them, pasted whole:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>crontab<span class="w"> </span>-e
 <span class="nv">SHELL</span><span class="o">=</span>/bin/sh
 <span class="nv">HOME</span><span class="o">=</span>/
-@reboot<span class="w"> </span><span class="nv">d</span><span class="o">=</span>/tmp/osprey-boot-hook.<span class="k">$(</span>id<span class="w"> </span>-u<span class="k">)</span><span class="p">;</span><span class="w"> </span>mkdir<span class="w"> </span>-m<span class="w"> </span><span class="m">700</span><span class="w"> </span><span class="s2">&quot;</span><span class="nv">$d</span><span class="s2">&quot;</span><span class="w"> </span><span class="m">2</span>&gt;/dev/null<span class="p">;</span><span class="w"> </span><span class="k">if</span><span class="w"> </span><span class="o">[</span><span class="w"> </span>-d<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$d</span><span class="s2">&quot;</span><span class="w"> </span><span class="o">]</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="o">[</span><span class="w"> </span>!<span class="w"> </span>-L<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$d</span><span class="s2">&quot;</span><span class="w"> </span><span class="o">]</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="o">[</span><span class="w"> </span>-O<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$d</span><span class="s2">&quot;</span><span class="w"> </span><span class="o">]</span><span class="p">;</span><span class="w"> </span><span class="k">then</span><span class="w"> </span><span class="nv">log</span><span class="o">=</span>/tmp/osprey-boot-hook.<span class="k">$(</span>id<span class="w"> </span>-u<span class="k">)</span>/boot.log<span class="p">;</span><span class="w"> </span><span class="k">else</span><span class="w"> </span><span class="nv">log</span><span class="o">=</span>/dev/null<span class="p">;</span><span class="w"> </span><span class="k">fi</span><span class="p">;</span><span class="w"> </span><span class="nb">echo</span><span class="w"> </span><span class="s2">&quot;</span><span class="k">$(</span>date<span class="k">)</span><span class="s2"> osprey-boot-hook: cron fired&quot;</span><span class="w"> </span>&gt;&gt;<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$log</span><span class="s2">&quot;</span><span class="p">;</span><span class="w"> </span><span class="nv">n</span><span class="o">=</span><span class="m">0</span><span class="p">;</span><span class="w"> </span><span class="k">until</span><span class="w"> </span><span class="o">[</span><span class="w"> </span>-x<span class="w"> </span>/path/to/repo/scripts/osprey-boot-hook.sh<span class="w"> </span><span class="o">]</span><span class="w"> </span><span class="o">||</span><span class="w"> </span><span class="o">[</span><span class="w"> </span><span class="nv">$n</span><span class="w"> </span>-ge<span class="w"> </span><span class="m">120</span><span class="w"> </span><span class="o">]</span><span class="p">;</span><span class="w"> </span><span class="k">do</span><span class="w"> </span>sleep<span class="w"> </span><span class="m">5</span><span class="p">;</span><span class="w"> </span><span class="nv">n</span><span class="o">=</span><span class="k">$((</span><span class="nv">n</span><span class="o">+</span><span class="m">1</span><span class="k">))</span><span class="p">;</span><span class="w"> </span><span class="k">done</span><span class="p">;</span><span class="w"> </span><span class="k">if</span><span class="w"> </span><span class="o">[</span><span class="w"> </span>-x<span class="w"> </span>/path/to/repo/scripts/osprey-boot-hook.sh<span class="w"> </span><span class="o">]</span><span class="p">;</span><span class="w"> </span><span class="k">then</span><span class="w"> </span><span class="nb">exec</span><span class="w"> </span>/path/to/repo/scripts/osprey-boot-hook.sh<span class="p">;</span><span class="w"> </span><span class="k">fi</span><span class="p">;</span><span class="w"> </span><span class="nb">echo</span><span class="w"> </span><span class="s2">&quot;</span><span class="k">$(</span>date<span class="k">)</span><span class="s2"> osprey-boot-hook: gave up, /path/to/repo/scripts/osprey-boot-hook.sh never appeared&quot;</span><span class="w"> </span><span class="p">|</span><span class="w"> </span>tee<span class="w"> </span>-a<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$log</span><span class="s2">&quot;</span>
+@reboot<span class="w"> </span><span class="nv">d</span><span class="o">=</span>/tmp/osprey-boot-hook.<span class="k">$(</span>id<span class="w"> </span>-u<span class="k">)</span><span class="p">;</span><span class="w"> </span>mkdir<span class="w"> </span>-m<span class="w"> </span><span class="m">700</span><span class="w"> </span><span class="s2">&quot;</span><span class="nv">$d</span><span class="s2">&quot;</span><span class="w"> </span><span class="m">2</span>&gt;/dev/null<span class="p">;</span><span class="w"> </span><span class="k">if</span><span class="w"> </span><span class="o">[</span><span class="w"> </span>-d<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$d</span><span class="s2">&quot;</span><span class="w"> </span><span class="o">]</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="o">[</span><span class="w"> </span>!<span class="w"> </span>-L<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$d</span><span class="s2">&quot;</span><span class="w"> </span><span class="o">]</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="o">[</span><span class="w"> </span>-O<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$d</span><span class="s2">&quot;</span><span class="w"> </span><span class="o">]</span><span class="p">;</span><span class="w"> </span><span class="k">then</span><span class="w"> </span><span class="nv">log</span><span class="o">=</span>/tmp/osprey-boot-hook.<span class="k">$(</span>id<span class="w"> </span>-u<span class="k">)</span>/boot.log<span class="p">;</span><span class="w"> </span><span class="k">else</span><span class="w"> </span><span class="nv">log</span><span class="o">=</span>/dev/null<span class="p">;</span><span class="w"> </span><span class="k">fi</span><span class="p">;</span><span class="w"> </span><span class="nb">echo</span><span class="w"> </span><span class="s2">&quot;</span><span class="k">$(</span>date<span class="k">)</span><span class="s2"> osprey-boot-hook: cron fired&quot;</span><span class="w"> </span>&gt;&gt;<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$log</span><span class="s2">&quot;</span><span class="p">;</span><span class="w"> </span><span class="nv">n</span><span class="o">=</span><span class="m">0</span><span class="p">;</span><span class="w"> </span><span class="k">until</span><span class="w"> </span><span class="o">[</span><span class="w"> </span>-x<span class="w"> </span>/path/to/repo/ops/scripts/osprey-boot-hook.sh<span class="w"> </span><span class="o">]</span><span class="w"> </span><span class="o">||</span><span class="w"> </span><span class="o">[</span><span class="w"> </span><span class="nv">$n</span><span class="w"> </span>-ge<span class="w"> </span><span class="m">120</span><span class="w"> </span><span class="o">]</span><span class="p">;</span><span class="w"> </span><span class="k">do</span><span class="w"> </span>sleep<span class="w"> </span><span class="m">5</span><span class="p">;</span><span class="w"> </span><span class="nv">n</span><span class="o">=</span><span class="k">$((</span><span class="nv">n</span><span class="o">+</span><span class="m">1</span><span class="k">))</span><span class="p">;</span><span class="w"> </span><span class="k">done</span><span class="p">;</span><span class="w"> </span><span class="k">if</span><span class="w"> </span><span class="o">[</span><span class="w"> </span>-x<span class="w"> </span>/path/to/repo/ops/scripts/osprey-boot-hook.sh<span class="w"> </span><span class="o">]</span><span class="p">;</span><span class="w"> </span><span class="k">then</span><span class="w"> </span><span class="nb">exec</span><span class="w"> </span>/path/to/repo/ops/scripts/osprey-boot-hook.sh<span class="p">;</span><span class="w"> </span><span class="k">fi</span><span class="p">;</span><span class="w"> </span><span class="nb">echo</span><span class="w"> </span><span class="s2">&quot;</span><span class="k">$(</span>date<span class="k">)</span><span class="s2"> osprey-boot-hook: gave up, /path/to/repo/ops/scripts/osprey-boot-hook.sh never appeared&quot;</span><span class="w"> </span><span class="p">|</span><span class="w"> </span>tee<span class="w"> </span>-a<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$log</span><span class="s2">&quot;</span>
 </pre></div>
 </div>
 <p>The job is deliberately not a bare <code class="docutils literal notranslate"><span class="pre">&#64;reboot</span></code> with the script’s path, because
@@ -1415,7 +1416,7 @@ over containers another checkout of the repository created under the same
 container, the drift check that refuses when <code class="docutils literal notranslate"><span class="pre">build/</span></code> no longer
 matches <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code>, minting any missing service credentials into
 <code class="docutils literal notranslate"><span class="pre">.env</span></code>, the second compose invocation a multi-user deployment needs for its
-web tier, and <code class="docutils literal notranslate"><span class="pre">scripts/verify.sh</span></code> afterwards.</p></li>
+web tier, and <code class="docutils literal notranslate"><span class="pre">ops/scripts/verify.sh</span></code> afterwards.</p></li>
 </ul>
 <p>Wrapping the verb keeps all of that in one place: the unit is two commands, and
 a boot does exactly what you do by hand.</p>

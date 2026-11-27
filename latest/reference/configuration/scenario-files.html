@@ -492,7 +492,7 @@
                   
   <section id="scenario-files">
 <span id="reference-scenario-files"></span><h1>Scenario files<a class="headerlink" href="#scenario-files" title="Link to this heading">#</a></h1>
-<p>A scenario file is one YAML file under <code class="docutils literal notranslate"><span class="pre">data/facility/scenarios/</span></code>; the file
+<p>A scenario file is one YAML file under <code class="docutils literal notranslate"><span class="pre">facility/simulation/scenarios/</span></code>; the file
 name is the scenario name. This page lists what the file may hold. Applying
 and writing scenarios is in <a class="reference internal" href="../../how-to/control-systems/use-virtual-accelerator.html#how-to-run-scenarios"><span class="std std-ref">Scenarios</span></a>.</p>
 <section id="keys">
@@ -537,14 +537,14 @@ itself. They work on any simulated channel, wired to a model or not.
 optionally <code class="docutils literal notranslate"><span class="pre">tags</span></code>, <code class="docutils literal notranslate"><span class="pre">categories</span></code>, <code class="docutils literal notranslate"><span class="pre">loto_tag</span></code>, <code class="docutils literal notranslate"><span class="pre">extra</span></code> and
 <code class="docutils literal notranslate"><span class="pre">attachments</span></code>. <code class="docutils literal notranslate"><span class="pre">attachments</span></code> lists the entry’s pictures, each
 <code class="docutils literal notranslate"><span class="pre">{path:</span> <span class="pre">&lt;picture</span> <span class="pre">file&gt;}</span></code> or <code class="docutils literal notranslate"><span class="pre">{plot:</span> <span class="pre">&lt;plot</span> <span class="pre">spec</span> <span class="pre">.json&gt;}</span></code>, relative
-to the folder <code class="docutils literal notranslate"><span class="pre">data/facility/scenarios/&lt;name&gt;/</span></code>.</p></td>
+to the folder <code class="docutils literal notranslate"><span class="pre">facility/simulation/scenarios/&lt;name&gt;/</span></code>.</p></td>
 </tr>
 <tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">drivers</span></code>, <code class="docutils literal notranslate"><span class="pre">couple</span></code></p></td>
 <td><p>Slow shared signals, and the channels that follow them.</p></td>
 </tr>
 <tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">noise</span></code></p></td>
 <td><p>Per-channel noise while the scenario is active, replacing the noise
-the channel’s record in <code class="docutils literal notranslate"><span class="pre">seeds.yaml</span></code> states.
+the channel’s record in <code class="docutils literal notranslate"><span class="pre">simulation/seeds.yaml</span></code> states.
 Write <code class="docutils literal notranslate"><span class="pre">{&lt;address&gt;:</span> <span class="pre">{absolute:</span> <span class="pre">&lt;sigma&gt;}}</span></code> for a sigma in the
 channel’s unit. Write <code class="docutils literal notranslate"><span class="pre">{&lt;address&gt;:</span> <span class="pre">{relative:</span> <span class="pre">&lt;fraction&gt;}}</span></code> for a
 sigma that is a fraction of the reading.</p></td>

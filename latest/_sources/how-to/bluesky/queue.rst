@@ -380,7 +380,7 @@ quirks worth knowing:
    :doc:`../control-systems/use-virtual-accelerator`.
 
    One timing detail worth knowing: the channel limits a plan's writes are
-   checked against come from the records in ``data/facility/limits.yaml``,
+   checked against come from the records in ``facility/limits.yaml``,
    which ``osprey build`` renders into the limits database it stages for the
    plan lane. So widening or
    tightening a limit in your deployment repository reaches the queue server at

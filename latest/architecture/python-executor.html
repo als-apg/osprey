@@ -937,16 +937,12 @@ run reads its own permissions from. A write here is either lost at the next
 build or, worse, survives as a rendered setting nobody wrote.</p></li>
 <li><p><strong>The profile sources</strong> — what the build reads to produce that render:</p>
 <ul>
-<li><p><code class="docutils literal notranslate"><span class="pre">profile.yml</span></code>, with <code class="docutils literal notranslate"><span class="pre">providers.yml</span></code>, <code class="docutils literal notranslate"><span class="pre">triggers.yml</span></code>,
-<code class="docutils literal notranslate"><span class="pre">ci-extra.yml</span></code>, <code class="docutils literal notranslate"><span class="pre">osprey.service</span></code> and <code class="docutils literal notranslate"><span class="pre">.dockerignore</span></code> beside it</p></li>
-<li><p>the <code class="docutils literal notranslate"><span class="pre">tiers/</span></code>, <code class="docutils literal notranslate"><span class="pre">apps/</span></code>, <code class="docutils literal notranslate"><span class="pre">profiles/</span></code>, <code class="docutils literal notranslate"><span class="pre">data/</span></code>, <code class="docutils literal notranslate"><span class="pre">scripts/</span></code> and
-<code class="docutils literal notranslate"><span class="pre">watchdogs/</span></code> directories, and the directory under the retired spelling
-of <code class="docutils literal notranslate"><span class="pre">tiers/</span></code></p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">.osprey/</span></code>, which holds the saved copy of what the presets produced</p></li>
-<li><p>the convention directories (<code class="docutils literal notranslate"><span class="pre">rules/</span></code>, <code class="docutils literal notranslate"><span class="pre">skills/</span></code>, <code class="docutils literal notranslate"><span class="pre">agents/</span></code>,
-<code class="docutils literal notranslate"><span class="pre">commands/</span></code>, <code class="docutils literal notranslate"><span class="pre">output-styles/</span></code>, <code class="docutils literal notranslate"><span class="pre">hooks/</span></code>, <code class="docutils literal notranslate"><span class="pre">web-terminal-context/</span></code>,
-<code class="docutils literal notranslate"><span class="pre">mcp_servers/</span></code>, <code class="docutils literal notranslate"><span class="pre">services/</span></code>)</p></li>
-<li><p>the <code class="docutils literal notranslate"><span class="pre">project/</span></code> mirror</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">profile.yml</span></code>, with <code class="docutils literal notranslate"><span class="pre">providers.yml</span></code>, <code class="docutils literal notranslate"><span class="pre">triggers.yml</span></code> and
+<code class="docutils literal notranslate"><span class="pre">.dockerignore</span></code> beside it</p></li>
+<li><p>the <code class="docutils literal notranslate"><span class="pre">facility/</span></code>, <code class="docutils literal notranslate"><span class="pre">web/</span></code>, <code class="docutils literal notranslate"><span class="pre">tiers/</span></code>, <code class="docutils literal notranslate"><span class="pre">apps/</span></code>, <code class="docutils literal notranslate"><span class="pre">profiles/</span></code> and
+<code class="docutils literal notranslate"><span class="pre">.osprey/</span></code> directories</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">agent/</span></code> and <code class="docutils literal notranslate"><span class="pre">ops/</span></code> whole, and the same entries at their former paths
+in a repository still at a <a class="reference internal" href="../how-to/build-profiles.html#profile-root-migration"><span class="std std-ref">retired layout</span></a></p></li>
 </ul>
 </li>
 <li><p><strong>The agent record’s directories</strong> (<code class="docutils literal notranslate"><span class="pre">var/spool/</span></code>, <code class="docutils literal notranslate"><span class="pre">var/agent_record/</span></code>,
@@ -957,6 +953,9 @@ could erase or forge the evidence of its own refusal.</p></li>
 <li><p><strong>The pre-upgrade audit files</strong> — the files a deployment
 kept before the agent record. Nothing writes them, and they stay protected
 for the same reason.</p></li>
+<li><p><strong>The runtime certificates</strong> (<code class="docutils literal notranslate"><span class="pre">var/runtime/</span></code>) — the keys <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code>
+mints for the containers it starts. A run that could replace them could
+swap the keys a running stack trusts.</p></li>
 </ul>
 <p><strong>The paths the profile names.</strong> A profile can name locations outside those
 names that the build or a service reads: a plan directory, a CA bundle, a

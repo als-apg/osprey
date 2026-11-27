@@ -553,8 +553,8 @@
 <span id="how-to-import-mml-export"></span><h1>Import a MATLAB Middle Layer export<a class="headerlink" href="#import-a-matlab-middle-layer-export" title="Link to this heading">#</a></h1>
 <p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">facility</span> <span class="pre">import</span> <span class="pre">mml</span></code> reads a MATLAB Middle Layer (MML) export and
 writes it as sources of your facility description, under
-<code class="docutils literal notranslate"><span class="pre">data/facility/imported/mml/</span></code>. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> merges those sources with
-everything else under <code class="docutils literal notranslate"><span class="pre">data/facility/</span></code>; the import itself builds nothing.</p>
+<code class="docutils literal notranslate"><span class="pre">facility/imported/mml/</span></code>. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> merges those sources with
+everything else under <code class="docutils literal notranslate"><span class="pre">facility/</span></code>; the import itself builds nothing.</p>
 <section id="export-from-matlab">
 <h2>Export from MATLAB<a class="headerlink" href="#export-from-matlab" title="Link to this heading">#</a></h2>
 <p>The exporter ships with OSPREY. Print it, copy it to the MATLAB host and run it
@@ -644,7 +644,7 @@ model against the MML’s reads.</p>
 </pre></div>
 </div>
 <p>The first run finds no mapping, writes a draft to
-<code class="docutils literal notranslate"><span class="pre">data/facility/imported/mml/mapping.yaml</span></code> and stops with
+<code class="docutils literal notranslate"><span class="pre">facility/imported/mml/mapping.yaml</span></code> and stops with
 <code class="docutils literal notranslate"><span class="pre">import</span> <span class="pre">mml:</span> <span class="pre">mapping-draft</span></code>. No record is written. Review the draft, then
 run the same command again.</p>
 <p>The import takes every export the mapping names: a run given a subset is
@@ -736,8 +736,8 @@ its planes optionally ending in <code class="docutils literal notranslate"><span
 vocabulary lacks, each as <code class="docutils literal notranslate"><span class="pre">&lt;class&gt;:</span> <span class="pre">{parent,</span> <span class="pre">description}</span></code>. A family whose
 <code class="docutils literal notranslate"><span class="pre">class</span></code> is neither a vocabulary class nor a declared branch names the class
 it extends as its <code class="docutils literal notranslate"><span class="pre">branch</span></code>. The import writes each class the vocabulary
-lacks to <code class="docutils literal notranslate"><span class="pre">classes.yaml</span></code>.</p>
-<p>The <code class="docutils literal notranslate"><span class="pre">facility:</span></code> block seeds <code class="docutils literal notranslate"><span class="pre">data/facility/identity.yaml</span></code> on the first
+lacks to <code class="docutils literal notranslate"><span class="pre">vocabulary/classes.yaml</span></code>.</p>
+<p>The <code class="docutils literal notranslate"><span class="pre">facility:</span></code> block seeds <code class="docutils literal notranslate"><span class="pre">facility/identity.yaml</span></code> on the first
 import and is then removed from the mapping.</p>
 <p>A mapping that disagrees with the exports prints one <code class="docutils literal notranslate"><span class="pre">&lt;key&gt;:</span> <span class="pre">&lt;message&gt;</span></code> line
 per problem and writes nothing. Fix each line and run the import again.</p>
@@ -745,10 +745,10 @@ per problem and writes nothing. Fix each line and run the import again.</p>
 <section id="what-the-import-writes">
 <h2>What the import writes<a class="headerlink" href="#what-the-import-writes" title="Link to this heading">#</a></h2>
 <p>A clean run prints one <code class="docutils literal notranslate"><span class="pre">wrote</span> <span class="pre">&lt;path&gt;</span></code> line per file. The record files under
-<code class="docutils literal notranslate"><span class="pre">data/facility/imported/mml/</span></code> are rewritten by every import; <code class="docutils literal notranslate"><span class="pre">mapping.yaml</span></code>
+<code class="docutils literal notranslate"><span class="pre">facility/imported/mml/</span></code> are rewritten by every import; <code class="docutils literal notranslate"><span class="pre">mapping.yaml</span></code>
 is yours and is only drafted when absent. The authored files beside them —
-<code class="docutils literal notranslate"><span class="pre">limits.yaml</span></code>, <code class="docutils literal notranslate"><span class="pre">seeds.yaml</span></code>, <code class="docutils literal notranslate"><span class="pre">identity.yaml</span></code>,
-<code class="docutils literal notranslate"><span class="pre">measurement/&lt;model&gt;.yaml</span></code> and <code class="docutils literal notranslate"><span class="pre">scenarios/readout.yaml</span></code> — are created
+<code class="docutils literal notranslate"><span class="pre">limits.yaml</span></code>, <code class="docutils literal notranslate"><span class="pre">simulation/seeds.yaml</span></code>, <code class="docutils literal notranslate"><span class="pre">identity.yaml</span></code>,
+<code class="docutils literal notranslate"><span class="pre">simulation/measurement/&lt;model&gt;.yaml</span></code> and <code class="docutils literal notranslate"><span class="pre">simulation/scenarios/readout.yaml</span></code> — are created
 only when absent and never rewritten, so your edits to them survive a
 re-import. Beside an existing <code class="docutils literal notranslate"><span class="pre">limits.yaml</span></code> the import prints a
 <code class="docutils literal notranslate"><span class="pre">limits</span> <span class="pre">differ:</span> <span class="pre">&lt;address&gt;</span> <span class="pre">file</span> <span class="pre">[..]</span> <span class="pre">export</span> <span class="pre">[..]</span></code> line for each record whose
@@ -757,9 +757,9 @@ counting the setpoints the export bands that the file has no record for,
 followed by the first ten with their band; it writes none of them. A
 <code class="docutils literal notranslate"><span class="pre">Range</span></code> given as one row per device whose row count is not the family’s
 device count gives no band, and the import prints one <code class="docutils literal notranslate"><span class="pre">limits</span> <span class="pre">table</span>
-<span class="pre">skipped:</span></code> line for that field. <code class="docutils literal notranslate"><span class="pre">classes.yaml</span></code> is created when absent; when it exists, the import
+<span class="pre">skipped:</span></code> line for that field. <code class="docutils literal notranslate"><span class="pre">vocabulary/classes.yaml</span></code> is created when absent; when it exists, the import
 appends only the classes it lacks and leaves its rows as written.
-<code class="docutils literal notranslate"><span class="pre">measurement/&lt;model&gt;.yaml</span></code> names, as <code class="docutils literal notranslate"><span class="pre">quad</span></code> and <code class="docutils literal notranslate"><span class="pre">sext</span></code>, the families the
+<code class="docutils literal notranslate"><span class="pre">simulation/measurement/&lt;model&gt;.yaml</span></code> names, as <code class="docutils literal notranslate"><span class="pre">quad</span></code> and <code class="docutils literal notranslate"><span class="pre">sext</span></code>, the families the
 export tags as tune and chromaticity correctors, and lists every kind those
 groups and instruments allow; the import names the wired families it left out.</p>
 <p>Each device carries the export’s <code class="docutils literal notranslate"><span class="pre">CommonNames</span></code> entry as its <code class="docutils literal notranslate"><span class="pre">label</span></code>. The
@@ -853,7 +853,7 @@ whose conversion curves the pass cut, and
 <code class="docutils literal notranslate"><span class="pre">import</span> <span class="pre">mml:</span> <span class="pre">supplies</span> <span class="pre">folded:</span> <span class="pre">&lt;model&gt;:</span> <span class="pre">family</span> <span class="pre">&lt;family&gt;</span> <span class="pre">(&lt;n&gt;)</span></code> names a family
 whose supplies feed several devices. Both go to stdout and never stop the
 import.</p>
-<p>Before it reads an export, the import looks at <code class="docutils literal notranslate"><span class="pre">data/facility/</span></code>:</p>
+<p>Before it reads an export, the import looks at <code class="docutils literal notranslate"><span class="pre">facility/</span></code>:</p>
 <ul class="simple">
 <li><p>Hand-written records of a kind this format writes refuse the import, which
 names each file, changes nothing and exits 1. The mml format writes channel,
@@ -864,7 +864,7 @@ writes atop the files it creates,
 <code class="docutils literal notranslate"><span class="pre">#</span> <span class="pre">Seeded</span> <span class="pre">once</span> <span class="pre">by</span> <span class="pre">the</span> <span class="pre">facility</span> <span class="pre">import;</span> <span class="pre">edit</span> <span class="pre">this</span> <span class="pre">file</span> <span class="pre">by</span> <span class="pre">hand.</span></code>
 A file that opens with the retired header is read as seeded, and the import
 prints one warning that lists each such file and the line to set.
-Corrections belong in <code class="docutils literal notranslate"><span class="pre">fixes.yaml</span></code>.</p></li>
+Corrections belong in <code class="docutils literal notranslate"><span class="pre">provenance/fixes.yaml</span></code>.</p></li>
 <li><p>Once the facility holds an imported layer, records written by hand beside it
 stay and stop no import. They are the facility’s own additions, such as a
 model no export states, and the build combines them with the layers.</p></li>
@@ -872,7 +872,7 @@ model no export states, and the build combines them with the layers.</p></li>
 <code class="docutils literal notranslate"><span class="pre">import</span> <span class="pre">mml:</span> <span class="pre">replaced</span> <span class="pre">the</span> <span class="pre">bundled</span> <span class="pre">example</span> <span class="pre">facility</span> <span class="pre">(&lt;n&gt;</span> <span class="pre">files)</span></code>. The line
 prints before the export is read, so a stop that follows it, such as a mapping
 draft, comes after the replacement.</p></li>
-<li><p>Everything else of your own stays, such as <code class="docutils literal notranslate"><span class="pre">fixes.yaml</span></code>, your knowledge pages
+<li><p>Everything else of your own stays, such as <code class="docutils literal notranslate"><span class="pre">provenance/fixes.yaml</span></code>, your knowledge pages
 and hand-written records of other kinds.</p></li>
 </ul>
 <p>The import regenerates the knowledge indexes, so your kept pages are listed, and

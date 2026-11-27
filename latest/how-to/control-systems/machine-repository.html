@@ -562,15 +562,14 @@ deployment of the same machine mounts the same commit of it.</p>
 <h2>What goes where<a class="headerlink" href="#what-goes-where" title="Link to this heading">#</a></h2>
 <div class="highlight-text notranslate"><div class="highlight"><pre><span></span>example-machine/              the machine repository
   profile.yml                 its VA-only setup
-  data/facility/              the machine facts
-    identity.yaml  records/  classes.yaml  models.yaml  decks/
-    limits.yaml  seeds.yaml  measurement/  scenarios/  fixes.yaml
-    imported/&lt;layer&gt;/
+  facility/                   the machine facts
+    identity.yaml  records/  limits.yaml  imported/&lt;layer&gt;/
+    vocabulary/  provenance/  simulation/
 
 my-deployment/                a deployment
-  profile.yml                 states machine: vendor/example-machine/data/facility
+  profile.yml                 states machine: vendor/example-machine/facility
   vendor/example-machine/     the machine repository, mounted
-  data/facility/
+  facility/
     knowledge/  ariel/  benchmarks/
 </pre></div>
 </div>
@@ -592,11 +591,10 @@ records it in a stored archive. It runs no agent, so it needs no provider key:</
 <span class="c1"># archive, with no agent services: building and serving it needs no provider</span>
 <span class="c1"># key. It is an ordinary profile, not a materialized one, so `osprey validate`</span>
 <span class="c1"># checks it as written. The start set is not stated here: the scenarios marked</span>
-<span class="c1"># `start: true` in data/facility/scenarios/ are the machine&#39;s start set.</span>
+<span class="c1"># `start: true` in data/facility/simulation/scenarios/ are the machine&#39;s start set.</span>
 <span class="nt">extends</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">hello-world</span>
 <span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">Example Machine</span>
 <span class="nt">project_name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">example-machine</span>
-<span class="nt">data</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">data</span>
 
 <span class="nt">virtual_accelerator</span><span class="p">:</span>
 <span class="w">  </span><span class="nt">port</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">5064</span>
@@ -621,11 +619,12 @@ same) and name its facility directory in the root <code class="docutils literal 
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>git<span class="w"> </span>submodule<span class="w"> </span>add<span class="w"> </span>&lt;url&gt;<span class="w"> </span>vendor/example-machine
 </pre></div>
 </div>
-<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">machine</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">vendor/example-machine/data/facility</span>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">machine</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">vendor/example-machine/facility</span>
 </pre></div>
 </div>
-<p><code class="docutils literal notranslate"><span class="pre">machine:</span></code> resolves and is folded into the profile hash like <code class="docutils literal notranslate"><span class="pre">data:</span></code>
-(<a class="reference internal" href="../build-profiles.html"><span class="doc">Build Profiles</span></a>), so a new machine commit reports the build out of date.
+<p><code class="docutils literal notranslate"><span class="pre">machine:</span></code> resolves against the repository root, and the tree it names is
+folded into the profile hash like <code class="docutils literal notranslate"><span class="pre">facility/</span></code> (<a class="reference internal" href="../build-profiles.html"><span class="doc">Build Profiles</span></a>),
+so a new machine commit reports the build out of date.
 Only the root <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code> states it; every login drives the same
 machine. A machine builds to the same facility file standalone and mounted,
 except for a measurement kind only the mounting deployment’s package registers:
@@ -633,7 +632,7 @@ standalone, the kind is deferred with a <code class="docutils literal notranslat
 deployment judges its block (<a class="reference internal" href="../pyaml/register-a-measurement-kind.html"><span class="doc">Register a measurement kind</span></a>).</p>
 <p>With <code class="docutils literal notranslate"><span class="pre">machine:</span></code> set, <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">facility</span> <span class="pre">import</span></code> writes into the machine root,
 except the knowledge index, which goes under the deployment’s
-<code class="docutils literal notranslate"><span class="pre">data/facility/knowledge/</span></code>. Commit the change in the machine repository, then
+<code class="docutils literal notranslate"><span class="pre">facility/knowledge/</span></code>. Commit the change in the machine repository, then
 the new submodule commit in the deployment.</p>
 </section>
 <section id="stops">
@@ -643,18 +642,34 @@ fix, on:</p>
 <dl class="simple">
 <dt><code class="docutils literal notranslate"><span class="pre">machine-missing</span></code></dt><dd><p>The machine root holds no <code class="docutils literal notranslate"><span class="pre">identity.yaml</span></code>: the submodule is not
 initialised (<code class="docutils literal notranslate"><span class="pre">git</span> <span class="pre">submodule</span> <span class="pre">update</span> <span class="pre">--init</span></code>), or <code class="docutils literal notranslate"><span class="pre">machine:</span></code> names the
-repository top instead of its <code class="docutils literal notranslate"><span class="pre">data/facility</span></code>.</p>
+repository top instead of its <code class="docutils literal notranslate"><span class="pre">facility</span></code>.</p>
 </dd>
-<dt><code class="docutils literal notranslate"><span class="pre">machine-restated</span></code></dt><dd><p>The deployment’s <code class="docutils literal notranslate"><span class="pre">data/facility/</span></code> holds a file outside <code class="docutils literal notranslate"><span class="pre">knowledge/</span></code>,
+<dt><code class="docutils literal notranslate"><span class="pre">machine-restated</span></code></dt><dd><p>The deployment’s <code class="docutils literal notranslate"><span class="pre">facility/</span></code> holds a file outside <code class="docutils literal notranslate"><span class="pre">knowledge/</span></code>,
 <code class="docutils literal notranslate"><span class="pre">ariel/</span></code> and <code class="docutils literal notranslate"><span class="pre">benchmarks/</span></code>. Edit the fact in the machine repository and
 remove the deployment’s copy.</p>
 </dd>
-<dt><code class="docutils literal notranslate"><span class="pre">profile-invalid</span></code></dt><dd><p><code class="docutils literal notranslate"><span class="pre">machine:</span></code> and <code class="docutils literal notranslate"><span class="pre">data:</span></code> overlap; a login file states <code class="docutils literal notranslate"><span class="pre">machine:</span></code>; or the
+<dt><code class="docutils literal notranslate"><span class="pre">profile-invalid</span></code></dt><dd><p><code class="docutils literal notranslate"><span class="pre">machine:</span></code> and <code class="docutils literal notranslate"><span class="pre">facility/</span></code> overlap; a login file states <code class="docutils literal notranslate"><span class="pre">machine:</span></code>; or the
 profile states <code class="docutils literal notranslate"><span class="pre">simulation.default_scenarios</span></code> beside <code class="docutils literal notranslate"><span class="pre">start:</span> <span class="pre">true</span></code> or
 <code class="docutils literal notranslate"><span class="pre">start_on</span></code> marks or a mounted machine. <code class="docutils literal notranslate"><span class="pre">simulation.default_scenarios:</span> <span class="pre">null</span></code> cancels a
 preset’s value.</p>
 </dd>
 </dl>
+</section>
+<section id="upgrade">
+<span id="machine-repository-upgrade"></span><h2>Upgrade<a class="headerlink" href="#upgrade" title="Link to this heading">#</a></h2>
+<p>When an upgrade moves a facility path, upgrade OSPREY in
+every deployment that mounts the machine repository before the machine
+repository changes: an older OSPREY reads a moved machine without the moved
+files, and says nothing.</p>
+<ol class="arabic simple">
+<li><p>In each mounting deployment, upgrade OSPREY and run
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">init</span> <span class="pre">--revalidate</span></code>. It leaves the machine as it is and prints the
+commands that move it under “Left for you to do by hand”; its builds refuse
+the machine until it moves (<a class="reference internal" href="../build-profiles.html#profile-root-migration"><span class="std std-ref">A repository at a retired layout</span></a>).</p></li>
+<li><p>In the machine repository, upgrade OSPREY, run
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">init</span> <span class="pre">--revalidate</span></code> (or the printed commands) and commit.</p></li>
+<li><p>In each deployment, commit the new submodule commit.</p></li>
+</ol>
 </section>
 </section>
 
@@ -709,6 +724,7 @@ preset’s value.</p>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#the-machine-s-own-profile">The machine’s own profile</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#mount-it">Mount it</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#stops">Stops</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#upgrade">Upgrade</a></li>
 </ul>
   </nav></div>
 

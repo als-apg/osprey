@@ -644,7 +644,7 @@ importable module (<code class="docutils literal notranslate"><span class="pre">
 file (<code class="docutils literal notranslate"><span class="pre">./health/facility_checks.py</span></code>).</p></li>
 </ol>
 <p>A relative file path is resolved against the project root, the same anchor
-<code class="docutils literal notranslate"><span class="pre">data/</span></code> and <code class="docutils literal notranslate"><span class="pre">plans/</span></code> use. So a deployment can keep its checks beside its
+<code class="docutils literal notranslate"><span class="pre">facility/</span></code> and <code class="docutils literal notranslate"><span class="pre">plans/</span></code> use. So a deployment can keep its checks beside its
 profile without packaging them or setting <code class="docutils literal notranslate"><span class="pre">PYTHONPATH</span></code>. A file loaded that
 way is given a synthetic module name derived from its path. It is
 <strong>re-executed</strong> every time the health config is reloaded, so it must not keep

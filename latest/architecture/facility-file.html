@@ -470,7 +470,7 @@
   <section id="facility-file-and-its-views">
 <span id="architecture-facility-file"></span><h1>Facility File and Its Views<a class="headerlink" href="#facility-file-and-its-views" title="Link to this heading">#</a></h1>
 <p>OSPREY keeps one description of a facility and derives everything else from
-it. The sources under <code class="docutils literal notranslate"><span class="pre">data/facility/</span></code> are combined by <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> into
+it. The sources under <code class="docutils literal notranslate"><span class="pre">facility/</span></code> are combined by <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> into
 the <em>facility file</em>, and each service reads a <em>view</em> of that file, a file in
 the shape the service needs. No service keeps a channel list of its own, so
 the channel finder, the limits check, the simulator and the knowledge graph
@@ -480,13 +480,13 @@ about what the build makes of them. How the facility code splits into the
 osprey-facility and osprey-panels packages is in <a class="reference internal" href="facility-packages.html"><span class="doc">Facility Packages</span></a>.</p>
 <div class="osprey-diagram">
 <svg viewBox="0 0 1200 700" role="img" aria-labelledby="fm-title fm-desc">
-  <title id="fm-title">The facility file: sources under data/facility, one facility file, a view per service</title>
-  <desc id="fm-desc">On the left, the sources under data/facility. Imported sources are written by osprey facility import mml, from a Middle Layer export, into imported/mml, and by osprey facility import list, from a channel list, into imported/list; each import rewrites its own directory. Authored sources are edited by hand: records, models and decks; fixes.yaml; limits.yaml and seeds.yaml; measurement and scenarios; identity.yaml and classes.yaml; and the knowledge pages. osprey build loads, combines, applies the fixes, validates against the facility-agnostic schema (core.yaml and vocabulary.yaml, LinkML carried from NARAD) and computes, giving one file, build/facility.json, with places, devices, channels, groups, models and limits, plus identity, classes and scenarios, and the provenance of every record. From it the build writes one view per service: the channel-finder index of the selected pipeline, read by the channel-finder server; the graph, data/graph/facility.ttl, seeded into the graph store by osprey up; the simulator view, served by the virtual accelerator; a pyAML configuration per measured model, read by the measurement tools in the python executor; the Bluesky devices, read by the Bluesky worker; the benchmark queries, read by osprey channel-finder benchmark; the limits, read by the write checks; and the facts, read into the agents' prompts and the facility_description tool. The knowledge pages are read in place by the facility-knowledge server; the build checks that each page's device link names a device.</desc>
+  <title id="fm-title">The facility file: sources under facility, one facility file, a view per service</title>
+  <desc id="fm-desc">On the left, the sources under facility. Imported sources are written by osprey facility import mml, from a Middle Layer export, into imported/mml, and by osprey facility import list, from a channel list, into imported/list; each import rewrites its own directory. Authored sources are edited by hand: identity.yaml and records; limits.yaml; vocabulary, the classes and signal roles the facility adds; provenance, its documents, policy and fixes; simulation, the models, decks, seeds, measurements and scenarios; and the knowledge pages. osprey build loads, combines, applies the fixes, validates against the facility-agnostic schema (core.yaml and vocabulary.yaml, LinkML carried from NARAD) and computes, giving one file, build/facility.json, with places, devices, channels, groups, models and limits, plus identity, classes and scenarios, and the provenance of every record. From it the build writes one view per service: the channel-finder index of the selected pipeline, read by the channel-finder server; the graph, data/graph/facility.ttl, seeded into the graph store by osprey up; the simulator view, served by the virtual accelerator; a pyAML configuration per measured model, read by the measurement tools in the python executor; the Bluesky devices, read by the Bluesky worker; the benchmark queries, read by osprey channel-finder benchmark; the limits, read by the write checks; and the facts, read into the agents' prompts and the facility_description tool. The knowledge pages are read in place by the facility-knowledge server; the build checks that each page's device link names a device.</desc>
   <defs>
     <marker id="fm-arr" viewBox="0 0 8 6" refX="7" refY="3" markerWidth="8" markerHeight="6" orient="auto-start-reverse"><polygon points="0,0 8,3 0,6" style="fill: var(--od-muted)"/></marker>
     <marker id="fm-arr-acc" viewBox="0 0 8 6" refX="7" refY="3" markerWidth="8" markerHeight="6" orient="auto-start-reverse"><polygon points="0,0 8,3 0,6" style="fill: var(--od-accent)"/></marker>
   </defs>
-  <text class="te" x="176" y="30" text-anchor="middle">SOURCES · data/facility/</text>
+  <text class="te" x="176" y="30" text-anchor="middle">SOURCES · facility/</text>
   <text class="te" x="550" y="30" text-anchor="middle">THE FACILITY FILE</text>
   <text class="te" x="815" y="30" text-anchor="middle">VIEWS · build/data/</text>
   <text class="te" x="1075" y="30" text-anchor="middle">READ BY</text>
@@ -507,24 +507,24 @@ osprey-facility and osprey-panels packages is in <a class="reference internal" h
   <rect class="zone" x="16" y="210" width="320" height="430" rx="8"/>
   <text class="te" x="28" y="228">AUTHORED · EDITED BY HAND</text>
   <rect class="nb-in" x="28" y="240" width="232" height="50" rx="6"/>
-  <text class="tn" x="144" y="260" text-anchor="middle">records/ · models.yaml · decks/</text>
-  <text class="ts" x="144" y="276" text-anchor="middle">places, devices, channels, groups, models</text>
+  <text class="tn" x="144" y="260" text-anchor="middle">identity.yaml · records/</text>
+  <text class="ts" x="144" y="276" text-anchor="middle">who the facility is · its records</text>
   <line class="e" x1="260" y1="265" x2="360" y2="265" marker-end="url(#fm-arr)"/>
   <rect class="nb-in" x="28" y="300" width="232" height="50" rx="6"/>
-  <text class="tn" x="144" y="320" text-anchor="middle">fixes.yaml</text>
-  <text class="ts" x="144" y="336" text-anchor="middle">set · add · drop a record, by id</text>
+  <text class="tn" x="144" y="320" text-anchor="middle">limits.yaml</text>
+  <text class="ts" x="144" y="336" text-anchor="middle">write limits</text>
   <line class="e" x1="260" y1="325" x2="360" y2="325" marker-end="url(#fm-arr)"/>
   <rect class="nb-in" x="28" y="360" width="232" height="50" rx="6"/>
-  <text class="tn" x="144" y="380" text-anchor="middle">limits.yaml · seeds.yaml</text>
-  <text class="ts" x="144" y="396" text-anchor="middle">write limits · simulated channel behaviour</text>
+  <text class="tn" x="144" y="380" text-anchor="middle">vocabulary/</text>
+  <text class="ts" x="144" y="396" text-anchor="middle">classes · signal roles it adds</text>
   <line class="e" x1="260" y1="385" x2="360" y2="385" marker-end="url(#fm-arr)"/>
   <rect class="nb-in" x="28" y="420" width="232" height="50" rx="6"/>
-  <text class="tn" x="144" y="440" text-anchor="middle">measurement/ · scenarios/</text>
-  <text class="ts" x="144" y="456" text-anchor="middle">what a model measures · simulated faults</text>
+  <text class="tn" x="144" y="440" text-anchor="middle">provenance/</text>
+  <text class="ts" x="144" y="456" text-anchor="middle">documents · policy · fixes</text>
   <line class="e" x1="260" y1="445" x2="360" y2="445" marker-end="url(#fm-arr)"/>
   <rect class="nb-in" x="28" y="480" width="232" height="50" rx="6"/>
-  <text class="tn" x="144" y="500" text-anchor="middle">identity.yaml · classes.yaml</text>
-  <text class="ts" x="144" y="516" text-anchor="middle">who the facility is · classes it adds</text>
+  <text class="tn" x="144" y="500" text-anchor="middle">simulation/</text>
+  <text class="ts" x="144" y="516" text-anchor="middle">models · decks · seeds · scenarios</text>
   <line class="e" x1="260" y1="505" x2="360" y2="505" marker-end="url(#fm-arr)"/>
   <rect class="nb-in" x="28" y="578" width="232" height="50" rx="6"/>
   <text class="tn" x="144" y="598" text-anchor="middle">knowledge/</text>
@@ -642,7 +642,7 @@ osprey-facility and osprey-panels packages is in <a class="reference internal" h
   <line class="divider" x1="16" y1="660" x2="1184" y2="660"/>
   <text class="te" x="16" y="684">LEGEND</text>
   <rect x="88" y="675" width="10" height="10" rx="2" style="fill: var(--od-ext); stroke: var(--od-ext-stroke)"/>
-  <text class="ta" x="104" y="684">imported: corrected through fixes.yaml, never by hand</text>
+  <text class="ta" x="104" y="684">imported: corrected through provenance/fixes.yaml, never by hand</text>
   <rect x="440" y="675" width="10" height="10" rx="2" style="fill: var(--od-input); stroke: var(--od-soft)"/>
   <text class="ta" x="456" y="684">authored</text>
   <rect x="540" y="675" width="10" height="10" rx="2" style="fill: var(--od-accent-tint); stroke: var(--od-accent)"/>
@@ -838,7 +838,7 @@ build may write.</p></td>
 </tr>
 <tr class="row-odd"><td><p>combine</p></td>
 <td><p>Merges the layers field by field, stops on two layers that disagree,
-applies <code class="docutils literal notranslate"><span class="pre">fixes.yaml</span></code> and fills the defaults.</p></td>
+applies <code class="docutils literal notranslate"><span class="pre">provenance/fixes.yaml</span></code> and fills the defaults.</p></td>
 </tr>
 <tr class="row-even"><td><p>schema</p></td>
 <td><p>Holds the combined file to the facility-agnostic schema.</p></td>
@@ -930,9 +930,10 @@ mark, the names each simulator instance starts in, as <code class="docutils lite
 </tr>
 <tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">ariel.vocabulary.path</span></code></p></td>
 <td><p>the key</p></td>
-<td><p>the shipped <code class="docutils literal notranslate"><span class="pre">data/facility/ariel/vocabulary.yml</span></code></p></td>
-<td><p>while the vocabulary is on, name a file, resolved against the project
-root</p></td>
+<td><p>the render’s copy of the shipped file,
+<code class="docutils literal notranslate"><span class="pre">data/facility/ariel/vocabulary.yml</span></code></p></td>
+<td><p>while the vocabulary is on, name a file: in the render’s facility tree
+it is the render’s copy, elsewhere it resolves against the project root</p></td>
 </tr>
 <tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">channel_finder.benchmark.dataset_path</span></code></p></td>
 <td><p>the key</p></td>
@@ -1000,7 +1001,7 @@ middle-layer index</p></td>
 <tr class="row-even"><td><p>benchmarks</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">data/&lt;dataset_path&gt;</span></code>, by default <code class="docutils literal notranslate"><span class="pre">data/benchmarks/queries.json</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">channel_finder.benchmark.dataset_path</span></code> is stated and the facility
-ships query sources under <code class="docutils literal notranslate"><span class="pre">benchmarks/cross_paradigm/queries/</span></code></p></td>
+ships query sources under <code class="docutils literal notranslate"><span class="pre">benchmarks/channel_finder/</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">channel-finder</span> <span class="pre">benchmark</span></code>.</p></td>
 </tr>
 <tr class="row-odd"><td><p>pyaml</p></td>
@@ -1071,7 +1072,7 @@ optional relation slots are not carried; relations are claims
 <div class="osprey-diagram">
 <svg viewBox="0 0 1000 600" role="img" aria-labelledby="fv-title fv-desc">
   <title id="fv-title">The shared vocabulary: what a device class and a signal say, how the build pairs a setpoint with its readback, and what the graph stores</title>
-  <desc id="fv-desc">Top: the vocabulary, osprey_facility/schema/vocabulary.yaml, carried from NARAD. It holds 42 device classes such as Quadrupole, BeamPositionMonitor and AcceleratingCavity, with aliases, to which a facility adds its own in classes.yaml; 121 signal roles such as current_setpoint, current_readback, gap_setpoint and gap_readback, to which a facility adds its own in signals.yaml; and 15 properties. Middle: two channel records on the device SR/ID01, of class Undulator, which the facility adds under Magnet. SR:ID:01:GAP:SP is a setpoint with signal gap_setpoint; SR:ID:01:GAP:RB is a readback with signal gap_readback. Both name the quantity gap on the same device, which holds no other setpoint or readback of it, so the build pairs them; the Bluesky settable and every settled write wait on that readback. An unknown class or signal stops the build. Bottom: in the graph, SR/ID01, an Undulator, hasBinding SR:ID:01:GAP:RB, which readsSignal gap_readback; the agent finds channels by signal and class.</desc>
+  <desc id="fv-desc">Top: the vocabulary, osprey_facility/schema/vocabulary.yaml, carried from NARAD. It holds 42 device classes such as Quadrupole, BeamPositionMonitor and AcceleratingCavity, with aliases, to which a facility adds its own in vocabulary/classes.yaml; 121 signal roles such as current_setpoint, current_readback, gap_setpoint and gap_readback, to which a facility adds its own in vocabulary/signals.yaml; and 15 properties. Middle: two channel records on the device SR/ID01, of class Undulator, which the facility adds under Magnet. SR:ID:01:GAP:SP is a setpoint with signal gap_setpoint; SR:ID:01:GAP:RB is a readback with signal gap_readback. Both name the quantity gap on the same device, which holds no other setpoint or readback of it, so the build pairs them; the Bluesky settable and every settled write wait on that readback. An unknown class or signal stops the build. Bottom: in the graph, SR/ID01, an Undulator, hasBinding SR:ID:01:GAP:RB, which readsSignal gap_readback; the agent finds channels by signal and class.</desc>
   <defs>
     <marker id="fv-arr" viewBox="0 0 8 6" refX="7" refY="3" markerWidth="8" markerHeight="6" orient="auto-start-reverse"><polygon points="0,0 8,3 0,6" style="fill: var(--od-muted)"/></marker>
     <marker id="fv-arr-acc" viewBox="0 0 8 6" refX="7" refY="3" markerWidth="8" markerHeight="6" orient="auto-start-reverse"><polygon points="0,0 8,3 0,6" style="fill: var(--od-accent)"/></marker>
@@ -1083,7 +1084,7 @@ optional relation slots are not carried; relations are claims
   <text class="ts" x="190" y="42">osprey_facility/schema/vocabulary.yaml · carried from NARAD</text>
   <text class="ta" x="60" y="74">DEVICE CLASSES (42)</text>
   <text class="ts" x="220" y="74">Quadrupole, BeamPositionMonitor, AcceleratingCavity, … + aliases</text>
-  <text class="ts t-acc" x="220" y="89">a facility adds its own in classes.yaml</text>
+  <text class="ts t-acc" x="220" y="89">a facility adds its own in vocabulary/classes.yaml</text>
   <text class="ta" x="60" y="118">SIGNAL ROLES (121)</text>
   <text class="ts" x="220" y="118">current_setpoint, current_readback, gap_setpoint, gap_readback, …</text>
   <text class="ts t-acc" x="220" y="133">closed: a quantity it lacks is a change to OSPREY</text>
@@ -1096,7 +1097,7 @@ optional relation slots are not carried; relations are claims
   <!-- 2. two channels -->
   <rect class="nb-foc" x="40" y="210" width="920" height="200" rx="8"/>
   <text class="te" x="60" y="232">TWO CHANNEL RECORDS</text>
-  <text class="ts" x="230" y="232">on device SR/ID01, class Undulator (classes.yaml, parent Magnet)</text>
+  <text class="ts" x="230" y="232">on device SR/ID01, class Undulator (vocabulary/classes.yaml, parent Magnet)</text>
 
   <rect class="nb" x="60" y="248" width="380" height="72" rx="4"/>
   <text class="ta" x="76" y="268">address</text>
@@ -1141,10 +1142,10 @@ optional relation slots are not carried; relations are claims
   <text class="ts" x="60" y="552">“what are the undulator gaps?” → channels that readsSignal gap_readback, on Undulator devices</text>
 </svg>
 </div>
-<p>A facility adds device classes in <code class="docutils literal notranslate"><span class="pre">classes.yaml</span></code>, each under a vocabulary
+<p>A facility adds device classes in <code class="docutils literal notranslate"><span class="pre">vocabulary/classes.yaml</span></code>, each under a vocabulary
 class or one it added earlier; they reach the facts view and the graph with their aliases. A
 channel’s <code class="docutils literal notranslate"><span class="pre">signal</span></code> is a role the vocabulary lists or one the facility adds in
-<code class="docutils literal notranslate"><span class="pre">signals.yaml</span></code>. The build pairs setpoints with readbacks by the quantity their signals name, so a
+<code class="docutils literal notranslate"><span class="pre">vocabulary/signals.yaml</span></code>. The build pairs setpoints with readbacks by the quantity their signals name, so a
 quantity the vocabulary lacks pairs only through an explicit <code class="docutils literal notranslate"><span class="pre">pair</span></code>. The
 roles a measurement kind and an engine use are in
 <a class="reference internal" href="../reference/contracts/facility-kinds.html"><span class="doc">Facility Kinds Contract</span></a>.</p>

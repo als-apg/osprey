@@ -735,7 +735,7 @@ settable with a separate readback also carries its setpoint’s unit, as
 <code class="docutils literal notranslate"><span class="pre">setpoint_unit</span></code>. Every run records them, so <code class="docutils literal notranslate"><span class="pre">get_run_data</span></code> and the run’s
 figure state each column’s unit.</p>
 <p>Don’t edit this file: the build rewrites it every time. To change the device
-set, change the channels under <code class="docutils literal notranslate"><span class="pre">data/facility/</span></code> and build again.</p>
+set, change the channels under <code class="docutils literal notranslate"><span class="pre">facility/</span></code> and build again.</p>
 <p>A plan the agent writes during a session names channels from this same set.
 <code class="docutils literal notranslate"><span class="pre">list_devices</span></code> reads it. When the queue worker is running, two checks refuse
 a device the file does not declare, and both answer <code class="docutils literal notranslate"><span class="pre">unknown_device</span></code>:</p>
@@ -798,7 +798,7 @@ fault, and the build says so in its output.</p>
 <div class="admonition note">
 <p class="admonition-title">Note</p>
 <p><strong>The limits database is not the channel list.</strong> The limits are the
-records of <code class="docutils literal notranslate"><span class="pre">data/facility/limits.yaml</span></code>. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> renders them
+records of <code class="docutils literal notranslate"><span class="pre">facility/limits.yaml</span></code>. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> renders them
 into <code class="docutils literal notranslate"><span class="pre">build/data/channel_limits.json</span></code>. The connector’s reference monitor
 and the runtime’s limits check enforce that file on every write.</p>
 <p>The limits database gates writes over a subset of the machine, and nothing

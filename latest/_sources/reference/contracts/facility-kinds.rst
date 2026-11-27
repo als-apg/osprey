@@ -227,7 +227,7 @@ Signal roles, engine words and scenarios
 ========================================
 
 **Signal roles.** A channel's ``signal`` is a role the vocabulary lists or one
-the facility adds in ``signals.yaml`` (:doc:`/how-to/describe-your-facility`).
+the facility adds in ``vocabulary/signals.yaml`` (:doc:`/how-to/describe-your-facility`).
 
 **Engine record words.** An engine's ``describe(record)`` states
 ``engine_role``, ``plane``, ``refresh`` and optional ``marks`` for each wiring

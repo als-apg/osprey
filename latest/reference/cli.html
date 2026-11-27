@@ -520,7 +520,7 @@ osprey<span class="w"> </span>profile<span class="w">            </span><span cl
 osprey<span class="w"> </span>health<span class="w">             </span><span class="c1"># Check system health</span>
 osprey<span class="w"> </span>channel-finder<span class="w">     </span><span class="c1"># Channel finder CLI</span>
 osprey<span class="w"> </span>knowledge<span class="w">          </span><span class="c1"># Facility knowledge bundles and graph corpus</span>
-osprey<span class="w"> </span>facility<span class="w">           </span><span class="c1"># Check and show the facility description under data/facility/</span>
+osprey<span class="w"> </span>facility<span class="w">           </span><span class="c1"># Check and show the facility description under facility/</span>
 osprey<span class="w"> </span>app<span class="w">                </span><span class="c1"># Make and check a deployment&#39;s apps</span>
 osprey<span class="w"> </span>sim<span class="w">                </span><span class="c1"># Simulation scenario commands</span>
 osprey<span class="w"> </span>ariel<span class="w">              </span><span class="c1"># ARIEL logbook search service</span>
@@ -574,7 +574,8 @@ output, and durable state:</p>
 <div class="highlight-text notranslate"><div class="highlight"><pre><span></span>DIRECTORY/
   profile.yml                    the manifest; everything the preset configures
   providers.yml                  the model-provider catalog `provider:` picks from
-  data/ tiers/ apps/ triggers.yml  the material it names — yours to edit
+  facility/ web/                 the facility tree and the web content — yours to edit
+  tiers/ apps/ triggers.yml      the material the profile names — yours to edit
   .env                           provider keys, seeded from your shell
   build/                         rendered by `osprey build`; gitignored
   var/                           agent memory and audit log; gitignored
@@ -598,13 +599,13 @@ shorthands: <code class="docutils literal notranslate"><span class="pre">provide
 deployment onto another thousand-port block, e.g. <code class="docutils literal notranslate"><span class="pre">--set</span> <span class="pre">port_base=42000</span></code> —
 handy for a second stack beside one already on the default 10000 block).</p>
 <p><code class="docutils literal notranslate"><span class="pre">--force</span></code> — Re-materialize the source zone of an existing deployment
-repository, discarding edits to <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code>, <code class="docutils literal notranslate"><span class="pre">data/</span></code>, <code class="docutils literal notranslate"><span class="pre">tiers/</span></code>,
-<code class="docutils literal notranslate"><span class="pre">apps/</span></code>, <code class="docutils literal notranslate"><span class="pre">triggers.yml</span></code>, <code class="docutils literal notranslate"><span class="pre">web-terminal-context/</span></code>, <code class="docutils literal notranslate"><span class="pre">watchdogs/</span></code>, and
-<code class="docutils literal notranslate"><span class="pre">.env.example</span></code>. In <code class="docutils literal notranslate"><span class="pre">providers.yml</span></code> the entries OSPREY ships are reset to the
+repository, discarding edits to <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code>, <code class="docutils literal notranslate"><span class="pre">facility/</span></code>, <code class="docutils literal notranslate"><span class="pre">web/</span></code>, <code class="docutils literal notranslate"><span class="pre">tiers/</span></code>,
+<code class="docutils literal notranslate"><span class="pre">apps/</span></code>, <code class="docutils literal notranslate"><span class="pre">triggers.yml</span></code>, <code class="docutils literal notranslate"><span class="pre">agent/context/</span></code>, <code class="docutils literal notranslate"><span class="pre">.env.example</span></code>,
+<code class="docutils literal notranslate"><span class="pre">agent/watchdogs/</span></code>, and <code class="docutils literal notranslate"><span class="pre">agent/code_review/</span></code>, and rewriting <code class="docutils literal notranslate"><span class="pre">.osprey/</span></code>. In <code class="docutils literal notranslate"><span class="pre">providers.yml</span></code> the entries OSPREY ships are reset to the
 packaged values and the ones you added are kept. Never touches <code class="docutils literal notranslate"><span class="pre">.env</span></code>,
 <code class="docutils literal notranslate"><span class="pre">.git</span></code>, <code class="docutils literal notranslate"><span class="pre">var/</span></code>, <code class="docutils literal notranslate"><span class="pre">build/</span></code>, <code class="docutils literal notranslate"><span class="pre">.gitignore</span></code>, <code class="docutils literal notranslate"><span class="pre">.env.shared</span></code>, <code class="docutils literal notranslate"><span class="pre">README.md</span></code>,
-<code class="docutils literal notranslate"><span class="pre">ci-extra.yml</span></code>, the CI file, <code class="docutils literal notranslate"><span class="pre">scripts/verify.sh</span></code>, <code class="docutils literal notranslate"><span class="pre">mcp_servers/</span></code>, or
-<code class="docutils literal notranslate"><span class="pre">rules/</span></code>.</p>
+<code class="docutils literal notranslate"><span class="pre">ops/ci-extra.yml</span></code>, the CI file, <code class="docutils literal notranslate"><span class="pre">ops/scripts/verify.sh</span></code>, <code class="docutils literal notranslate"><span class="pre">agent/mcp_servers/</span></code>,
+or <code class="docutils literal notranslate"><span class="pre">agent/rules/</span></code>.</p>
 <p><code class="docutils literal notranslate"><span class="pre">--reset</span></code> — Start over on a name used before. Deleting a deployment’s
 directory leaves its containers and data volumes behind, because they are keyed
 on the <code class="docutils literal notranslate"><span class="pre">project_name</span></code>: a repository re-created under that name meets them,
@@ -617,7 +618,7 @@ minted into <code class="docutils literal notranslate"><span class="pre">.env</s
 no container runtime answers. To keep the old data instead, pass
 <code class="docutils literal notranslate"><span class="pre">--reuse-stores</span></code> to <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code>.</p>
 <p><code class="docutils literal notranslate"><span class="pre">--no-git</span></code> — Skip <code class="docutils literal notranslate"><span class="pre">git</span> <span class="pre">init</span></code> and the initial commit.</p>
-<p><code class="docutils literal notranslate"><span class="pre">--revalidate</span> <span class="pre">[--preset</span> <span class="pre">NAME]</span></code> — Bring an existing deployment repository to
+<p id="cli-osprey-init-revalidate"><code class="docutils literal notranslate"><span class="pre">--revalidate</span> <span class="pre">[--preset</span> <span class="pre">NAME]</span></code> — Bring an existing deployment repository to
 this OSPREY in place: the current profile vocabulary, what the presets changed
 since the repository last took them, the provider entries and keys OSPREY
 added since (every value already in <code class="docutils literal notranslate"><span class="pre">providers.yml</span></code> is kept), and, while the
@@ -648,6 +649,12 @@ output. Retired write keys are rewritten to the tier key
 <code class="docutils literal notranslate"><span class="pre">control_system.writes</span></code> in every layer (<a class="reference internal" href="contracts/connectors.html#write-safety-upgrade"><span class="std std-ref">Upgrading from a deployment-wide write flag</span></a>), and
 retired per-tool policies for switch-governed tools are removed. Prints
 a diff to review and commit.</p>
+<p>A repository at a retired layout is moved to the current one (<code class="docutils literal notranslate"><span class="pre">git</span> <span class="pre">mv</span></code> where
+tracked), and the lines that name a moved path are rewritten. What stays with
+you is printed under “Left for you to do by hand”; that includes the commands
+for a facility tree in another repository, such as a mounted machine repository
+(<a class="reference internal" href="../how-to/control-systems/machine-repository.html#machine-repository-upgrade"><span class="std std-ref">upgrade order</span></a>). The retired paths and what
+the run leaves to you are under <a class="reference internal" href="../how-to/build-profiles.html#profile-root-migration"><span class="std std-ref">A repository at a retired layout</span></a>.</p>
 <p>The step is one-way: an older OSPREY refuses the revalidated repository. To go
 back, check out the repository as it was before the commit and install the
 previous release.</p>
@@ -711,7 +718,7 @@ osprey<span class="w"> </span><span class="nb">set</span><span class="w"> </span
 directory. <code class="docutils literal notranslate"><span class="pre">TARGET</span></code> names a different profile to check instead — a login
 file under <code class="docutils literal notranslate"><span class="pre">tiers/</span></code>, or a directory holding a <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code>.</p>
 <p>Resolves <code class="docutils literal notranslate"><span class="pre">extends:</span></code> chains and runs the full consistency check — convention
-directories, the <code class="docutils literal notranslate"><span class="pre">data:</span></code> tree, service templates, lifecycle steps, env vars —
+directories, the facility tree, service templates, lifecycle steps, env vars —
 then lints the declared web stack against the config a build would render. Every
 problem found is reported, not just the first. Exits 0 when the profile is
 valid, 2 with the accumulated errors when it is not, so a CI job can gate on it.</p>
@@ -798,7 +805,7 @@ osprey<span class="w"> </span>profile<span class="w"> </span>panels
 <dl class="simple">
 <dt><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">profile</span> <span class="pre">validate</span> <span class="pre">TARGET</span></code></dt><dd><p>Check a profile without building anything. <code class="docutils literal notranslate"><span class="pre">TARGET</span></code> is a directory holding
 a <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code> or a path to a profile file. Resolves <code class="docutils literal notranslate"><span class="pre">extends:</span></code> chains
-and reports every problem found — convention directories, the <code class="docutils literal notranslate"><span class="pre">data:</span></code>
+and reports every problem found — convention directories, the facility
 tree, service templates, lifecycle steps, env vars. Exits 0 when valid, 2
 with the accumulated errors when not. Inside a deployment repository, plain
 <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">validate</span></code> checks that repository without naming a target.</p>
@@ -846,7 +853,7 @@ osprey<span class="w"> </span>build
 </div>
 <p>Run it with no arguments, anywhere inside a deployment repository. It walks up
 to the repository’s <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code> and renders the whole output zone from it:
-<code class="docutils literal notranslate"><span class="pre">config.yml</span></code>, the OSPREY agent artifacts, the data tree, the service templates
+<code class="docutils literal notranslate"><span class="pre">config.yml</span></code>, the OSPREY agent artifacts, <code class="docutils literal notranslate"><span class="pre">data/</span></code>, the service templates
 and the compose files that deploy them.</p>
 <p><code class="docutils literal notranslate"><span class="pre">build/</span></code> is derived in full and holds nothing durable — your keys are in
 <code class="docutils literal notranslate"><span class="pre">.env</span></code>, the agent’s memory is in <code class="docutils literal notranslate"><span class="pre">var/</span></code> — so every build wipes and
@@ -997,9 +1004,11 @@ on the ClickHouse backend, the record’s data volume
 <li><p><code class="docutils literal notranslate"><span class="pre">var/archive/</span></code> — the archive: the record’s daily exports, with the artifact
 and Bluesky copies beside them;</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">var/state/</span></code> — each identity’s locks, leases and markers;</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">var/runtime/</span></code> — the Bluesky document-plane certificates <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code>
+minted, which the next start keeps rather than rotating;</p></li>
 <li><p>everything in <code class="docutils literal notranslate"><span class="pre">.env</span></code> that a deploy did not mint — your provider keys.</p></li>
 </ul>
-<p>The source zone is never touched: <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code>, <code class="docutils literal notranslate"><span class="pre">data/</span></code>, <code class="docutils literal notranslate"><span class="pre">tiers/</span></code>,
+<p>The source zone is never touched: <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code>, <code class="docutils literal notranslate"><span class="pre">facility/</span></code>, <code class="docutils literal notranslate"><span class="pre">web/</span></code>, <code class="docutils literal notranslate"><span class="pre">tiers/</span></code>,
 <code class="docutils literal notranslate"><span class="pre">apps/</span></code>, <code class="docutils literal notranslate"><span class="pre">triggers.yml</span></code> and <code class="docutils literal notranslate"><span class="pre">.git</span></code> are exactly what they were.</p>
 <p>Reset refuses, touching nothing, while a host <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">web</span></code>, <code class="docutils literal notranslate"><span class="pre">chat</span></code> or
 <code class="docutils literal notranslate"><span class="pre">query</span></code> is running the agent record locally, and names those sessions.</p>
@@ -1516,7 +1525,7 @@ one per device, for a person to fill in. The view read is
 id, so the build links the page to its device.</p>
 </dd>
 </dl>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>knowledge<span class="w"> </span>seed-from-ttl<span class="w"> </span>data/facility/knowledge
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>knowledge<span class="w"> </span>seed-from-ttl<span class="w"> </span>facility/knowledge
 osprey<span class="w"> </span>knowledge<span class="w"> </span>validate
 </pre></div>
 </div>
@@ -1557,13 +1566,13 @@ JS needs neither.</p>
 </section>
 <section id="osprey-facility">
 <span id="cli-osprey-facility"></span><h2>osprey facility<a class="headerlink" href="#osprey-facility" title="Link to this heading">#</a></h2>
-<p>Check and show the facility description under <code class="docutils literal notranslate"><span class="pre">data/facility/</span></code> and import
+<p>Check and show the facility description under <code class="docutils literal notranslate"><span class="pre">facility/</span></code> and import
 an export into it. See <a class="reference internal" href="../how-to/import-mml-export.html"><span class="doc">Import a MATLAB Middle Layer export</span></a> for the import end to end.
 The operator screens drawn from the built facility are written by
 <code class="docutils literal notranslate"><span class="pre">osprey-panels</span></code>, a command of its own that is installed from a checkout: see
 <a class="reference internal" href="osprey-panels.html#reference-osprey-panels"><span class="std std-ref">osprey-panels</span></a>.</p>
 <dl class="simple">
-<dt><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">facility</span> <span class="pre">validate</span> <span class="pre">[--repo</span> <span class="pre">DIRECTORY]</span> <span class="pre">[--all-limits]</span></code></dt><dd><p>Run every check <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> makes of <code class="docutils literal notranslate"><span class="pre">data/facility/</span></code> and render the
+<dt><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">facility</span> <span class="pre">validate</span> <span class="pre">[--repo</span> <span class="pre">DIRECTORY]</span> <span class="pre">[--all-limits]</span></code></dt><dd><p>Run every check <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> makes of <code class="docutils literal notranslate"><span class="pre">facility/</span></code> and render the
 facility views against the repo’s main profile in a temporary directory.
 Nothing is written into the repo. A clean tree reports two limits findings
 on stderr, each a <code class="docutils literal notranslate"><span class="pre">limits:</span></code> count line and one indented line per
@@ -1591,7 +1600,7 @@ A device whose stated <code class="docutils literal notranslate"><span class="pr
 modulo the deck’s length, and both <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> and this command print
 one <code class="docutils literal notranslate"><span class="pre">facility:</span> <span class="pre">place-wrapped:</span> <span class="pre">device</span> <span class="pre">&lt;id&gt;</span> <span class="pre">—</span> <span class="pre">…;</span> <span class="pre">fix:</span> <span class="pre">…</span></code> warning per device
 on stderr; the exit code is unchanged.
-Each link of a knowledge page under <code class="docutils literal notranslate"><span class="pre">data/facility/knowledge</span></code> that the
+Each link of a knowledge page under <code class="docutils literal notranslate"><span class="pre">facility/knowledge</span></code> that the
 facility file does not hold, a <code class="docutils literal notranslate"><span class="pre">device_id</span></code> that is no device id or a
 <code class="docutils literal notranslate"><span class="pre">facility:</span></code> link in the body that names no channel or device (or, as
 <code class="docutils literal notranslate"><span class="pre">facility:place/&lt;id&gt;</span></code>, no place), prints one
@@ -1668,11 +1677,11 @@ the record document is <code class="docutils literal notranslate"><span class="p
 device, channel, group, model order.</p>
 </dd>
 <dt><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">facility</span> <span class="pre">import</span></code></dt><dd><p>Group for the importers that write an export as sources under
-<code class="docutils literal notranslate"><span class="pre">data/facility/imported/</span></code>; the importers are <code class="docutils literal notranslate"><span class="pre">mml</span></code>, <code class="docutils literal notranslate"><span class="pre">list</span></code> and
+<code class="docutils literal notranslate"><span class="pre">facility/imported/</span></code>; the importers are <code class="docutils literal notranslate"><span class="pre">mml</span></code>, <code class="docutils literal notranslate"><span class="pre">list</span></code> and
 <code class="docutils literal notranslate"><span class="pre">relations</span></code>.</p>
 </dd>
 <dt><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">facility</span> <span class="pre">import</span> <span class="pre">mml</span> <span class="pre">EXPORT...</span> <span class="pre">[--repo</span> <span class="pre">DIRECTORY]</span></code></dt><dd><p>Write MML exports as the mml layer’s sources under
-<code class="docutils literal notranslate"><span class="pre">data/facility/imported/mml/</span></code> and seed each authored file that does not
+<code class="docutils literal notranslate"><span class="pre">facility/imported/mml/</span></code> and seed each authored file that does not
 exist yet. <code class="docutils literal notranslate"><span class="pre">EXPORT</span></code> is an export’s <code class="docutils literal notranslate"><span class="pre">&lt;stem&gt;.ao.json</span></code>; give every export
 the mapping names. Each export’s deck is held to the lattice fingerprint
 the export states: a deck with another element count, family-name digest
@@ -1685,14 +1694,14 @@ An energy that differs alone prints the same sentence after
 states no fingerprint prints one <code class="docutils literal notranslate"><span class="pre">import</span> <span class="pre">mml:</span> <span class="pre">deck</span> <span class="pre">unchecked:</span></code> line.
 The mapping is then checked against the exports: a
 problem prints one <code class="docutils literal notranslate"><span class="pre">&lt;key&gt;:</span> <span class="pre">&lt;message&gt;</span></code> line per problem, then
-<code class="docutils literal notranslate"><span class="pre">&lt;n&gt;</span> <span class="pre">problems</span> <span class="pre">in</span> <span class="pre">data/facility/imported/mml/mapping.yaml;</span> <span class="pre">fix</span> <span class="pre">each</span> <span class="pre">and</span>
+<code class="docutils literal notranslate"><span class="pre">&lt;n&gt;</span> <span class="pre">problems</span> <span class="pre">in</span> <span class="pre">facility/imported/mml/mapping.yaml;</span> <span class="pre">fix</span> <span class="pre">each</span> <span class="pre">and</span>
 <span class="pre">check</span> <span class="pre">again.</span></code> (<code class="docutils literal notranslate"><span class="pre">1</span> <span class="pre">problem</span></code> for one), writes nothing and exits 1. A system
 the mapping names and no given export carries is one such line,
 <code class="docutils literal notranslate"><span class="pre">models.&lt;system&gt;:</span> <span class="pre">&lt;system&gt;</span> <span class="pre">is</span> <span class="pre">no</span> <span class="pre">exported</span> <span class="pre">system</span></code>. A mapping with the
 wrong structure, or a profile that does not resolve, prints a one-line
 failure with its cause and exits 1. Before it reads an export, the import runs one step that every format runs.
 Hand-written records of a kind the format writes print
-<code class="docutils literal notranslate"><span class="pre">import</span> <span class="pre">mml:</span> <span class="pre">data/facility/</span> <span class="pre">holds</span> <span class="pre">hand-written</span> <span class="pre">&lt;kinds&gt;</span> <span class="pre">records,</span> <span class="pre">which</span> <span class="pre">this</span>
+<code class="docutils literal notranslate"><span class="pre">import</span> <span class="pre">mml:</span> <span class="pre">facility/</span> <span class="pre">holds</span> <span class="pre">hand-written</span> <span class="pre">&lt;kinds&gt;</span> <span class="pre">records,</span> <span class="pre">which</span> <span class="pre">this</span>
 <span class="pre">import</span> <span class="pre">writes:</span></code>, each file, and a remedy, then exit 1 with nothing changed.
 A facility that already holds an imported layer is not refused: records
 written by hand beside a layer stay.
@@ -1707,7 +1716,7 @@ measurement records.</p>
 export.</p>
 </dd>
 <dt><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">facility</span> <span class="pre">import</span> <span class="pre">list</span> <span class="pre">FILE</span> <span class="pre">[--repo</span> <span class="pre">DIRECTORY]</span></code></dt><dd><p>Write a CSV channel list as the list layer’s sources,
-<code class="docutils literal notranslate"><span class="pre">data/facility/imported/list/channels.yaml</span></code>, one channel record per row.
+<code class="docutils literal notranslate"><span class="pre">facility/imported/list/channels.yaml</span></code>, one channel record per row.
 It runs the same step as the mml import under the prefix <code class="docutils literal notranslate"><span class="pre">import</span> <span class="pre">list:</span></code>,
 refuses only hand-written channel and device records, and seeds the knowledge
 stub. <code class="docutils literal notranslate"><span class="pre">FILE</span></code> is UTF-8 CSV whose header row names
@@ -1718,7 +1727,7 @@ means readback), <code class="docutils literal notranslate"><span class="pre">pa
 whose first row names no <code class="docutils literal notranslate"><span class="pre">address</span></code> column holds one address per line.
 <code class="docutils literal notranslate"><span class="pre">s</span></code> and <code class="docutils literal notranslate"><span class="pre">model</span></code> are the position of the row’s device: for each device a
 row names, the import writes <code class="docutils literal notranslate"><span class="pre">id</span></code>, <code class="docutils literal notranslate"><span class="pre">s</span></code> where stated and <code class="docutils literal notranslate"><span class="pre">model</span></code> when
-stated, to <code class="docutils literal notranslate"><span class="pre">data/facility/imported/list/devices.yaml</span></code>, and no other
+stated, to <code class="docutils literal notranslate"><span class="pre">facility/imported/list/devices.yaml</span></code>, and no other
 device field, so the device merges with one another source declares, or is
 created holding only its id and position. A list naming no device leaves
 no <code class="docutils literal notranslate"><span class="pre">devices.yaml</span></code>. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> places a device with an <code class="docutils literal notranslate"><span class="pre">s</span></code> by the
@@ -1737,7 +1746,7 @@ warning on stderr naming the file, row, device and model; the rest of the
 device’s rows are imported.</p>
 </dd>
 <dt><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">facility</span> <span class="pre">import</span> <span class="pre">relations</span> <span class="pre">TABLE</span> <span class="pre">--layer</span> <span class="pre">NAME</span> <span class="pre">[--names</span> <span class="pre">FILE]</span> <span class="pre">[--places</span> <span class="pre">FILE]</span> <span class="pre">[--members</span> <span class="pre">FILE]</span> <span class="pre">[--stub-unknown]</span> <span class="pre">[--repo</span> <span class="pre">DIRECTORY]</span></code></dt><dd><p>Write relation tables as the sources of the layer <code class="docutils literal notranslate"><span class="pre">NAME</span></code> under
-<code class="docutils literal notranslate"><span class="pre">data/facility/imported/&lt;NAME&gt;/</span></code>. <code class="docutils literal notranslate"><span class="pre">TABLE</span></code> holds the claims;
+<code class="docutils literal notranslate"><span class="pre">facility/imported/&lt;NAME&gt;/</span></code>. <code class="docutils literal notranslate"><span class="pre">TABLE</span></code> holds the claims;
 <code class="docutils literal notranslate"><span class="pre">--names</span></code>, <code class="docutils literal notranslate"><span class="pre">--places</span></code> and <code class="docutils literal notranslate"><span class="pre">--members</span></code> name the three optional tables
 the claims lean on. The tables and their columns are in
 <a class="reference internal" href="../how-to/describe-your-facility.html#how-to-describe-your-facility-relations"><span class="std std-ref">Relation tables</span></a>. A device end the facility
@@ -1759,7 +1768,7 @@ exits 1. A profile that states <code class="docutils literal notranslate"><span 
 <section id="osprey-sim">
 <span id="cli-osprey-sim"></span><h2>osprey sim<a class="headerlink" href="#osprey-sim" title="Link to this heading">#</a></h2>
 <p>List, inspect and apply the scenarios of a simulated deployment. The scenarios
-are authored under <code class="docutils literal notranslate"><span class="pre">data/facility/scenarios/</span></code> and served from the simulator
+are authored under <code class="docutils literal notranslate"><span class="pre">facility/simulation/scenarios/</span></code> and served from the simulator
 view the build writes under <code class="docutils literal notranslate"><span class="pre">build/data/simulator/</span></code>; a repo with no build, or
 a build with no simulator view, exits 1 with <code class="docutils literal notranslate"><span class="pre">run</span> <span class="pre">'osprey</span> <span class="pre">build'</span> <span class="pre">first</span></code>.
 <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">sim</span></code> alone prints its help, naming the three verbs. All three verbs
@@ -1914,7 +1923,7 @@ read.</p>
 </dl>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>ariel<span class="w"> </span>quickstart
 osprey<span class="w"> </span>ariel<span class="w"> </span>search<span class="w"> </span><span class="s2">&quot;RF cavity fault&quot;</span>
-osprey<span class="w"> </span>ariel<span class="w"> </span>vocab-check<span class="w"> </span>data/facility/ariel/vocabulary.yml
+osprey<span class="w"> </span>ariel<span class="w"> </span>vocab-check<span class="w"> </span>facility/ariel/vocabulary.yml
 </pre></div>
 </div>
 </section>
@@ -2032,17 +2041,17 @@ it as user-owned, so a rebuild leaves your version alone.</p>
 <dl>
 <dt><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">scaffold</span> <span class="pre">ci</span> <span class="pre">[--force]</span></code></dt><dd><p>Emit this repository’s CI pipeline and health check from the profile’s
 <code class="docutils literal notranslate"><span class="pre">deploy:</span></code> block: the pipeline at the repository root and the post-deploy
-health check at <code class="docutils literal notranslate"><span class="pre">scripts/verify.sh</span></code>. Run it again whenever the block
+health check at <code class="docutils literal notranslate"><span class="pre">ops/scripts/verify.sh</span></code>. Run it again whenever the block
 changes. Re-running is safe — a file whose content already matches is left
 untouched, stamp included, so an OSPREY upgrade alone produces no diff. A
 file the scaffolder did not write is reported and left alone unless
-<code class="docutils literal notranslate"><span class="pre">--force</span></code> is given. <code class="docutils literal notranslate"><span class="pre">ci-extra.yml</span></code> is never touched: it is yours, and the
+<code class="docutils literal notranslate"><span class="pre">--force</span></code> is given. <code class="docutils literal notranslate"><span class="pre">ops/ci-extra.yml</span></code> is never touched: it is yours, and the
 pipeline includes it. The health check exits 0 unless run with <code class="docutils literal notranslate"><span class="pre">--strict</span></code>,
 which exits 1 when a container or a probe is flagged.</p>
 </dd>
 <dt><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">scaffold</span> <span class="pre">systemd</span> <span class="pre">[--force]</span></code></dt><dd><p>Emit the files that start this deployment at boot: a systemd user unit,
-<code class="docutils literal notranslate"><span class="pre">osprey.service</span></code> at the repository root, and a boot hook,
-<code class="docutils literal notranslate"><span class="pre">scripts/osprey-boot-hook.sh</span></code>, plus the commands to install the unit. The unit runs
+<code class="docutils literal notranslate"><span class="pre">ops/osprey.service</span></code>, and a boot hook, <code class="docutils literal notranslate"><span class="pre">ops/scripts/osprey-boot-hook.sh</span></code>,
+plus the commands to install the unit. The unit runs
 <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span> <span class="pre">-d</span></code> from this repository and <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">down</span></code> on stop, with both
 the repository and the <code class="docutils literal notranslate"><span class="pre">osprey</span></code> program written in as full paths — systemd
 starts a unit with no working directory and a short <code class="docutils literal notranslate"><span class="pre">PATH</span></code>. Run it on the
@@ -2066,7 +2075,7 @@ created from).</p>
 </dd>
 <dt><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">scaffold</span> <span class="pre">pull</span> <span class="pre">PRESET[:PATH]</span> <span class="pre">[--list]</span> <span class="pre">[--force]</span> <span class="pre">[--with-content]</span> <span class="pre">[--repo</span> <span class="pre">DIRECTORY]</span></code></dt><dd><p>Copy a preset’s packaged content into this repo, each file at the same path,
 for you to edit and commit: <code class="docutils literal notranslate"><span class="pre">demo</span></code> copies the whole app
-template, <code class="docutils literal notranslate"><span class="pre">demo:data/facility/knowledge</span></code> one subtree of it.
+template, <code class="docutils literal notranslate"><span class="pre">demo:facility/knowledge</span></code> one subtree of it.
 <code class="docutils literal notranslate"><span class="pre">--list</span></code> prints every path the preset offers and copies nothing. The
 knowledge base arrives as its <code class="docutils literal notranslate"><span class="pre">index.md</span></code> files alone, rebuilt from what
 landed; <code class="docutils literal notranslate"><span class="pre">--with-content</span></code> brings its documents too. A file that is already

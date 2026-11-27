@@ -1006,7 +1006,7 @@ with no audited Continue, the same boundary as <a class="reference internal" hre
 <section id="setting-one-up">
 <h2>Setting one up<a class="headerlink" href="#setting-one-up" title="Link to this heading">#</a></h2>
 <p>A watchdog is an entry in the profile’s <code class="docutils literal notranslate"><span class="pre">watchdogs:</span></code> block plus an instructions file at
-<code class="docutils literal notranslate"><span class="pre">watchdogs/&lt;name&gt;/instructions.md</span></code>, and <code class="docutils literal notranslate"><span class="pre">enabled:</span> <span class="pre">true</span></code> and a rebuild turn it on. Run
+<code class="docutils literal notranslate"><span class="pre">agent/watchdogs/&lt;name&gt;/instructions.md</span></code>, and <code class="docutils literal notranslate"><span class="pre">enabled:</span> <span class="pre">true</span></code> and a rebuild turn it on. Run
 <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">watchdog</span> <span class="pre">replay</span></code> over labelled prompts before enabling one: the thresholds are not
 calibrated for any facility. A decision watchdog sends session history to TypeSafe (hosted in
 the US) or OpenRouter; an agent watchdog uses the deployment’s own LLM provider. Each adds its
@@ -1180,7 +1180,7 @@ or a chromaticity routine; pyAML, the Python accelerator middle layer, calls the
 — on the control target. It is not how the agent measures: the agent reads channels, runs
 its own Python and queues plans for that. It is the one path on which the executor runs code
 OSPREY ships rather than code the agent wrote: the pyAML view the build rendered from the
-facility description, with the tool’s settings from <code class="docutils literal notranslate"><span class="pre">data/facility/measurement/</span></code>. The call
+facility description, with the tool’s settings from <code class="docutils literal notranslate"><span class="pre">facility/simulation/measurement/</span></code>. The call
 passes the write verdict and the approval prompt. The prompt lists the model, the kind, the
 digest of the view the tool runs on and every setpoint the call steps; a call that would step
 more setpoints than a prompt can list is refused without asking. The tool then runs in the
@@ -1312,7 +1312,7 @@ before the operator is asked to approve it, and a code cell the agent writes int
 notebook, before it is saved. Nothing else is reviewed: channel writes, plans and
 pyAML tools carry no code of the agent’s, and cells a person writes are the person’s own.</p>
 <p>The reviewer judges by rules the deployment writes itself, in a Markdown file in the project
-(<code class="docutils literal notranslate"><span class="pre">data/code_review/reviewer.md</span></code>): which channels must never be written, when writes need
+(<code class="docutils literal notranslate"><span class="pre">agent/code_review/reviewer.md</span></code>): which channels must never be written, when writes need
 extra care, which procedures a write has to follow. OSPREY ships that file with one worked
 rule for the demo facility and nothing more, so a deployment gets the checks it wrote and
 pays only for those. The reviewer has no tools and takes one turn, and anything

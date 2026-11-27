@@ -780,7 +780,7 @@ the preset also sets <code class="docutils literal notranslate"><span class="pre
 <a class="reference internal" href="login.html"><span class="doc">Require a Login</span></a> before you serve the stack on a reachable host.</p>
 <p class="sd-card-text">Each <code class="docutils literal notranslate"><span class="pre">tier</span></code> and each <code class="docutils literal notranslate"><span class="pre">shared:</span></code> entry names a file in the
 repository’s <code class="docutils literal notranslate"><span class="pre">tiers/</span></code>, written by <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">init</span></code>. Every render
-shares one data tree, one set of secrets and one set of your own
+shares one facility tree, one set of secrets and one set of your own
 artifacts. The build renders each into
 <code class="docutils literal notranslate"><span class="pre">build/&lt;project_name&gt;-&lt;name&gt;</span></code> and records it in
 <code class="docutils literal notranslate"><span class="pre">build/config.yml</span></code>; nothing here names a path. An unknown login is
@@ -851,9 +851,9 @@ reconcile reality against it.</p>
 entry under <code class="docutils literal notranslate"><span class="pre">config:</span></code> in <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code> — and rebuild. A roster change
 made directly in the built <code class="docutils literal notranslate"><span class="pre">build/config.yml</span></code> deploys, but the next
 build overwrites it. Rebuilding also seeds an empty
-<code class="docutils literal notranslate"><span class="pre">web-terminal-context/&lt;user&gt;/</span></code> slot for each new operator, which is
+<code class="docutils literal notranslate"><span class="pre">agent/context/&lt;user&gt;/</span></code> slot for each new operator, which is
 where their per-user context goes.</p>
-<p class="sd-card-text">Beside those slots sits <code class="docutils literal notranslate"><span class="pre">web-terminal-context/base.md</span></code> — the shared
+<p class="sd-card-text">Beside those slots sits <code class="docutils literal notranslate"><span class="pre">agent/context/base.md</span></code> — the shared
 baseline every seeded user’s <code class="docutils literal notranslate"><span class="pre">CLAUDE.md</span></code> starts from. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">init</span></code>
 materializes it from the preset so the text is visible and editable in
 your repo; edit it there and rebuild, and every terminal picks up the
@@ -971,7 +971,7 @@ main render (<code class="docutils literal notranslate"><span class="pre">build/
 <code class="docutils literal notranslate"><span class="pre">build/demo-readwrite</span></code>, <code class="docutils literal notranslate"><span class="pre">build/demo-admin</span></code>,
 <code class="docutils literal notranslate"><span class="pre">build/demo-logbook</span></code>, <code class="docutils literal notranslate"><span class="pre">build/demo-knowledge</span></code>
 and <code class="docutils literal notranslate"><span class="pre">build/demo-channel-finder</span></code>). Every render shares the
-profile’s data tree, secrets and artifacts, and inherits the choices
+profile’s facility tree, secrets and artifacts, and inherits the choices
 recorded there (provider, model): edit the profile once and every terminal
 picks the change up. A start renders none of this — <code class="docutils literal notranslate"><span class="pre">build/</span></code> is the
 whole account of what will run — so a render missing at start time is
@@ -1071,7 +1071,7 @@ else, and that value wins.
 A profile with no <code class="docutils literal notranslate"><span class="pre">deploy:</span></code> block sets it there.</p>
 <p>The scaffolded pipeline builds only the facility’s own service images, not
 these, so the facility’s pipeline must push them.
-Put that job in <code class="docutils literal notranslate"><span class="pre">ci-extra.yml</span></code> (see <a class="reference internal" href="../../deploy-a-facility.html"><span class="doc">Deploy a Facility</span></a>).
+Put that job in <code class="docutils literal notranslate"><span class="pre">ops/ci-extra.yml</span></code> (see <a class="reference internal" href="../../deploy-a-facility.html"><span class="doc">Deploy a Facility</span></a>).
 Build each image from its rendered project, <code class="docutils literal notranslate"><span class="pre">build/&lt;project_name&gt;-&lt;render&gt;</span></code>:
 the same render <code class="docutils literal notranslate"><span class="pre">image_source:</span> <span class="pre">local</span></code> builds as
 <code class="docutils literal notranslate"><span class="pre">&lt;project_name&gt;-&lt;render&gt;:local</span></code>.</p>
@@ -1157,8 +1157,8 @@ markdown file, listed in config:</p>
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">modules.web_terminals</span><span class="p">:</span>
 <span class="w">  </span><span class="nt">landing</span><span class="p">:</span>
 <span class="w">    </span><span class="nt">notices</span><span class="p">:</span>
-<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">data/landing/working-safely.md</span>
-<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">data/landing/local-procedures.md</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">web/landing/working-safely.md</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">web/landing/local-procedures.md</span>
 <span class="w">    </span><span class="nt">footer</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;Example</span><span class="nv"> </span><span class="s">Research</span><span class="nv"> </span><span class="s">Facility</span><span class="nv"> </span><span class="s">control</span><span class="nv"> </span><span class="s">room.</span><span class="nv"> </span><span class="s">Questions:</span><span class="nv"> </span><span class="s">ext.</span><span class="nv"> </span><span class="s">5555.&quot;</span>
 </pre></div>
 </div>
@@ -1166,7 +1166,7 @@ markdown file, listed in config:</p>
 section label, and everything after it becomes the panel. So adding a section
 means writing a file and listing it — there is no schema to learn, and nothing
 about the text lives in <code class="docutils literal notranslate"><span class="pre">config.yml</span></code>.</p>
-<p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">init</span></code> writes a starter <code class="docutils literal notranslate"><span class="pre">data/landing/working-safely.md</span></code> into your
+<p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">init</span></code> writes a starter <code class="docutils literal notranslate"><span class="pre">web/landing/working-safely.md</span></code> into your
 project. It is yours: rewrite it for your facility, or drop it and list your own
 files instead. Sections appear in the order you list them, and each one gets an
 id from its filename, so you can point someone at

@@ -892,8 +892,8 @@ declares neither of the first two. They are computed when one of them is read
 and served from memory until the next solve, so a setpoint write never pays
 for them.</p>
 <p>The imperfections a machine starts from are scenario faults. A scenario under
-<code class="docutils literal notranslate"><span class="pre">data/facility/scenarios/</span></code> names them in its <code class="docutils literal notranslate"><span class="pre">faults</span></code> block, keyed by model
-and then by address, each a value or a map of fault fields to values; the
+<code class="docutils literal notranslate"><span class="pre">facility/simulation/scenarios/</span></code> names them in its <code class="docutils literal notranslate"><span class="pre">faults</span></code> block,
+keyed by model and then by address, each a value or a map of fault fields to values; the
 composite seeds them into its models when the scenario is active. Channel
 faults, named in the scenario’s <code class="docutils literal notranslate"><span class="pre">channel_faults</span></code> block, are faults of the
 composite’s channel layer rather than of a model, and act on wired and

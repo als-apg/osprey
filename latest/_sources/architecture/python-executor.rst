@@ -486,16 +486,12 @@ deployment root, and the paths the profile names.
   build or, worse, survives as a rendered setting nobody wrote.
 - **The profile sources** --- what the build reads to produce that render:
 
-  - ``profile.yml``, with ``providers.yml``, ``triggers.yml``,
-    ``ci-extra.yml``, ``osprey.service`` and ``.dockerignore`` beside it
-  - the ``tiers/``, ``apps/``, ``profiles/``, ``data/``, ``scripts/`` and
-    ``watchdogs/`` directories, and the directory under the retired spelling
-    of ``tiers/``
-  - ``.osprey/``, which holds the saved copy of what the presets produced
-  - the convention directories (``rules/``, ``skills/``, ``agents/``,
-    ``commands/``, ``output-styles/``, ``hooks/``, ``web-terminal-context/``,
-    ``mcp_servers/``, ``services/``)
-  - the ``project/`` mirror
+  - ``profile.yml``, with ``providers.yml``, ``triggers.yml`` and
+    ``.dockerignore`` beside it
+  - the ``facility/``, ``web/``, ``tiers/``, ``apps/``, ``profiles/`` and
+    ``.osprey/`` directories
+  - ``agent/`` and ``ops/`` whole, and the same entries at their former paths
+    in a repository still at a :ref:`retired layout <profile-root-migration>`
 
 - **The agent record's directories** (``var/spool/``, ``var/agent_record/``,
   ``var/state/`` and ``var/archive/``) --- the spool the record is read from,
@@ -505,6 +501,9 @@ deployment root, and the paths the profile names.
 - **The pre-upgrade audit files** --- the files a deployment
   kept before the agent record. Nothing writes them, and they stay protected
   for the same reason.
+- **The runtime certificates** (``var/runtime/``) --- the keys ``osprey up``
+  mints for the containers it starts. A run that could replace them could
+  swap the keys a running stack trusts.
 
 **The paths the profile names.** A profile can name locations outside those
 names that the build or a service reads: a plan directory, a CA bundle, a

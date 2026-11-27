@@ -585,7 +585,7 @@ interpreter — the one the framework’s servers run under. <code class="docuti
 alone for the shell or the container to resolve at run time. A Python module
 launched with <code class="docutils literal notranslate"><span class="pre">-m</span></code> has to be importable by that interpreter: either declare
 its package under the profile’s <code class="docutils literal notranslate"><span class="pre">dependencies:</span></code> so it is installed into the
-project venv, or ship it in the profile’s <code class="docutils literal notranslate"><span class="pre">mcp_servers/</span></code> directory and reach
+project venv, or ship it in the profile’s <code class="docutils literal notranslate"><span class="pre">agent/mcp_servers/</span></code> directory and reach
 it with <code class="docutils literal notranslate"><span class="pre">PYTHONPATH:</span> <span class="pre">&quot;{project_root}/build/_mcp_servers&quot;</span></code> (see
 <a class="reference internal" href="../../reference/configuration/profile.html#profile-mcp-servers"><span class="std std-ref">MCP server injection</span></a>).</p>
 <p>To set permissions on a server, name its tools:</p>

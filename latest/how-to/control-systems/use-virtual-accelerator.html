@@ -628,7 +628,7 @@ plug-in; both are covered in <a class="reference internal" href="#va-serving-you
 <section id="what-channels-it-serves">
 <h2>What channels it serves<a class="headerlink" href="#what-channels-it-serves" title="Link to this heading">#</a></h2>
 <p>Your project’s own. Every <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> renders the facility definition
-under <code class="docutils literal notranslate"><span class="pre">data/facility/</span></code> into the simulator view, <code class="docutils literal notranslate"><span class="pre">build/data/simulator/</span></code>,
+under <code class="docutils literal notranslate"><span class="pre">facility/</span></code> into the simulator view, <code class="docutils literal notranslate"><span class="pre">build/data/simulator/</span></code>,
 which the compose file mounts at <code class="docutils literal notranslate"><span class="pre">/data/simulator/</span></code>.</p>
 <p>The container serves the <code class="docutils literal notranslate"><span class="pre">channels</span></code> of the view’s <code class="docutils literal notranslate"><span class="pre">addresses.json</span></code>, which
 holds every channel address the facility declares. It also serves one
@@ -918,14 +918,14 @@ the history the archive shows, and add logbook entries that narrate it.</p>
 <p>Scenarios give tests, demos and rehearsals a known machine state: a fault for
 the agent to find, with the archive history and logbook entries that go with
 it.</p>
-<p>You write each scenario as one YAML file under <code class="docutils literal notranslate"><span class="pre">data/facility/scenarios/</span></code>.
+<p>You write each scenario as one YAML file under <code class="docutils literal notranslate"><span class="pre">facility/simulation/scenarios/</span></code>.
 <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> serves the scenarios from the simulator view under
 <code class="docutils literal notranslate"><span class="pre">build/data/simulator/</span></code>. The <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">sim</span></code> commands list, apply and report
 on them; <a class="reference internal" href="../../reference/cli.html#cli-osprey-sim"><span class="std std-ref">osprey sim</span></a> has their options.</p>
 <section id="the-scenarios-the-demo-ships">
 <h3>The scenarios the demo ships<a class="headerlink" href="#the-scenarios-the-demo-ships" title="Link to this heading">#</a></h3>
 <p>The demo preset ships seven scenarios in
-<code class="docutils literal notranslate"><span class="pre">data/facility/scenarios/</span></code>:</p>
+<code class="docutils literal notranslate"><span class="pre">facility/simulation/scenarios/</span></code>:</p>
 <div class="pst-scrollable-table-container"><table class="table">
 <colgroup>
 <col style="width: 22.0%" />
@@ -1053,12 +1053,12 @@ that sets the same reading’s <code class="docutils literal notranslate"><span 
 <h3>Write a scenario<a class="headerlink" href="#write-a-scenario" title="Link to this heading">#</a></h3>
 <p>To add a scenario to your facility:</p>
 <ol class="arabic simple">
-<li><p>Create <code class="docutils literal notranslate"><span class="pre">data/facility/scenarios/&lt;name&gt;.yaml</span></code>. The file name is the
+<li><p>Create <code class="docutils literal notranslate"><span class="pre">facility/simulation/scenarios/&lt;name&gt;.yaml</span></code>. The file name is the
 scenario name.</p></li>
 <li><p>Add the keys the scenario needs, from <a class="reference internal" href="../../reference/configuration/scenario-files.html#reference-scenario-files"><span class="std std-ref">Scenario files</span></a>.
 Every key is optional.</p></li>
 <li><p>If a logbook entry has attachments, put the files in the folder
-<code class="docutils literal notranslate"><span class="pre">data/facility/scenarios/&lt;name&gt;/</span></code> beside the scenario file.</p></li>
+<code class="docutils literal notranslate"><span class="pre">facility/simulation/scenarios/&lt;name&gt;/</span></code> beside the scenario file.</p></li>
 <li><p>Check the sources with <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">facility</span> <span class="pre">validate</span></code>, which writes nothing.
 An address, model or key the facility does not have stops the check, and
 the error names the file.</p></li>
@@ -1070,18 +1070,18 @@ the error names the file.</p></li>
 <span id="va-serving-your-own-model"></span><h2>Serving your facility’s own model<a class="headerlink" href="#serving-your-facility-s-own-model" title="Link to this heading">#</a></h2>
 <p>To version the model with the other machine facts apart from any one
 deployment, keep them in a <a class="reference internal" href="machine-repository.html"><span class="doc">machine repository</span></a>;
-<code class="docutils literal notranslate"><span class="pre">data/facility/</span></code> in this section is then its machine root.</p>
+<code class="docutils literal notranslate"><span class="pre">facility/</span></code> in this section is then its machine root.</p>
 <div class="toctree-wrapper compound">
 </div>
 <section id="a-pyat-lattice">
 <h3>A pyAT lattice<a class="headerlink" href="#a-pyat-lattice" title="Link to this heading">#</a></h3>
 <ol class="arabic">
-<li><p>Stage the deck in the facility tree as <code class="docutils literal notranslate"><span class="pre">data/facility/decks/&lt;model&gt;.json</span></code>.</p></li>
-<li><p>Name it in the model’s record in <code class="docutils literal notranslate"><span class="pre">data/facility/models.yaml</span></code>, with the
+<li><p>Stage the deck in the facility tree as <code class="docutils literal notranslate"><span class="pre">facility/simulation/decks/&lt;model&gt;.json</span></code>.</p></li>
+<li><p>Name it in the model’s record in <code class="docutils literal notranslate"><span class="pre">facility/simulation/models.yaml</span></code>, with the
 <code class="docutils literal notranslate"><span class="pre">wiring</span></code> that ties each channel to an element of the deck:</p>
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">&lt;model&gt;</span>
 <span class="w">  </span><span class="nt">engine</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">pyat</span>
-<span class="w">  </span><span class="nt">deck</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">decks/&lt;model&gt;.json</span>
+<span class="w">  </span><span class="nt">deck</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">simulation/decks/&lt;model&gt;.json</span>
 </pre></div>
 </div>
 </li>
@@ -1099,7 +1099,7 @@ direction <code class="docutils literal notranslate"><span class="pre">read</spa
 invented addresses, for a ring whose RF wavelength is 0.6 m:</p>
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">RING</span>
 <span class="w">  </span><span class="nt">engine</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">pyat</span>
-<span class="w">  </span><span class="nt">deck</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">decks/RING.json</span>
+<span class="w">  </span><span class="nt">deck</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">simulation/decks/RING.json</span>
 <span class="w">  </span><span class="nt">wiring</span><span class="p">:</span>
 <span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">address</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">RING:RF:FREQ:SP</span>
 <span class="w">      </span><span class="nt">element</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">CAV</span>
@@ -1154,7 +1154,7 @@ states radiating pass methods is tracked as written. For a deck that does
 not, the model’s <code class="docutils literal notranslate"><span class="pre">pyat</span></code> settings can switch radiation on:</p>
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">RING</span>
 <span class="w">  </span><span class="nt">engine</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">pyat</span>
-<span class="w">  </span><span class="nt">deck</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">decks/RING.json</span>
+<span class="w">  </span><span class="nt">deck</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">simulation/decks/RING.json</span>
 <span class="w">  </span><span class="nt">settings</span><span class="p">:</span>
 <span class="w">    </span><span class="nt">pyat</span><span class="p">:</span>
 <span class="w">      </span><span class="nt">radiation</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
@@ -1380,7 +1380,7 @@ holds <code class="docutils literal notranslate"><span class="pre">0</span></cod
 <p><strong>The ring.</strong> With invented addresses, and one monitor shown:</p>
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">RING</span>
 <span class="w">  </span><span class="nt">engine</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">pyat</span>
-<span class="w">  </span><span class="nt">deck</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">decks/RING.json</span>
+<span class="w">  </span><span class="nt">deck</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">simulation/decks/RING.json</span>
 <span class="w">  </span><span class="nt">settings</span><span class="p">:</span>
 <span class="w">    </span><span class="nt">pyat</span><span class="p">:</span>
 <span class="w">      </span><span class="nt">solve</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">periodic</span>
@@ -1686,7 +1686,7 @@ client moves it while the ring is served:</p>
 <span class="w">      </span><span class="nt">engine</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">signal</span><span class="p">:</span><span class="w"> </span><span class="nv">mismatch_x</span><span class="p p-Indicator">}</span>
 </pre></div>
 </div>
-<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="c1"># data/facility/scenarios/injection-error.yaml</span>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="c1"># facility/simulation/scenarios/injection-error.yaml</span>
 <span class="nt">overrides</span><span class="p">:</span>
 <span class="w">  </span><span class="nt">SIM:RING:INJ:OFFSET:X</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">4.0e-4</span>
 <span class="w">  </span><span class="nt">SIM:RING:INJ:OFFSET:PX</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">-8.0e-5</span>
@@ -2131,7 +2131,7 @@ image has to be on the host or pullable where it is named;
 </section>
 <section id="write-limits">
 <h2>Write limits<a class="headerlink" href="#write-limits" title="Link to this heading">#</a></h2>
-<p>Channels with a record in <code class="docutils literal notranslate"><span class="pre">data/facility/limits.yaml</span></code> carry a min/max range,
+<p>Channels with a record in <code class="docutils literal notranslate"><span class="pre">facility/limits.yaml</span></code> carry a min/max range,
 and a write outside that range is rejected before it reaches the IOC; an
 in-range write goes through. The write switch’s positions apply
 unchanged — the Virtual Accelerator connector inherits the same write-safety
@@ -2174,10 +2174,10 @@ borrowed from the deployment-wide block, so both settings have to be written
 out. A block stating one of them alone is refused by <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> and
 <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">validate</span></code>, naming the one that is missing. The limits database
 itself stays deployment-wide — the build renders one limits database from
-<code class="docutils literal notranslate"><span class="pre">data/facility/limits.yaml</span></code> for every target, and a per-type block does
+<code class="docutils literal notranslate"><span class="pre">facility/limits.yaml</span></code> for every target, and a per-type block does
 not take a path.</p>
 <p>With the pair above, a write to the simulator is still checked against the
-ranges the records in <code class="docutils literal notranslate"><span class="pre">data/facility/limits.yaml</span></code> give. What changes is
+ranges the records in <code class="docutils literal notranslate"><span class="pre">facility/limits.yaml</span></code> give. What changes is
 that a channel with <em>no</em> record is allowed through on the simulator, and
 refused on the live machine and the stand-in. That strict
 posture is what a switch to either real-machine target requires, and

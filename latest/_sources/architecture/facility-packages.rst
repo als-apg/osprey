@@ -5,7 +5,7 @@ Facility Packages
 
 The facility code leaves the framework as two distributions. **osprey-facility**
 holds the description and its build: it reads the sources under
-``data/facility/`` and writes ``facility.json``. **osprey-panels** is the panel
+``facility/`` and writes ``facility.json``. **osprey-panels** is the panel
 engine: it reads ``facility.json`` and writes Canopy screens. The framework
 keeps the views, the settings and the command line, and reaches the
 description through its public modules only.

@@ -946,7 +946,7 @@ works; one still reading the mock archiver is refused at build time, and told
 to point <code class="docutils literal notranslate"><span class="pre">archiver.type</span></code> at a store its deployment writes first — see
 <a class="reference internal" href="../control-systems/use-virtual-accelerator.html"><span class="doc">Use the Virtual Accelerator</span></a>.</p>
 <p class="sd-card-text">One timing detail worth knowing: the channel limits a plan’s writes are
-checked against come from the records in <code class="docutils literal notranslate"><span class="pre">data/facility/limits.yaml</span></code>,
+checked against come from the records in <code class="docutils literal notranslate"><span class="pre">facility/limits.yaml</span></code>,
 which <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> renders into the limits database it stages for the
 plan lane. So widening or
 tightening a limit in your deployment repository reaches the queue server at

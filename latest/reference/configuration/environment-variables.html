@@ -678,7 +678,7 @@ CANOPY payload (<a class="reference internal" href="../../how-to/web-terminal/ca
 <td><p>The payload directory the canopy repository’s
 <code class="docutils literal notranslate"><span class="pre">scripts/build-payload.sh</span></code> wrote. Read from the shell first, then
 from the deployment’s <code class="docutils literal notranslate"><span class="pre">.env.shared</span></code> and <code class="docutils literal notranslate"><span class="pre">.env</span></code>. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code>
-copies it into the deployment as <code class="docutils literal notranslate"><span class="pre">canopy_payload/</span></code>; a directory that
+copies it into the render as <code class="docutils literal notranslate"><span class="pre">build/canopy_payload/</span></code>; a directory that
 is missing or not a finished payload stops the build. The payload must
 be built at the CANOPY and PyDMConverter commits this OSPREY is proven
 against; a payload built at any other commit stops the build.

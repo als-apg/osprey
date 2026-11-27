@@ -960,7 +960,7 @@ whether a store exists. Useful for testing the wiring, not for anything else.</p
 <h2>Where the Graph Comes From<a class="headerlink" href="#where-the-graph-comes-from" title="Link to this heading">#</a></h2>
 <p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> writes the corpus, the <strong>graph view</strong>
 (<code class="docutils literal notranslate"><span class="pre">data/graph/facility.ttl</span></code> under the render), from the facility file
-(<code class="docutils literal notranslate"><span class="pre">data/facility/</span></code>), so the graph describes the same machine the channel
+(<code class="docutils literal notranslate"><span class="pre">facility/</span></code>), so the graph describes the same machine the channel
 finder does. Nobody edits the graph view: its first line names the hash of the
 facility file it was written from, and a change belongs in the facility file.
 The build points every rendered <code class="docutils literal notranslate"><span class="pre">services.graphdb</span></code> block’s <code class="docutils literal notranslate"><span class="pre">ttl_path</span></code> at it
@@ -991,13 +991,6 @@ no exit status of its own: there the step output is the report.)</p>
 its facility file, <code class="docutils literal notranslate"><span class="pre">data/graph/facility.ttl</span></code> under the render. No
 hand-written corpus ships. Point <code class="docutils literal notranslate"><span class="pre">ttl_path</span></code> at a corpus of your own to seed
 that instead.</p>
-<div class="admonition note">
-<p class="admonition-title">Note</p>
-<p>A build profile that ships its own <code class="docutils literal notranslate"><span class="pre">data:</span></code> tree replaces the bundle’s
-<code class="docutils literal notranslate"><span class="pre">data/</span></code> directory wholesale, which takes <code class="docutils literal notranslate"><span class="pre">data/facility/</span></code> with it. Such
-a profile ships a facility file of its own, and the build writes the graph
-view from that.</p>
-</div>
 </section>
 <section id="browsing-the-graph">
 <span id="graph-view"></span><h2>Browsing the Graph<a class="headerlink" href="#browsing-the-graph" title="Link to this heading">#</a></h2>

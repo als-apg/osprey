@@ -535,25 +535,18 @@ first sets its own value in a variant overlay (see
 <a class="reference internal" href="../../how-to/build-profiles.html#profile-host-variants"><span class="std std-ref">One repository, several hosts</span></a>). Changing it renames the deployment, and
 the volumes follow the new name.</p></td>
 </tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">data</span></code></p></td>
-<td><p>string</p></td>
-<td><p><em>required</em></p></td>
-<td><p>Facility data tree, relative to the profile directory (<code class="docutils literal notranslate"><span class="pre">data</span></code> in a
-materialized profile). It is the only source of the project’s <code class="docutils literal notranslate"><span class="pre">data/</span></code>
-tree, so a profile that names none is refused. Must resolve inside the
-repository; a path outside it is refused (see <a class="reference internal" href="../../how-to/build-profiles.html#profile-self-contained"><span class="std std-ref">A profile is self-contained</span></a>).</p></td>
-</tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">machine</span></code></p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">machine</span></code></p></td>
 <td><p>string</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">None</span></code></p></td>
 <td><p>The facility directory of a mounted machine repository, relative to the
-profile directory (e.g. <code class="docutils literal notranslate"><span class="pre">vendor/example-machine/data/facility</span></code>). The
-machine facts then come from there, and the deployment’s <code class="docutils literal notranslate"><span class="pre">data/facility/</span></code>
-keeps only <code class="docutils literal notranslate"><span class="pre">knowledge/</span></code>, <code class="docutils literal notranslate"><span class="pre">ariel/</span></code> and <code class="docutils literal notranslate"><span class="pre">benchmarks/</span></code>. Resolved and
-folded into the profile hash like <code class="docutils literal notranslate"><span class="pre">data</span></code>; only the root profile may
+profile directory (e.g. <code class="docutils literal notranslate"><span class="pre">vendor/example-machine/facility</span></code>). The
+machine facts then come from there, and the deployment’s <code class="docutils literal notranslate"><span class="pre">facility/</span></code>
+keeps only <code class="docutils literal notranslate"><span class="pre">knowledge/</span></code>, <code class="docutils literal notranslate"><span class="pre">ariel/</span></code> and <code class="docutils literal notranslate"><span class="pre">benchmarks/</span></code>. Must resolve
+inside the repository (see <a class="reference internal" href="../../how-to/build-profiles.html#profile-self-contained"><span class="std std-ref">A profile is self-contained</span></a>) and is folded
+into the profile hash; only the root profile may
 state it (see <a class="reference internal" href="../../how-to/control-systems/machine-repository.html"><span class="doc">Serve the Virtual Accelerator from a Machine Repository</span></a>).</p></td>
 </tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">extends</span></code></p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">extends</span></code></p></td>
 <td><p>string</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">None</span></code></p></td>
 <td><p>A bundled preset name, or a path relative to this file, to inherit from.
@@ -562,7 +555,7 @@ refused. A login file may not spell it, and an override that would
 give a materialized profile a parent is refused (see
 <a class="reference internal" href="../../how-to/build-profiles.html"><span class="doc">Build Profiles</span></a>).</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">provider</span></code></p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">provider</span></code></p></td>
 <td><p>string</p></td>
 <td><p><em>required</em></p></td>
 <td><p>LLM provider. Names an entry in <code class="docutils literal notranslate"><span class="pre">providers.yml</span></code>, the catalog beside
@@ -570,13 +563,13 @@ give a materialized profile a parent is refused (see
 does not declare is refused, and the message lists the names it does.
 The build aborts if none is set.</p></td>
 </tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">model</span></code></p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">model</span></code></p></td>
 <td><p>string</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">None</span></code></p></td>
 <td><p>A model id the provider serves. Omitted: the provider entry’s
 <code class="docutils literal notranslate"><span class="pre">default_model</span></code>.</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">channel_finder_mode</span></code></p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">channel_finder_mode</span></code></p></td>
 <td><p>string</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">None</span></code></p></td>
 <td><p>Channel finder pipeline (<code class="docutils literal notranslate"><span class="pre">hierarchical</span></code>, <code class="docutils literal notranslate"><span class="pre">middle_layer</span></code>,
@@ -584,7 +577,7 @@ The build aborts if none is set.</p></td>
 store instead of a channel database, so it needs a <code class="docutils literal notranslate"><span class="pre">services.graphdb</span></code>
 block (see <a class="reference internal" href="#profile-graph-mode"><span class="std std-ref">Graph-mode channel finding</span></a>).</p></td>
 </tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">connector</span></code></p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">connector</span></code></p></td>
 <td><p>string</p></td>
 <td><p><em>from preset</em></p></td>
 <td><p>Control-system connector (<code class="docutils literal notranslate"><span class="pre">virtual_accelerator</span></code>, <code class="docutils literal notranslate"><span class="pre">epics</span></code>, …).
@@ -594,7 +587,7 @@ spellings on one command line is an error rather than a silent
 last-one-wins; a custom connector is still addressed by its dotted
 module path under <code class="docutils literal notranslate"><span class="pre">config</span></code>.</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">port_base</span></code></p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">port_base</span></code></p></td>
 <td><p>integer</p></td>
 <td><p>absent</p></td>
 <td><p>Shorthand for <code class="docutils literal notranslate"><span class="pre">config:</span> <span class="pre">{deployment.port_base:</span> <span class="pre">...}</span></code>, the first port of
@@ -603,21 +596,21 @@ must be an integer the port layout accepts. When <code class="docutils literal n
 <code class="docutils literal notranslate"><span class="pre">deployment.port_base</span></code>, dotted or nested, even in a child profile,
 this value wins without a warning.</p></td>
 </tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">web_panels</span></code></p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">web_panels</span></code></p></td>
 <td><p>list</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">[]</span></code></p></td>
 <td><p>Panels the web workspace offers beside the terminal. A framework
 panel is named by its id; your own is a list entry plus its address
 under <code class="docutils literal notranslate"><span class="pre">config:</span></code> (<code class="docutils literal notranslate"><span class="pre">web.panels.&lt;id&gt;.url</span></code> and its siblings).</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">default_panel</span></code></p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">default_panel</span></code></p></td>
 <td><p>string</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">None</span></code></p></td>
 <td><p>Panel id the web terminal opens on. Must be an entry in
 <code class="docutils literal notranslate"><span class="pre">web_panels</span></code>, a panel every render serves, or the panel of an
 application the login shows. Renders <code class="docutils literal notranslate"><span class="pre">web.default_panel</span></code>.</p></td>
 </tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">panel_presets</span></code></p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">panel_presets</span></code></p></td>
 <td><p>mapping</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">{}</span></code></p></td>
 <td><p>Named web-terminal layouts, as label to dock layout: a tile
@@ -628,16 +621,16 @@ fails the build. The
 <code class="docutils literal notranslate"><span class="pre">label:</span> <span class="pre">[ids]</span></code> list form fails the build with the layout to write.
 Renders <code class="docutils literal notranslate"><span class="pre">web.presets</span></code>.</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">claude_md_template</span></code></p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">claude_md_template</span></code></p></td>
 <td><p>string</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">CLAUDE.md.j2</span></code></p></td>
 <td><p>The bundled <code class="docutils literal notranslate"><span class="pre">templates/claude_code/</span></code> template rendered as the
 project’s <code class="docutils literal notranslate"><span class="pre">CLAUDE.md</span></code>, for a preset that ships an alternate render. A
 name that is not a bundled render is refused. The project copy is the
-build’s, so a hand-written <code class="docutils literal notranslate"><span class="pre">CLAUDE.md</span></code> in the <code class="docutils literal notranslate"><span class="pre">project/</span></code> mirror is
+build’s, so a hand-written <code class="docutils literal notranslate"><span class="pre">CLAUDE.md</span></code> in the <code class="docutils literal notranslate"><span class="pre">ops/project/</span></code> mirror is
 refused.</p></td>
 </tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">config</span></code></p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">config</span></code></p></td>
 <td><p>mapping</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">{}</span></code></p></td>
 <td><p>Dot-notation settings for the generated <code class="docutils literal notranslate"><span class="pre">config.yml</span></code>. A materialized
@@ -646,29 +639,29 @@ deployment’s declarative configuration is read and edited. A handful of
 keys are the build’s to write rather than yours; spelling one here is
 refused (see <a class="reference internal" href="#profile-derived-keys"><span class="std std-ref">Keys the build renders</span></a>).</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">exclude</span></code></p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">exclude</span></code></p></td>
 <td><p>mapping</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">{}</span></code></p></td>
 <td><p>Entries to subtract from what this profile would otherwise bring
 (see <a class="reference internal" href="../../how-to/build-profiles.html#profile-exclude"><span class="std std-ref">Removing something a profile brings</span></a>).</p></td>
 </tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">hooks</span></code> / <code class="docutils literal notranslate"><span class="pre">rules</span></code> / <code class="docutils literal notranslate"><span class="pre">skills</span></code> / <code class="docutils literal notranslate"><span class="pre">agents</span></code> / <code class="docutils literal notranslate"><span class="pre">output_styles</span></code></p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">hooks</span></code> / <code class="docutils literal notranslate"><span class="pre">rules</span></code> / <code class="docutils literal notranslate"><span class="pre">skills</span></code> / <code class="docutils literal notranslate"><span class="pre">agents</span></code> / <code class="docutils literal notranslate"><span class="pre">output_styles</span></code></p></td>
 <td><p>list</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">[]</span></code></p></td>
 <td><p>Built-in artifacts to install. Your own files go in the matching
 convention directory instead.</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">mcp_servers</span></code></p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">mcp_servers</span></code></p></td>
 <td><p>mapping</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">{}</span></code></p></td>
 <td><p>MCP server definitions to inject (see <a class="reference internal" href="#profile-mcp-servers"><span class="std std-ref">MCP server injection</span></a>).</p></td>
 </tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">services</span></code></p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">services</span></code></p></td>
 <td><p>mapping</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">{}</span></code></p></td>
 <td><p>Container services the deployment runs (see <a class="reference internal" href="#profile-services"><span class="std std-ref">Services</span></a>).</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">deploy_services</span></code></p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">deploy_services</span></code></p></td>
 <td><p>boolean</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">true</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">false</span></code> marks an attached project: one that uses a services stack
@@ -676,7 +669,7 @@ another OSPREY project on the same host deploys. Its service sections
 are still parsed and validated, but the build scaffolds no
 <code class="docutils literal notranslate"><span class="pre">services/</span></code> directory and writes no <code class="docutils literal notranslate"><span class="pre">services.*</span></code> blocks.</p></td>
 </tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">deploy</span></code></p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">deploy</span></code></p></td>
 <td><p>mapping</p></td>
 <td><p>absent</p></td>
 <td><p>Where the project is built, pushed and run: <code class="docutils literal notranslate"><span class="pre">ci</span></code>, <code class="docutils literal notranslate"><span class="pre">host</span></code>,
@@ -687,45 +680,45 @@ its image source, and its registry URL when <code class="docutils literal notran
 the rendered config the web-terminal stack reads (see
 <a class="reference internal" href="../../how-to/deploy-a-facility.html"><span class="doc">Deploy a Facility</span></a>).</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">virtual_accelerator</span></code></p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">virtual_accelerator</span></code></p></td>
 <td><p>mapping</p></td>
 <td><p>absent</p></td>
 <td><p>Declares a simulated machine the deployment runs — and, optionally, a
 second copy of it standing in for the live target
 (see <a class="reference internal" href="#profile-virtual-accelerator"><span class="std std-ref">The virtual_accelerator block</span></a>).</p></td>
 </tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">va_archiver</span></code></p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">va_archiver</span></code></p></td>
 <td><p>mapping</p></td>
 <td><p>absent</p></td>
 <td><p>Declares a stored archive for a simulated machine: a MongoDB store and a
 recorder the deploy stands up, seeds and records into
 (see <a class="reference internal" href="#profile-va-archiver"><span class="std std-ref">The va_archiver block</span></a>).</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">dispatch</span></code></p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">dispatch</span></code></p></td>
 <td><p>mapping</p></td>
 <td><p>absent</p></td>
 <td><p>Deploys the event dispatcher and its workers
 (see <a class="reference internal" href="#profile-dispatch-block"><span class="std std-ref">The dispatch: block</span></a>).</p></td>
 </tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">bluesky</span></code></p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">bluesky</span></code></p></td>
 <td><p>mapping</p></td>
 <td><p>absent</p></td>
 <td><p>Deploys the Bluesky stack (see <a class="reference internal" href="#profile-bluesky"><span class="std std-ref">bluesky</span></a>).</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">bluesky_web</span></code></p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">bluesky_web</span></code></p></td>
 <td><p>mapping</p></td>
 <td><p>absent</p></td>
 <td><p>Deploys the <code class="docutils literal notranslate"><span class="pre">bluesky-web</span></code> sidecar that serves the <code class="docutils literal notranslate"><span class="pre">plan</span></code>,
 <code class="docutils literal notranslate"><span class="pre">results</span></code> and <code class="docutils literal notranslate"><span class="pre">health</span></code> panels. Its one key, <code class="docutils literal notranslate"><span class="pre">port</span></code>, defaults to
 the port layout’s <code class="docutils literal notranslate"><span class="pre">bluesky_web</span></code> slot (see <a class="reference internal" href="../ports.html#reference-ports"><span class="std std-ref">Ports</span></a>).</p></td>
 </tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">optimizer</span></code></p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">optimizer</span></code></p></td>
 <td><p>mapping</p></td>
 <td><p>absent</p></td>
 <td><p>Deploys the optimizer service and its Redis job store
 (see <a class="reference internal" href="#profile-optimizer"><span class="std std-ref">optimizer</span></a>).</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">optimizer_web</span></code></p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">optimizer_web</span></code></p></td>
 <td><p>mapping</p></td>
 <td><p>absent</p></td>
 <td><p>Deploys the <code class="docutils literal notranslate"><span class="pre">optimizer-web</span></code> sidecar that serves the <code class="docutils literal notranslate"><span class="pre">optimizer</span></code>
@@ -733,7 +726,7 @@ panel and relays its writes to the optimizer service; needs an
 <code class="docutils literal notranslate"><span class="pre">optimizer:</span></code> block. Its one key, <code class="docutils literal notranslate"><span class="pre">port</span></code>, defaults to the port
 layout’s <code class="docutils literal notranslate"><span class="pre">optimizer_web</span></code> slot (see <a class="reference internal" href="../ports.html#reference-ports"><span class="std std-ref">Ports</span></a>).</p></td>
 </tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">nextcloud_bridge</span></code> / <code class="docutils literal notranslate"><span class="pre">gchat_bridge</span></code> / <code class="docutils literal notranslate"><span class="pre">teams_bridge</span></code> / <code class="docutils literal notranslate"><span class="pre">slack_bridge</span></code></p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">nextcloud_bridge</span></code> / <code class="docutils literal notranslate"><span class="pre">gchat_bridge</span></code> / <code class="docutils literal notranslate"><span class="pre">teams_bridge</span></code> / <code class="docutils literal notranslate"><span class="pre">slack_bridge</span></code></p></td>
 <td><p>mapping</p></td>
 <td><p>absent</p></td>
 <td><p>Deploys one chat bridge, which hands messages to the event dispatcher,
@@ -743,28 +736,28 @@ so it needs a <code class="docutils literal notranslate"><span class="pre">dispa
 <code class="docutils literal notranslate"><span class="pre">mentions</span></code> (default <code class="docutils literal notranslate"><span class="pre">true</span></code>). Credentials are runtime variables,
 never profile keys (see <a class="reference internal" href="../../how-to/agent-interfaces/chat-bridges/index.html#how-to-chat-bridges"><span class="std std-ref">Chat Bridges</span></a>).</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">artifact_server</span></code></p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">artifact_server</span></code></p></td>
 <td><p>mapping</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">{}</span></code></p></td>
 <td><p>Overrides merged into the rendered <code class="docutils literal notranslate"><span class="pre">artifact_server</span></code> block of
 <code class="docutils literal notranslate"><span class="pre">config.yml</span></code>: <code class="docutils literal notranslate"><span class="pre">host</span></code>, <code class="docutils literal notranslate"><span class="pre">port</span></code>, <code class="docutils literal notranslate"><span class="pre">auto_launch</span></code> and <code class="docutils literal notranslate"><span class="pre">extension_types</span></code>
 (see <a class="reference internal" href="config.html#config-artifact-server"><span class="std std-ref">artifact_server: — the workspace gallery’s extension types</span></a>).</p></td>
 </tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">agent_record</span></code></p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">agent_record</span></code></p></td>
 <td><p>mapping</p></td>
 <td><p>embedded backend</p></td>
 <td><p>Where the deployment’s agent record is kept, how long, and who reads it.
 Written into the rendered <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> under <code class="docutils literal notranslate"><span class="pre">agent_record</span></code> (see
 <a class="reference internal" href="../../how-to/health-and-monitoring/agent-record.html"><span class="doc">The Agent Record</span></a>).</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">watchdogs</span></code></p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">watchdogs</span></code></p></td>
 <td><p>mapping</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">{}</span></code></p></td>
 <td><p>The deployment’s watchdogs, by name; each one’s files live in
-<code class="docutils literal notranslate"><span class="pre">watchdogs/&lt;name&gt;/</span></code> beside the profile
+<code class="docutils literal notranslate"><span class="pre">agent/watchdogs/&lt;name&gt;/</span></code> in the repository
 (see <a class="reference internal" href="../../how-to/build-profiles.html#profile-watchdogs-block"><span class="std std-ref">The watchdogs: block</span></a>).</p></td>
 </tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">apps</span></code></p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">apps</span></code></p></td>
 <td><p>mapping</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">{}</span></code></p></td>
 <td><p>The applications the deployment runs, by name; each one’s files live in
@@ -775,19 +768,19 @@ a login file, which of them the login’s card shows, and with
 shared roster card’s words; absent, every user of the login. The tier
 alone decides writes.</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">lists</span></code></p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">lists</span></code></p></td>
 <td><p>string</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">add</span></code></p></td>
 <td><p>Login files only: <code class="docutils literal notranslate"><span class="pre">add</span></code> lays the login’s lists over the deployment’s,
 <code class="docutils literal notranslate"><span class="pre">own</span></code> takes them from the file alone (see <a class="reference internal" href="../../how-to/build-profiles.html"><span class="doc">Build Profiles</span></a>).</p></td>
 </tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">lifecycle</span></code></p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">lifecycle</span></code></p></td>
 <td><p>mapping</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">{}</span></code></p></td>
 <td><p>Commands to run at build phases (<code class="docutils literal notranslate"><span class="pre">pre_build</span></code>, <code class="docutils literal notranslate"><span class="pre">post_build</span></code>,
 <code class="docutils literal notranslate"><span class="pre">validate</span></code>).</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">env</span></code></p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">env</span></code></p></td>
 <td><p>mapping</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">{}</span></code></p></td>
 <td><p>Variables the deployment needs: <code class="docutils literal notranslate"><span class="pre">required</span></code>, <code class="docutils literal notranslate"><span class="pre">defaults</span></code>,
@@ -796,34 +789,34 @@ host may not override; a deploy refuses rather than start on a
 contradicting value (see <a class="reference internal" href="../../how-to/deploy-project/env-chain.html#deployment-pinned-env"><span class="std std-ref">Pinning a variable to the chain</span></a>). Same name pattern
 as <code class="docutils literal notranslate"><span class="pre">required</span></code>, and a machine-minted name cannot be pinned.</p></td>
 </tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">dependencies</span></code></p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">dependencies</span></code></p></td>
 <td><p>list</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">[]</span></code></p></td>
 <td><p>Python packages to install into the project venv.</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">environment</span></code></p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">environment</span></code></p></td>
 <td><p>mapping</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">{}</span></code></p></td>
 <td><p>Base interpreter the project environment is built from
 (see <a class="reference internal" href="#profile-environment"><span class="std std-ref">The execution environment</span></a>).</p></td>
 </tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">requires_osprey_version</span></code></p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">requires_osprey_version</span></code></p></td>
 <td><p>string</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">None</span></code></p></td>
 <td><p>PEP 440 specifier (e.g. <code class="docutils literal notranslate"><span class="pre">&gt;=2026.5.0</span></code>). The build aborts if unsatisfied.</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">osprey_install</span></code></p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">osprey_install</span></code></p></td>
 <td><p>string</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">local</span></code></p></td>
 <td><p>How to install OSPREY in the project venv: <code class="docutils literal notranslate"><span class="pre">local</span></code>, <code class="docutils literal notranslate"><span class="pre">pip</span></code>, or a
 PEP 508 spec.</p></td>
 </tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">python_env</span></code></p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">python_env</span></code></p></td>
 <td><p>string</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">project</span></code></p></td>
 <td><p>Python used by MCP servers: <code class="docutils literal notranslate"><span class="pre">project</span></code>, <code class="docutils literal notranslate"><span class="pre">build</span></code>, or an absolute path.</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">provenance</span></code></p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">provenance</span></code></p></td>
 <td><p>mapping</p></td>
 <td><p><em>written</em></p></td>
 <td><p>Which preset this profile was materialized from, that preset’s hash, and
@@ -1111,7 +1104,7 @@ control system to state a type for.</p>
 <td><p><code class="docutils literal notranslate"><span class="pre">flag</span></code> or <code class="docutils literal notranslate"><span class="pre">block</span></code></p></td>
 </tr>
 <tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">code_review.prompt</span></code></p></td>
-<td><p><code class="docutils literal notranslate"><span class="pre">data/code_review/reviewer.md</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">agent/code_review/reviewer.md</span></code></p></td>
 <td><p>The reviewer’s prompt file; a relative path is anchored at the repository root</p></td>
 </tr>
 <tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">code_review.modes</span></code></p></td>
@@ -1303,15 +1296,16 @@ absent for any other server.</p></td>
 from which it is refused.</p>
 <section id="shipping-the-server-s-code">
 <h3>Shipping the server’s code<a class="headerlink" href="#shipping-the-server-s-code" title="Link to this heading">#</a></h3>
-<p>Put the package in the profile’s <code class="docutils literal notranslate"><span class="pre">mcp_servers/</span></code> directory — one directory per
-server. The build copies it to <code class="docutils literal notranslate"><span class="pre">build/_mcp_servers/</span></code> in the project, so the
+<p>Put the package in the profile’s <code class="docutils literal notranslate"><span class="pre">agent/mcp_servers/</span></code> directory — one directory
+per server. The build copies it to <code class="docutils literal notranslate"><span class="pre">build/_mcp_servers/</span></code> in the project, so the
 launch command finds it:</p>
 <div class="highlight-text notranslate"><div class="highlight"><pre><span></span>my-facility/
-  mcp_servers/
-    my_server/
-      __init__.py
-      __main__.py
-      server.py
+  agent/
+    mcp_servers/
+      my_server/
+        __init__.py
+        __main__.py
+        server.py
 </pre></div>
 </div>
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">mcp_servers</span><span class="p">:</span>
@@ -1484,7 +1478,7 @@ remedy that refusal can offer is to write one. See
 alongside OSPREY’s built-in ones.</p>
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">services</span><span class="p">:</span>
 <span class="w">  </span><span class="nt">typesense</span><span class="p">:</span>
-<span class="w">    </span><span class="nt">template</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">services/typesense</span><span class="w">     </span><span class="c1"># relative to the profile directory</span>
+<span class="w">    </span><span class="nt">template</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">ops/services/typesense</span><span class="w">  </span><span class="c1"># relative to the profile directory</span>
 <span class="w">    </span><span class="nt">config</span><span class="p">:</span>
 <span class="w">      </span><span class="nt">port</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">8108</span>
 <span class="w">      </span><span class="nt">api_key</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;${TYPESENSE_API_KEY}&quot;</span>
@@ -1495,7 +1489,7 @@ profile-relative template must resolve inside the repository (one outside is
 refused, see <a class="reference internal" href="../../how-to/build-profiles.html#profile-self-contained"><span class="std std-ref">A profile is self-contained</span></a>), and its contents are folded into the
 profile hash. It is copied into the project’s <code class="docutils literal notranslate"><span class="pre">services/</span></code> tree, and the
 service is registered in <code class="docutils literal notranslate"><span class="pre">config.yml</span></code>. Optional <code class="docutils literal notranslate"><span class="pre">config</span></code> values land under <code class="docutils literal notranslate"><span class="pre">services.&lt;name&gt;</span></code>.</p>
-<p>A service directory placed in the profile’s <code class="docutils literal notranslate"><span class="pre">services/</span></code> convention directory is
+<p>A service directory placed in the profile’s <code class="docutils literal notranslate"><span class="pre">ops/services/</span></code> convention directory is
 carried across the same way and marked as yours — that is what
 <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">scaffold</span> <span class="pre">claim</span> <span class="pre">services/&lt;name&gt;</span></code> produces.</p>
 <p>One <code class="docutils literal notranslate"><span class="pre">config</span></code> key is read by the build itself: <code class="docutils literal notranslate"><span class="pre">network</span></code>, which is either
@@ -1513,7 +1507,7 @@ variable NAMES the service passes through to its container, in the order you
 write them.</p>
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">services</span><span class="p">:</span>
 <span class="w">  </span><span class="nt">typesense</span><span class="p">:</span>
-<span class="w">    </span><span class="nt">template</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">services/typesense</span>
+<span class="w">    </span><span class="nt">template</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">ops/services/typesense</span>
 <span class="w">    </span><span class="nt">config</span><span class="p">:</span>
 <span class="w">      </span><span class="nt">env</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">TYPESENSE_TELEMETRY</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">HTTPS_PROXY</span><span class="p p-Indicator">]</span>
 </pre></div>
@@ -1704,7 +1698,6 @@ keys and the <code class="docutils literal notranslate"><span class="pre">graphd
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">control-room</span>
 <span class="nt">provider</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">anthropic</span>
 <span class="nt">channel_finder_mode</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">graph</span>
-<span class="nt">data</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">data</span>
 <span class="nt">config</span><span class="p">:</span>
 <span class="w">  </span><span class="nt">services.graphdb.path</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">./services/graphdb</span>
 <span class="w">  </span><span class="nt">services.graphdb.image</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">neo4j:5.26-community</span>

@@ -1020,7 +1020,7 @@ initialized with;</p></li>
 </ul>
 <p><code class="docutils literal notranslate"><span class="pre">data/</span></code> in the <em>build zone</em> (<code class="docutils literal notranslate"><span class="pre">build/</span></code>) is re-materialized from the profile.
 A build never touches the <em>source zone</em>: the files you author, such as
-<code class="docutils literal notranslate"><span class="pre">profile.yml</span></code> and <code class="docutils literal notranslate"><span class="pre">data/</span></code> at the repository root.</p>
+<code class="docutils literal notranslate"><span class="pre">profile.yml</span></code>, <code class="docutils literal notranslate"><span class="pre">facility/</span></code> and <code class="docutils literal notranslate"><span class="pre">agent/</span></code> at the repository root.</p>
 <p>Three guards keep <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> from starting something you did not mean to:</p>
 <ul>
 <li><p><strong>Ownership refusal</strong> — every container records which checkout created it.
@@ -1037,8 +1037,8 @@ compares it with the stamp. If the profile has moved on, <code class="docutils l
 says what changed, because starting would deploy something other than what
 the profile now describes. Rebuild with <code class="docutils literal notranslate"><span class="pre">--build</span></code>, or start the old render
 knowingly with <code class="docutils literal notranslate"><span class="pre">--as-built</span></code>.</p>
-<p>The fingerprint covers <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code>, the profile’s data tree and its
-convention directories (see <a class="reference internal" href="../build-profiles.html"><span class="doc">Build Profiles</span></a>). So regenerating
+<p>The fingerprint covers <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code>, <code class="docutils literal notranslate"><span class="pre">facility/</span></code>, the <code class="docutils literal notranslate"><span class="pre">web/</span></code> content
+and the convention directories (see <a class="reference internal" href="../build-profiles.html"><span class="doc">Build Profiles</span></a>). So regenerating
 a channel database or adding a rule trips it too. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">status</span></code> reports
 the same comparison without acting on it.</p>
 </li>

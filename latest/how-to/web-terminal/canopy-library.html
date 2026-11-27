@@ -614,7 +614,7 @@ deployment. Using the panel is on <a class="reference internal" href="canopy.htm
   <rect class="mask" x="780" y="110" width="190" height="62" rx="6"/>
   <rect class="nb nb-acc-stroke" x="780" y="110" width="190" height="62" rx="6"/>
   <text class="tn" x="875" y="132" text-anchor="middle">the library</text>
-  <text class="ts" x="875" y="148" text-anchor="middle">data/canopy/library</text>
+  <text class="ts" x="875" y="148" text-anchor="middle">web/canopy/library</text>
   <text class="ts" x="875" y="161" text-anchor="middle">screens + report</text>
   <rect class="mask" x="780" y="210" width="190" height="56" rx="6"/>
   <rect class="nb" x="780" y="210" width="190" height="56" rx="6"/>
@@ -645,7 +645,7 @@ use <code class="docutils literal notranslate"><span class="pre">~/my-assistant<
 </div>
 </details><section id="the-library-and-its-report">
 <h2>The library and its report<a class="headerlink" href="#the-library-and-its-report" title="Link to this heading">#</a></h2>
-<p><code class="docutils literal notranslate"><span class="pre">data/canopy/library</span></code> holds:</p>
+<p><code class="docutils literal notranslate"><span class="pre">web/canopy/library</span></code> holds:</p>
 <ul class="simple">
 <li><p><code class="docutils literal notranslate"><span class="pre">screens/</span></code>: one <code class="docutils literal notranslate"><span class="pre">&lt;id&gt;.screen.json</span></code> per screen, and the images the
 screens show. A screen’s id is its path below <code class="docutils literal notranslate"><span class="pre">screens/</span></code>, such as
@@ -671,7 +671,7 @@ where each part opens its own screen (<code class="docutils literal notranslate"
 They are a starting point to replace with your facility’s own.</p>
 <div class="admonition warning">
 <p class="admonition-title">Warning</p>
-<p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">init</span> <span class="pre">--force</span></code> replaces the deployment’s <code class="docutils literal notranslate"><span class="pre">data/</span></code> directory, the
+<p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">init</span> <span class="pre">--force</span></code> replaces the deployment’s <code class="docutils literal notranslate"><span class="pre">web/</span></code> directory, the
 library included. Commit the library first.</p>
 </div>
 </section>
@@ -682,7 +682,7 @@ library included. Commit the library first.</p>
 it needs, where it should go, and a note. Nothing is published yet. The user
 gets a request id and passes it to you.</p>
 <p>You review it on the host, from inside the deployment, as the user who owns
-<code class="docutils literal notranslate"><span class="pre">data/canopy/library</span></code>. Do not use <code class="docutils literal notranslate"><span class="pre">sudo</span></code>: put that user in the <code class="docutils literal notranslate"><span class="pre">docker</span></code>
+<code class="docutils literal notranslate"><span class="pre">web/canopy/library</span></code>. Do not use <code class="docutils literal notranslate"><span class="pre">sudo</span></code>: put that user in the <code class="docutils literal notranslate"><span class="pre">docker</span></code>
 group instead. Docker is the only container runtime the review supports.</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="nb">cd</span><span class="w"> </span>~/my-assistant
 python<span class="w"> </span>-m<span class="w"> </span>osprey.integrations.canopy.push<span class="w"> </span>list<span class="w">                      </span><span class="c1"># every pending request</span>
@@ -740,7 +740,7 @@ on their own machine. No OSPREY stack runs: channels show mock values, so a
 screenshot shows the layout, not the machine.</p>
 <ol class="arabic">
 <li><p>Install the CANOPY and PyDMConverter wheels that <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> copied
-into the deployment root (<code class="docutils literal notranslate"><span class="pre">canopy-*.whl</span></code> and <code class="docutils literal notranslate"><span class="pre">pydmconverter-*.whl</span></code>) into
+into the render (<code class="docutils literal notranslate"><span class="pre">build/canopy-*.whl</span></code> and <code class="docutils literal notranslate"><span class="pre">build/pydmconverter-*.whl</span></code>) into
 a fresh virtual environment, with the browser for screenshots. Use exactly
 these: the image build recomputes the report with the same CANOPY.</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>python3<span class="w"> </span>-m<span class="w"> </span>venv<span class="w"> </span>~/canopy-dev/venv
@@ -760,8 +760,8 @@ that only you can read:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="nb">umask</span><span class="w"> </span><span class="m">022</span><span class="w">                    </span><span class="c1"># screen files readable by all, writable by you</span>
 <span class="nb">unset</span><span class="w"> </span>CANOPY_PUSH_DIR<span class="w">        </span><span class="c1"># this server takes no push requests</span>
 <span class="nv">CANOPY_ACCESS_TOKEN_FILE</span><span class="o">=</span><span class="s2">&quot;</span><span class="nv">$HOME</span><span class="s2">/canopy-dev/access.key&quot;</span><span class="w"> </span><span class="se">\</span>
-<span class="nv">CANOPY_DRAFTS_DIR</span><span class="o">=</span><span class="s2">&quot;</span><span class="nv">$HOME</span><span class="s2">/my-assistant/data/canopy/library&quot;</span><span class="w"> </span><span class="se">\</span>
-<span class="nv">CANOPY_VIEWER_DIST</span><span class="o">=</span><span class="s2">&quot;</span><span class="nv">$HOME</span><span class="s2">/my-assistant/canopy_payload/viewer&quot;</span><span class="w"> </span><span class="se">\</span>
+<span class="nv">CANOPY_DRAFTS_DIR</span><span class="o">=</span><span class="s2">&quot;</span><span class="nv">$HOME</span><span class="s2">/my-assistant/web/canopy/library&quot;</span><span class="w"> </span><span class="se">\</span>
+<span class="nv">CANOPY_VIEWER_DIST</span><span class="o">=</span><span class="s2">&quot;</span><span class="nv">$HOME</span><span class="s2">/my-assistant/build/canopy_payload/viewer&quot;</span><span class="w"> </span><span class="se">\</span>
 <span class="nv">CANOPY_VIEWS_DIR</span><span class="o">=</span><span class="s2">&quot;</span><span class="nv">$HOME</span><span class="s2">/canopy-dev/views&quot;</span><span class="w"> </span><span class="se">\</span>
 <span class="nv">CANOPY_CACHE_DIR</span><span class="o">=</span><span class="s2">&quot;</span><span class="nv">$HOME</span><span class="s2">/canopy-dev/cache&quot;</span><span class="w"> </span><span class="se">\</span>
 <span class="nv">CANOPY_PV_MODE</span><span class="o">=</span>mock<span class="w"> </span><span class="se">\</span>
@@ -776,7 +776,7 @@ listing of the screens the server keeps between runs: without it the
 server writes that file to <code class="docutils literal notranslate"><span class="pre">.cache/</span></code> inside the store it serves, and a
 library that holds a <code class="docutils literal notranslate"><span class="pre">.cache</span></code> directory is refused by the report check
 and by <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code>. If you started the server without it, delete
-<code class="docutils literal notranslate"><span class="pre">data/canopy/library/.cache</span></code> before you regenerate the report.</p>
+<code class="docutils literal notranslate"><span class="pre">web/canopy/library/.cache</span></code> before you regenerate the report.</p>
 </li>
 <li><p>Register the server with Claude Code, export the token, and start Claude
 Code in <code class="docutils literal notranslate"><span class="pre">~/canopy-dev/project</span></code>. The single quotes store the placeholder,
@@ -790,9 +790,9 @@ not the token:</p>
 </li>
 <li><p>Regenerate the report (next section), read its diff, and commit the library
 alone:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>git<span class="w"> </span>-C<span class="w"> </span>~/my-assistant<span class="w"> </span>add<span class="w"> </span>--<span class="w"> </span>data/canopy/library
-git<span class="w"> </span>-C<span class="w"> </span>~/my-assistant<span class="w"> </span>status<span class="w"> </span>--ignored<span class="w"> </span>--<span class="w"> </span>data/canopy/library<span class="w">   </span><span class="c1"># nothing may be ignored</span>
-git<span class="w"> </span>-C<span class="w"> </span>~/my-assistant<span class="w"> </span>commit<span class="w"> </span>-m<span class="w"> </span><span class="s1">&#39;canopy: add sr/rf overview&#39;</span><span class="w"> </span>--<span class="w"> </span>data/canopy/library
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>git<span class="w"> </span>-C<span class="w"> </span>~/my-assistant<span class="w"> </span>add<span class="w"> </span>--<span class="w"> </span>web/canopy/library
+git<span class="w"> </span>-C<span class="w"> </span>~/my-assistant<span class="w"> </span>status<span class="w"> </span>--ignored<span class="w"> </span>--<span class="w"> </span>web/canopy/library<span class="w">   </span><span class="c1"># nothing may be ignored</span>
+git<span class="w"> </span>-C<span class="w"> </span>~/my-assistant<span class="w"> </span>commit<span class="w"> </span>-m<span class="w"> </span><span class="s1">&#39;canopy: add sr/rf overview&#39;</span><span class="w"> </span>--<span class="w"> </span>web/canopy/library
 </pre></div>
 </div>
 <p>A file git ignores would be missing from the commit but present in the
@@ -808,7 +808,7 @@ push the commit, let the pipeline build the images, then run <code class="docuti
 <p>Run this after every change to the screens, and after every CANOPY upgrade
 even when no screen changed, because a newer CANOPY may compute the report
 differently:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>~/canopy-dev/venv/bin/python<span class="w"> </span>-m<span class="w"> </span>canopy_mcp.report<span class="w"> </span>~/my-assistant/data/canopy/library<span class="w"> </span>--served-at<span class="w"> </span>library<span class="w"> </span>--write
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>~/canopy-dev/venv/bin/python<span class="w"> </span>-m<span class="w"> </span>canopy_mcp.report<span class="w"> </span>~/my-assistant/web/canopy/library<span class="w"> </span>--served-at<span class="w"> </span>library<span class="w"> </span>--write
 </pre></div>
 </div>
 <p>Use a virtual environment built from the wheels of the payload the deployment
@@ -823,9 +823,9 @@ diff needs no commit.</p>
 <p>There is no push command for these. Each is a change to the source tree: make
 it with git, regenerate the report, commit and build as above.</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># remove a screen</span>
-git<span class="w"> </span>-C<span class="w"> </span>~/my-assistant<span class="w"> </span>rm<span class="w"> </span>--<span class="w"> </span>data/canopy/library/screens/sr/rf/view.screen.json
+git<span class="w"> </span>-C<span class="w"> </span>~/my-assistant<span class="w"> </span>rm<span class="w"> </span>--<span class="w"> </span>web/canopy/library/screens/sr/rf/view.screen.json
 <span class="c1"># bring one back as it was at an earlier commit</span>
-git<span class="w"> </span>-C<span class="w"> </span>~/my-assistant<span class="w"> </span>restore<span class="w"> </span>--source<span class="o">=</span>&lt;sha&gt;<span class="w"> </span>--<span class="w"> </span>data/canopy/library/screens/sr/rf/view.screen.json
+git<span class="w"> </span>-C<span class="w"> </span>~/my-assistant<span class="w"> </span>restore<span class="w"> </span>--source<span class="o">=</span>&lt;sha&gt;<span class="w"> </span>--<span class="w"> </span>web/canopy/library/screens/sr/rf/view.screen.json
 </pre></div>
 </div>
 <p>Read the report diff before you commit: a screen that opened the one you
@@ -835,7 +835,7 @@ newest first. Every library commit rewrites the report, so reverting an older
 one stops on a conflict in the two report files. Put the committed report
 back each time, and regenerate it once at the end:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>git<span class="w"> </span>-C<span class="w"> </span>~/my-assistant<span class="w"> </span>revert<span class="w"> </span>--no-commit<span class="w"> </span>&lt;accept<span class="w"> </span>commit&gt;
-git<span class="w"> </span>-C<span class="w"> </span>~/my-assistant<span class="w"> </span>checkout<span class="w"> </span>HEAD<span class="w"> </span>--<span class="w"> </span>data/canopy/library/LIBRARY-REPORT.json<span class="w"> </span>data/canopy/library/LIBRARY-REPORT.md
+git<span class="w"> </span>-C<span class="w"> </span>~/my-assistant<span class="w"> </span>checkout<span class="w"> </span>HEAD<span class="w"> </span>--<span class="w"> </span>web/canopy/library/LIBRARY-REPORT.json<span class="w"> </span>web/canopy/library/LIBRARY-REPORT.md
 <span class="c1"># ...repeat both lines for each commit, then:</span>
 git<span class="w"> </span>-C<span class="w"> </span>~/my-assistant<span class="w"> </span>revert<span class="w"> </span>--quit
 git<span class="w"> </span>-C<span class="w"> </span>~/my-assistant<span class="w"> </span>status<span class="w">       </span><span class="c1"># every screen you are rolling back is staged</span>
@@ -850,7 +850,7 @@ is not a rollback: the next build ships what git holds.</p>
 <span id="canopy-library-navigation"></span><h2>Order the sidebar<a class="headerlink" href="#order-the-sidebar" title="Link to this heading">#</a></h2>
 <p>Without further input the viewer’s sidebar shows the library as its folder
 tree. To choose the order, the names and the grouping yourself, write
-<code class="docutils literal notranslate"><span class="pre">data/canopy/library/navigation.json</span></code>, beside <code class="docutils literal notranslate"><span class="pre">screens/</span></code>:</p>
+<code class="docutils literal notranslate"><span class="pre">web/canopy/library/navigation.json</span></code>, beside <code class="docutils literal notranslate"><span class="pre">screens/</span></code>:</p>
 <div class="highlight-json notranslate"><div class="highlight"><pre><span></span><span class="p">[</span>
 <span class="w">  </span><span class="p">{</span><span class="nt">&quot;screen&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;library/overview&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;label&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Start here&quot;</span><span class="p">},</span>
 <span class="w">  </span><span class="p">{</span><span class="nt">&quot;label&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Magnets&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;screen&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;library/magnets/all&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;children&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span>
@@ -875,7 +875,7 @@ is refused.</p>
 <section id="facility-collections">
 <h2>Facility collections<a class="headerlink" href="#facility-collections" title="Link to this heading">#</a></h2>
 <p>A <strong>collection</strong> opens several screens and tools together in one view. The
-deployment’s own collections are JSON files in <code class="docutils literal notranslate"><span class="pre">data/canopy/collections</span></code>,
+deployment’s own collections are JSON files in <code class="docutils literal notranslate"><span class="pre">web/canopy/collections</span></code>,
 one <code class="docutils literal notranslate"><span class="pre">&lt;id&gt;.json</span></code> each, and every user sees them read-only. The image build
 checks them against the library and fails on a collection that names a
 screen the library does not hold. The format is CANOPY’s own; see its

@@ -642,7 +642,7 @@ in; a value the agent passes is overwritten.</p></td>
 <p>Each step comes from the measurement file (<code class="docutils literal notranslate"><span class="pre">corrector_delta</span></code>,
 <code class="docutils literal notranslate"><span class="pre">frequency_delta</span></code>, <code class="docutils literal notranslate"><span class="pre">quad_delta</span></code>, <code class="docutils literal notranslate"><span class="pre">sextu_delta</span></code>) and is shrunk until no
 setpoint’s largest single write exceeds half its <code class="docutils literal notranslate"><span class="pre">max_step</span></code> in
-<code class="docutils literal notranslate"><span class="pre">data/facility/limits.yaml</span></code>; <code class="docutils literal notranslate"><span class="pre">delta_limited_by</span></code> and <code class="docutils literal notranslate"><span class="pre">rf_limited_by</span></code> name
+<code class="docutils literal notranslate"><span class="pre">facility/limits.yaml</span></code>; <code class="docutils literal notranslate"><span class="pre">delta_limited_by</span></code> and <code class="docutils literal notranslate"><span class="pre">rf_limited_by</span></code> name
 the setpoint that bounded it. A strength, <code class="docutils literal notranslate"><span class="pre">max_step</span></code> or write that is not a
 finite number, or a <code class="docutils literal notranslate"><span class="pre">max_step</span></code> not above zero, refuses the measurement before
 any setpoint moves. A group step is first sized from the view’s

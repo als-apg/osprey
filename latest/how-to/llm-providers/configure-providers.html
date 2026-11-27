@@ -974,8 +974,8 @@ serves.</p></li>
 <code class="docutils literal notranslate"><span class="pre">data-visualizer</span></code>, <code class="docutils literal notranslate"><span class="pre">facility-knowledge</span></code>, <code class="docutils literal notranslate"><span class="pre">facility-knowledge-graph</span></code>,
 <code class="docutils literal notranslate"><span class="pre">logbook-deep-research</span></code>, <code class="docutils literal notranslate"><span class="pre">logbook-search</span></code> and <code class="docutils literal notranslate"><span class="pre">pyat-specialist</span></code>), plus any
 agent the deployment defines under <code class="docutils literal notranslate"><span class="pre">claude_code.agents</span></code> or ships in
-<code class="docutils literal notranslate"><span class="pre">agents/</span></code>. The build refuses a pin that names no agent. An agent the
-deployment ships as <code class="docutils literal notranslate"><span class="pre">agents/&lt;agent&gt;.md</span></code> runs that file’s <code class="docutils literal notranslate"><span class="pre">model:</span></code> line, so
+<code class="docutils literal notranslate"><span class="pre">agent/agents/</span></code>. The build refuses a pin that names no agent. An agent the
+deployment ships as <code class="docutils literal notranslate"><span class="pre">agent/agents/&lt;agent&gt;.md</span></code> runs that file’s <code class="docutils literal notranslate"><span class="pre">model:</span></code> line, so
 the build also refuses a pin naming a different model. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">set</span></code> writes a
 pin with the same checks it makes for <code class="docutils literal notranslate"><span class="pre">model=</span></code>:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span><span class="nb">set</span><span class="w"> </span>config.claude_code.agent_models.logbook-deep-research<span class="o">=</span>claude-opus-5

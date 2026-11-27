@@ -972,7 +972,8 @@ carries it.</p>
 <dl class="py data">
 <dt class="sig sig-object py" id="osprey_connectors.simulation.view.DECKS_DIR">
 <span class="sig-prename descclassname"><span class="pre">osprey_connectors.simulation.view.</span></span><span class="sig-name descname"><span class="pre">DECKS_DIR</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">'decks'</span></span><a class="headerlink" href="#osprey_connectors.simulation.view.DECKS_DIR" title="Link to this definition">#</a></dt>
-<dd><p>The directory holding a byte copy of each deck-bearing model’s deck.</p>
+<dd><p>The view’s directory holding a byte copy of each deck-bearing model’s deck.
+An output name of the view, not the facility tree’s decks source path.</p>
 </dd></dl>
 
 <dl class="py data">
@@ -1028,8 +1029,9 @@ fast period, <code class="docutils literal notranslate"><span class="pre">event<
 <dl class="py data">
 <dt class="sig sig-object py" id="osprey_connectors.simulation.view.SCENARIOS_DIR">
 <span class="sig-prename descclassname"><span class="pre">osprey_connectors.simulation.view.</span></span><span class="sig-name descname"><span class="pre">SCENARIOS_DIR</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">'scenarios'</span></span><a class="headerlink" href="#osprey_connectors.simulation.view.SCENARIOS_DIR" title="Link to this definition">#</a></dt>
-<dd><p>The directory holding each scenario’s attached files, <code class="docutils literal notranslate"><span class="pre">scenarios/&lt;name&gt;/</span></code>,
-under the facility tree and under the view alike.</p>
+<dd><p>The view’s directory holding each scenario’s attached files,
+<code class="docutils literal notranslate"><span class="pre">scenarios/&lt;name&gt;/</span></code>. An output name of the view, not the facility tree’s
+scenarios source path.</p>
 </dd></dl>
 
 <dl class="py data">
@@ -3064,7 +3066,7 @@ active, and answers again, with its current value, once it is not.</p>
 the composite share one table.</p>
 <dl class="py data">
 <dt class="sig sig-object py" id="osprey_connectors.simulation.channel_faults.CHANNEL_FAULTS">
-<span class="sig-prename descclassname"><span class="pre">osprey_connectors.simulation.channel_faults.</span></span><span class="sig-name descname"><span class="pre">CHANNEL_FAULTS</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">Mapping</span><span class="p"><span class="pre">[</span></span><span class="pre">str</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><a class="reference internal" href="#osprey_connectors.simulation.channel_faults.ChannelFault" title="osprey_connectors.simulation.channel_faults.ChannelFault"><span class="pre">ChannelFault</span></a><span class="p"><span class="pre">]</span></span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">mappingproxy({'stuck':</span> <span class="pre">ChannelFault(roles=frozenset({'setpoint'}),</span> <span class="pre">write=True,</span> <span class="pre">read=None,</span> <span class="pre">severity=None),</span> <span class="pre">'frozen':</span> <span class="pre">ChannelFault(roles=frozenset({'none',</span> <span class="pre">'readback'}),</span> <span class="pre">write=False,</span> <span class="pre">read=&lt;function</span> <span class="pre">_snapshot&gt;,</span> <span class="pre">severity=None),</span> <span class="pre">'disconnected':</span> <span class="pre">ChannelFault(roles=frozenset({'setpoint',</span> <span class="pre">'none',</span> <span class="pre">'readback'}),</span> <span class="pre">write=True,</span> <span class="pre">read=&lt;function</span> <span class="pre">_not_a_number&gt;,</span> <span class="pre">severity='udf')})</span></span><a class="headerlink" href="#osprey_connectors.simulation.channel_faults.CHANNEL_FAULTS" title="Link to this definition">#</a></dt>
+<span class="sig-prename descclassname"><span class="pre">osprey_connectors.simulation.channel_faults.</span></span><span class="sig-name descname"><span class="pre">CHANNEL_FAULTS</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">Mapping</span><span class="p"><span class="pre">[</span></span><span class="pre">str</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><a class="reference internal" href="#osprey_connectors.simulation.channel_faults.ChannelFault" title="osprey_connectors.simulation.channel_faults.ChannelFault"><span class="pre">ChannelFault</span></a><span class="p"><span class="pre">]</span></span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">mappingproxy({'stuck':</span> <span class="pre">ChannelFault(roles=frozenset({'setpoint'}),</span> <span class="pre">write=True,</span> <span class="pre">read=None,</span> <span class="pre">severity=None),</span> <span class="pre">'frozen':</span> <span class="pre">ChannelFault(roles=frozenset({'readback',</span> <span class="pre">'none'}),</span> <span class="pre">write=False,</span> <span class="pre">read=&lt;function</span> <span class="pre">_snapshot&gt;,</span> <span class="pre">severity=None),</span> <span class="pre">'disconnected':</span> <span class="pre">ChannelFault(roles=frozenset({'setpoint',</span> <span class="pre">'readback',</span> <span class="pre">'none'}),</span> <span class="pre">write=True,</span> <span class="pre">read=&lt;function</span> <span class="pre">_not_a_number&gt;,</span> <span class="pre">severity='udf')})</span></span><a class="headerlink" href="#osprey_connectors.simulation.channel_faults.CHANNEL_FAULTS" title="Link to this definition">#</a></dt>
 <dd><p>Every channel fault, by its word.</p>
 </dd></dl>
 

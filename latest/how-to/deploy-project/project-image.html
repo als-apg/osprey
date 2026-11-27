@@ -583,12 +583,13 @@ terminal.</p></li>
 </ul>
 <p>Both files are re-rendered from the framework on every build, so an edit made
 in <code class="docutils literal notranslate"><span class="pre">build/</span></code> lasts only until the next <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code>. To customize them, put
-your version in the source zone’s <code class="docutils literal notranslate"><span class="pre">project/</span></code> mirror instead. A
+your version in the source zone’s <code class="docutils literal notranslate"><span class="pre">ops/project/</span></code> mirror instead. A
 <code class="docutils literal notranslate"><span class="pre">.dockerignore</span></code> placed there replaces OSPREY’s list, so keep <code class="docutils literal notranslate"><span class="pre">.env</span></code> in it.
 The build also strips every <code class="docutils literal notranslate"><span class="pre">.env</span></code> file but <code class="docutils literal notranslate"><span class="pre">.env.example</span></code> from the image.</p>
 <div class="highlight-text notranslate"><div class="highlight"><pre><span></span>my-facility/
-  project/
-    Dockerfile          # copied verbatim onto the render, every build
+  ops/
+    project/
+      Dockerfile        # copied verbatim onto the render, every build
 </pre></div>
 </div>
 <p>The mirror is applied after the framework render, so your copy wins each time.
@@ -616,14 +617,14 @@ notebooks/
 *.h5
 </pre></div>
 </div>
-<p>Here <code class="docutils literal notranslate"><span class="pre">*.h5</span></code> drops <code class="docutils literal notranslate"><span class="pre">x.h5</span></code> at the root but not <code class="docutils literal notranslate"><span class="pre">data/x.h5</span></code>. Write
+<p>Here <code class="docutils literal notranslate"><span class="pre">*.h5</span></code> drops <code class="docutils literal notranslate"><span class="pre">x.h5</span></code> at the root but not <code class="docutils literal notranslate"><span class="pre">scans/x.h5</span></code>. Write
 <code class="docutils literal notranslate"><span class="pre">**/*.h5</span></code> to match at every depth. Two rules hold whatever the file says:</p>
 <ol class="arabic simple">
 <li><p>It cannot bring back what OSPREY excludes. <code class="docutils literal notranslate"><span class="pre">.env</span></code> files, <code class="docutils literal notranslate"><span class="pre">.git</span></code>,
 <code class="docutils literal notranslate"><span class="pre">build/</span></code>, <code class="docutils literal notranslate"><span class="pre">var/</span></code> and the repo’s Claude Code files stay out.</p></li>
 <li><p>It cannot remove a file the build reads. Such a pattern fails the build,
-and the error names it. The build reads <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code>, <code class="docutils literal notranslate"><span class="pre">data/</span></code>,
-<code class="docutils literal notranslate"><span class="pre">tiers/</span></code>, <code class="docutils literal notranslate"><span class="pre">apps/</span></code>, the convention directories and the trigger file. It
+and the error names it. The build reads <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code>, <code class="docutils literal notranslate"><span class="pre">facility/</span></code>,
+the <code class="docutils literal notranslate"><span class="pre">web/</span></code> content, <code class="docutils literal notranslate"><span class="pre">tiers/</span></code>, <code class="docutils literal notranslate"><span class="pre">apps/</span></code>, the convention directories and the trigger file. It
 also reads a repo-local <code class="docutils literal notranslate"><span class="pre">extends:</span></code> base, the selected host-variant profile
 and an enabled watchdog’s directory.</p></li>
 </ol>
@@ -1295,7 +1296,7 @@ enterprise settings, or extra processes.</p></li>
 from the working directory); override it to run a process supervisor if you
 add sidecars.</p></li>
 <li><p><strong>Carry the edit in the profile</strong>: put your Dockerfile in the profile’s
-<code class="docutils literal notranslate"><span class="pre">project/</span></code> mirror (above) so every rebuild lands it again.</p></li>
+<code class="docutils literal notranslate"><span class="pre">ops/project/</span></code> mirror (above) so every rebuild lands it again.</p></li>
 <li><p><strong>Template-level override</strong>: an app bundle can ship its own
 <code class="docutils literal notranslate"><span class="pre">apps/&lt;bundle&gt;/Dockerfile.j2</span></code>, which takes precedence over the framework
 template at build time. Use this when every project built from a bundle
@@ -1304,7 +1305,7 @@ needs the same customization.</p></li>
 <div class="admonition warning">
 <p class="admonition-title">Warning</p>
 <p><strong>A Dockerfile you forked keeps the recipe you forked.</strong> A copy in your
-deployment’s <code class="docutils literal notranslate"><span class="pre">project/</span></code> mirror is laid over the render on every build,
+deployment’s <code class="docutils literal notranslate"><span class="pre">ops/project/</span></code> mirror is laid over the render on every build,
 and no regeneration ever rewrites it. That is what the mirror is for. It
 is also why your copy never picks up anything the framework’s recipe
 gained afterwards.</p>

@@ -1148,7 +1148,7 @@ every write until it is completed.</p></li>
 setting: the deployment mounts one limits file, and every target is checked
 against it. A profile that states it is refused by <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code>,
 <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">validate</span></code> and <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">facility</span> <span class="pre">validate</span></code>: <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> writes
-<code class="docutils literal notranslate"><span class="pre">data/channel_limits.json</span></code> from <code class="docutils literal notranslate"><span class="pre">data/facility/limits.yaml</span></code> and sets
+<code class="docutils literal notranslate"><span class="pre">data/channel_limits.json</span></code> from <code class="docutils literal notranslate"><span class="pre">facility/limits.yaml</span></code> and sets
 <code class="docutils literal notranslate"><span class="pre">control_system.limits_checking.database_path</span></code> to it in the rendered config.</p></li>
 <li><p><strong>Only explicit values decide.</strong> <code class="docutils literal notranslate"><span class="pre">mode</span></code> is <code class="docutils literal notranslate"><span class="pre">exclusive</span></code>, <code class="docutils literal notranslate"><span class="pre">optional</span></code>, or
 unstated. With limits checking enabled, a <code class="docutils literal notranslate"><span class="pre">mode</span></code> that no key states refuses

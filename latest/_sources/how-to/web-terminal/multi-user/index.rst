@@ -182,7 +182,7 @@ The config block
 
          Each ``tier`` and each ``shared:`` entry names a file in the
          repository's ``tiers/``, written by ``osprey init``. Every render
-         shares one data tree, one set of secrets and one set of your own
+         shares one facility tree, one set of secrets and one set of your own
          artifacts. The build renders each into
          ``build/<project_name>-<name>`` and records it in
          ``build/config.yml``; nothing here names a path. An unknown login is
@@ -256,10 +256,10 @@ The config block
          entry under ``config:`` in ``profile.yml`` — and rebuild. A roster change
          made directly in the built ``build/config.yml`` deploys, but the next
          build overwrites it. Rebuilding also seeds an empty
-         ``web-terminal-context/<user>/`` slot for each new operator, which is
+         ``agent/context/<user>/`` slot for each new operator, which is
          where their per-user context goes.
 
-         Beside those slots sits ``web-terminal-context/base.md`` — the shared
+         Beside those slots sits ``agent/context/base.md`` — the shared
          baseline every seeded user's ``CLAUDE.md`` starts from. ``osprey init``
          materializes it from the preset so the text is visible and editable in
          your repo; edit it there and rebuild, and every terminal picks up the
@@ -366,7 +366,7 @@ What ``osprey build`` and ``osprey up`` do for the web tier
    ``build/demo-readwrite``, ``build/demo-admin``,
    ``build/demo-logbook``, ``build/demo-knowledge``
    and ``build/demo-channel-finder``). Every render shares the
-   profile's data tree, secrets and artifacts, and inherits the choices
+   profile's facility tree, secrets and artifacts, and inherits the choices
    recorded there (provider, model): edit the profile once and every terminal
    picks the change up. A start renders none of this — ``build/`` is the
    whole account of what will run — so a render missing at start time is
@@ -468,7 +468,7 @@ A profile with no ``deploy:`` block sets it there.
 
 The scaffolded pipeline builds only the facility's own service images, not
 these, so the facility's pipeline must push them.
-Put that job in ``ci-extra.yml`` (see :doc:`../../deploy-a-facility`).
+Put that job in ``ops/ci-extra.yml`` (see :doc:`../../deploy-a-facility`).
 Build each image from its rendered project, ``build/<project_name>-<render>``:
 the same render ``image_source: local`` builds as
 ``<project_name>-<render>:local``.
@@ -576,8 +576,8 @@ markdown file, listed in config:
    modules.web_terminals:
      landing:
        notices:
-       - data/landing/working-safely.md
-       - data/landing/local-procedures.md
+       - web/landing/working-safely.md
+       - web/landing/local-procedures.md
        footer: "Example Research Facility control room. Questions: ext. 5555."
 
 The file's first heading (``# Working safely with the agent``) becomes the
@@ -585,7 +585,7 @@ section label, and everything after it becomes the panel. So adding a section
 means writing a file and listing it — there is no schema to learn, and nothing
 about the text lives in ``config.yml``.
 
-``osprey init`` writes a starter ``data/landing/working-safely.md`` into your
+``osprey init`` writes a starter ``web/landing/working-safely.md`` into your
 project. It is yours: rewrite it for your facility, or drop it and list your own
 files instead. Sections appear in the order you list them, and each one gets an
 id from its filename, so you can point someone at

@@ -246,7 +246,7 @@ Where the Graph Comes From
 
 ``osprey build`` writes the corpus, the **graph view**
 (``data/graph/facility.ttl`` under the render), from the facility file
-(``data/facility/``), so the graph describes the same machine the channel
+(``facility/``), so the graph describes the same machine the channel
 finder does. Nobody edits the graph view: its first line names the hash of the
 facility file it was written from, and a change belongs in the facility file.
 The build points every rendered ``services.graphdb`` block's ``ttl_path`` at it
@@ -282,14 +282,6 @@ The demo preset seeds the graph view ``osprey build`` writes from
 its facility file, ``data/graph/facility.ttl`` under the render. No
 hand-written corpus ships. Point ``ttl_path`` at a corpus of your own to seed
 that instead.
-
-.. note::
-
-   A build profile that ships its own ``data:`` tree replaces the bundle's
-   ``data/`` directory wholesale, which takes ``data/facility/`` with it. Such
-   a profile ships a facility file of its own, and the build writes the graph
-   view from that.
-
 
 .. _graph-view:
 
