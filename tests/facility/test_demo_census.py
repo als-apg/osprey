@@ -20,6 +20,7 @@ from typing import TYPE_CHECKING, Any
 
 import pytest
 
+from tests._census import census
 from tests.facility.test_cf_view_parity import load_golden
 
 if TYPE_CHECKING:
@@ -111,6 +112,16 @@ def test_the_census_is_well_formed() -> None:
     ids = [_entry_id(entry) for entry in entries]
     assert len(ids) == len(set(ids)), "an entry is listed twice"
     assert set(census["facility"]) == {"channels", "devices", "groups", "setpoints", "readables"}
+    assert census["facts"]
+    assert not set(census["facts"]) & set(census["facility"]), "a count is held twice"
+
+
+def test_census_reads_a_fact_and_refuses_an_unknown_name() -> None:
+    document = _census()
+    assert census("channels") == document["facility"]["channels"]
+    assert census("typed_devices") == document["facts"]["typed_devices"]
+    with pytest.raises(KeyError, match=r"demo_census\.json holds no count called 'no_such_count'"):
+        census("no_such_count")
 
 
 @pytest.mark.parametrize("entry", _census()["entries"], ids=_entry_id)
