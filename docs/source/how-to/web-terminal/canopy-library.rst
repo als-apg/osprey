@@ -181,7 +181,7 @@ screenshot shows the layout, not the machine.
    server writes that file to ``.cache/`` inside the store it serves, and a
    library that holds a ``.cache`` directory is refused by the report check
    and by ``osprey build``. If you started the server without it, delete
-   ``data/canopy/library/.cache`` before you regenerate the report.
+   ``web/canopy/library/.cache`` before you regenerate the report.
 
 4. Register the server with Claude Code, export the token, and start Claude
    Code in ``~/canopy-dev/project``. The single quotes store the placeholder,
