@@ -6331,6 +6331,8 @@ class _Page:
                 "alarmBorder": False,
                 "alarmSensitiveBorder": False,
             }
+            if formula is not None:  # the viewer's menu on a computed value names it so
+                props["menuTitle"] = item.title.upper()
             precision: list[dict] = []
             if counted:
                 props["precision"] = 0

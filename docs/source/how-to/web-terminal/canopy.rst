@@ -234,6 +234,15 @@ Hold **Shift** for the browser's own menu. **PV details…** opens the page
 ``web.panels.canopy.pv_details_url`` names, with the channel's name in place
 of ``{pv}``; without that key the menu has no such entry.
 
+A widget that shows a number the screen computes from several channels (a
+``formula://`` binding) has a menu of its own. It names the number (the
+widget's ``menuTitle``), its value, how many channels feed it and the pattern
+of their names, and never lists them: **Inputs (N)…** opens a window with one
+row per channel, a filter by name and a largest-first order, and a right-click
+on a row is that channel's menu. Up to 12 inputs, **Plot history** plots the
+inputs; above that the entry is disabled. A number computed from one channel
+opens that channel's menu.
+
 **Which machine.** A badge names the machine the values come from. Switch the
 control target on the chip and CANOPY follows: the screens go blank for a
 moment and return with the new machine's values. A click made on a screen
