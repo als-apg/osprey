@@ -59,7 +59,7 @@ from osprey.deployment.control_identity import (
     CONTROL_IDENTITY_CONTAINER_DIR,
     CONTROL_IDENTITY_CONTAINER_PATH,
 )
-from osprey.deployment.errors import DeploymentPreconditionError
+from osprey.deployment.errors import DeploymentPreconditionError, DevModeUnavailableError
 from osprey.deployment.members import WORKSPACE_MEMBERS
 from osprey.deployment.upstream_images import UPSTREAM_IMAGES
 from osprey.deployment.web_terminals.render import render_web_terminals
@@ -4276,6 +4276,8 @@ def _wheel_difference_report(first: Path, second: Path) -> str:
     return "\n".join(lines) or "  (archives differ only in container-level bytes)"
 
 
+# Every hatch-vcs wheel build of the checkout writes its src/*/_version.py.
+@pytest.mark.xdist_group("real-checkout-wheel")
 def test_dev_wheel_build_is_reproducible(tmp_path: Path) -> None:
     """Two dev-wheel builds from identical source yield identical sha256.
 
@@ -4320,7 +4322,10 @@ def test_dev_wheel_build_is_reproducible(tmp_path: Path) -> None:
             # Reset the memo so the second round is a genuinely fresh build, not
             # a copy of the first round's cached wheel.
             _reset_wheel_build_cache()
-            assert _copy_local_framework_for_override(str(out_dir))
+            try:
+                assert _copy_local_framework_for_override(str(out_dir))
+            except DevModeUnavailableError as exc:
+                raise pytest.fail.Exception(f"{exc}\n\n{exc.remedy}") from exc
             staged = {w.name.split("-")[0]: w for w in out_dir.glob("*.whl")}
             assert sorted(staged) == sorted(
                 ["osprey_framework"] + [m.replace("-", "_") for m in WORKSPACE_MEMBERS]
