@@ -24,8 +24,11 @@ when a retired path is present. It prints the `mkdir -p`, `git mv` (or `mv`)
 lines that move the sources, the edits to path values in the profile,
 `.gitlab-ci.yml` and `.dockerignore`, and the host steps; when nothing listed
 needs you first, the block's last line runs `osprey init --revalidate <repo>`.
-A path present at both the old and the new location is reported and left to
-you. To migrate, run `osprey init --revalidate`, or paste the printed lines.
+In `.gitlab-ci.yml` a moved path is rewritten where it is spelled as a path:
+with a directory, after `./`, `$CI_PROJECT_DIR/` or `${CI_PROJECT_DIR}/`, or as
+an `include` or `exists:` value. A path present at both the old and the new
+location is reported and left to you. To migrate, run
+`osprey init --revalidate`, or paste the printed lines.
 
 Upgrade OSPREY in every deployment first, then migrate each one. The refusal
 and `--revalidate` come with the new OSPREY, and an older OSPREY does not read
@@ -42,4 +45,7 @@ lines with the ones printed.
 Check by hand; the paths inside these files are not rewritten:
 `ops/ci-extra.yml`, each `ops/services/<name>/Dockerfile`, the operator
 scripts in `ops/scripts/`, and any shell command in the profile's
-`lifecycle` `run` values.
+`lifecycle` `run` values. A `.gitlab-ci.yml` line that holds the bare name
+`osprey.service` or `ci-extra.yml` anywhere else is listed with its line
+number and never rewritten: in `systemctl --user enable osprey.service` it is
+the unit's name, not the file.

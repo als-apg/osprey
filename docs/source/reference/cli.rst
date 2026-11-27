@@ -194,7 +194,9 @@ Every root entry at a retired path is moved under ``agent/``, ``ops/`` or
 where tracked). The profile values, pipeline lines and ``.dockerignore`` lines
 that name a moved path are rewritten, the ``data:`` line is deleted, and the
 host steps and the files to check by hand are printed
-(:ref:`profile-root-migration`). A ``data:`` line is kept, and listed to check
+(:ref:`profile-root-migration`). A pipeline line that holds only the bare name
+of a moved file (``systemctl --user enable osprey.service``) is not rewritten;
+it is listed to check by hand. A ``data:`` line is kept, and listed to check
 by hand, when it names no single directory inside the repository, when that
 directory still holds leftovers, or when the key spans several lines.
 Whatever ``data/`` still holds is listed under "Left for you to do by hand",

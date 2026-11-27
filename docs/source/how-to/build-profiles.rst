@@ -278,9 +278,12 @@ path (a service ``template:``, ``config.code_review.prompt``,
 ``config.facility_knowledge.bundle_path``, a landing notice, a lifecycle
 ``cwd:``), rewrites the ``.gitlab-ci.yml`` and ``.dockerignore`` lines that name
 one, deletes the ``data:`` line, and deletes a CANOPY payload and wheels left
-at the repository root: a build stages them in ``build/``. A file at both its
-retired and its current path is named instead, with ``keep one, delete the
-other``. The script still moves everything else, the block then ends without
+at the repository root: a build stages them in ``build/``. In
+``.gitlab-ci.yml`` a moved path is rewritten where it is spelled as a path:
+with a directory (``scripts/verify.sh``), after ``./``, ``$CI_PROJECT_DIR/`` or
+``${CI_PROJECT_DIR}/``, or as an ``include`` or ``exists:`` value. A file at
+both its retired and its current path is named instead, with ``keep one,
+delete the other``. The script still moves everything else, the block then ends without
 the closing command, and ``osprey init --revalidate`` moves nothing until you
 have.
 
@@ -310,7 +313,11 @@ block prints, which call ``ops/scripts/osprey-boot-hook.sh``.
 scripts under ``ops/scripts/`` for a path that names a retired entry. A value
 the script cannot rewrite safely is listed too: a lifecycle ``run:`` command,
 an absolute or ``{project_root}``-anchored path, a value written across
-several lines.
+several lines. So is a ``.gitlab-ci.yml`` line that holds the bare name of a
+moved file, ``osprey.service`` or ``ci-extra.yml``, outside an ``include`` or
+``exists:`` value: in ``systemctl --user enable osprey.service`` it names the
+unit and stays, in ``cat ci-extra.yml`` it names the file and you change it. The
+entry gives the file, the line number and the new path.
 
 **Order.** Upgrade OSPREY in every deployment of the repository first, then
 move the repository and commit: an OSPREY that predates ``agent/`` and ``ops/``
