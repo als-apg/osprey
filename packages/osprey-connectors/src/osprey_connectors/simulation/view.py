@@ -34,8 +34,9 @@ reader that must not load a model can open a view.
 
 from __future__ import annotations
 
-import copy
 import json
+import threading
+import time
 from collections.abc import Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
@@ -207,6 +208,41 @@ def _freeze(value: object) -> object:
     return value
 
 
+@overload
+def _copied(value: Mapping[str, object]) -> dict[str, object]: ...
+@overload
+def _copied(value: object) -> object: ...
+def _copied(value: object) -> object:
+    """A copy of a JSON value that shares no container with it; lists stay lists."""
+    if isinstance(value, Mapping):
+        return {key: _copied(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_copied(item) for item in value]
+    return value
+
+
+#: A view file's ``(inode, size, mtime_ns)``, ``None`` for one that is absent.
+_FileStat = tuple[int, int, int] | None
+
+#: How long after a view file's last write its stat is not yet trusted to name
+#: its content: a second write inside the file system's timestamp step leaves
+#: the same size and time on a different file.
+_SETTLE_NS = 2_000_000_000
+
+
+def _signature(path: Path) -> tuple[_FileStat, ...]:
+    """The stat of each view file under ``path``, in :data:`SCHEMAS` order."""
+    stats: list[_FileStat] = []
+    for name in SCHEMAS:
+        try:
+            stat = (path / name).stat()
+        except OSError:
+            stats.append(None)
+        else:
+            stats.append((stat.st_ino, stat.st_size, stat.st_mtime_ns))
+    return tuple(stats)
+
+
 def _schema_error(path: Path, found: object, expected: str) -> ViewSchemaError:
     return ViewSchemaError(
         f"{path} is schema {found!r}; this OSPREY reads {expected!r}: rebuild with osprey build"
@@ -345,7 +381,7 @@ class Binding:
             plane=record["plane"],
             refresh=record["refresh"],
             element=record.get("element"),
-            record=MappingProxyType(copy.deepcopy(dict(record))),
+            record=MappingProxyType(_copied(record)),
             marks=frozenset(str(mark) for mark in record.get(_MARKS_KEY) or ()),
             also=tuple(str(address) for address in record.get("also") or ()),
         )
@@ -385,6 +421,16 @@ class SimulatorView:
     once, on first use, and each is refused when its ``schema`` is not the
     one this OSPREY reads.
 
+    :meth:`open`, and so :meth:`of_render`, :meth:`of_project` and
+    :meth:`find`, answer one view per directory for the life of the process:
+    a second call is given the view the first one read, for as long as the
+    stat of each view file (inode, size and modification time) is the one it
+    was read under. A file that changed, appeared or went drops it, and the
+    call reads the directory again; so does a file written in the two seconds
+    before the read, whose stat does not yet name its content. A view is read-only and safe to share
+    between threads; each of its files is parsed once however many threads
+    ask first. ``SimulatorView(path)`` always reads afresh.
+
     Attributes:
         path: The view's directory.
         render_root: The render the view sits in, when the view is at
@@ -401,20 +447,34 @@ class SimulatorView:
         self._channel_records: Mapping[str, Channel] | None = None
         self._record_addresses: Mapping[str, str] | None = None
         self._envelopes: dict[tuple[str, ...], dict[str, float]] = {}
+        #: Held over each first read, so that two threads asking first read once.
+        self._reading = threading.RLock()
         if not (self.path / ADDRESSES_FILE).is_file():
             raise NoSimulatorView(_NO_VIEW_MESSAGE.format(path=self.path))
         self.document(ADDRESSES_FILE)
 
     @classmethod
     def open(cls, view_dir: Path | str) -> SimulatorView:
-        """Open the view in ``view_dir``.
+        """The view in ``view_dir``: the one this process holds, read when it holds none.
 
         Raises:
             NoSimulatorView: ``view_dir`` has no ``addresses.json``.
             ViewSchemaError: its ``addresses.json`` is not schema
                 :data:`ADDRESSES_SCHEMA`.
         """
-        return cls(Path(view_dir))
+        path = Path(view_dir)
+        with _OPENED_LOCK:
+            started_ns = time.time_ns()
+            signature = _signature(path)
+            held = _OPENED.get((cls, path))
+            if held is not None and held[0] == signature:
+                return held[1]
+            _OPENED.pop((cls, path), None)
+            view = cls(path)
+            newest = max((stat[2] for stat in signature if stat is not None), default=0)
+            if signature == _signature(path) and newest + _SETTLE_NS < started_ns:
+                _OPENED[(cls, path)] = (signature, view)
+            return view
 
     @classmethod
     def of_render(cls, render_root: Path | str) -> SimulatorView:
@@ -490,12 +550,14 @@ class SimulatorView:
                 ``SCHEMAS[name]`` nor an older one this OSPREY still reads.
         """
         if name not in self._documents:
-            document = self._parsed(name)
-            if name == VARIABLES_FILE:
-                self._check_started_by()
-            elif name == SEEDS_FILE:
-                self._check_responds(document)
-            self._documents[name] = _freeze(document)
+            with self._reading:
+                if name not in self._documents:
+                    document = self._parsed(name)
+                    if name == VARIABLES_FILE:
+                        self._check_started_by()
+                    elif name == SEEDS_FILE:
+                        self._check_responds(document)
+                    self._documents[name] = _freeze(document)
         return self._documents[name]
 
     def _command_refusal(self, address: object) -> str | None:
@@ -586,15 +648,17 @@ class SimulatorView:
     def _parsed(self, name: str) -> Mapping[str, object]:
         """One view file as parsed, not frozen; refused when its ``schema`` is not read here."""
         if name not in self._raw:
-            path = self.path / name
-            parsed: object = json.loads(path.read_text(encoding="utf-8"))
-            expected = SCHEMAS[name]
-            if not isinstance(parsed, dict):
-                raise _schema_error(path, None, expected)
-            found = parsed.get("schema")
-            if found != expected and found not in _ALSO_READ.get(name, ()):
-                raise _schema_error(path, found, expected)
-            self._raw[name] = parsed
+            with self._reading:
+                if name not in self._raw:
+                    path = self.path / name
+                    parsed: object = json.loads(path.read_text(encoding="utf-8"))
+                    expected = SCHEMAS[name]
+                    if not isinstance(parsed, dict):
+                        raise _schema_error(path, None, expected)
+                    found = parsed.get("schema")
+                    if found != expected and found not in _ALSO_READ.get(name, ()):
+                        raise _schema_error(path, found, expected)
+                    self._raw[name] = parsed
         return self._raw[name]
 
     @property
@@ -605,8 +669,10 @@ class SimulatorView:
     def models(self) -> tuple[Model, ...]:
         """Every model of the facility file, sorted by name."""
         if self._models is None:
-            entries = self._parsed(VARIABLES_FILE)["models"]
-            self._models = tuple(self._model(entry) for entry in entries)
+            with self._reading:
+                if self._models is None:
+                    entries = self._parsed(VARIABLES_FILE)["models"]
+                    self._models = tuple(self._model(entry) for entry in entries)
         return self._models
 
     def _model(self, entry: ModelEntry) -> Model:
@@ -618,12 +684,12 @@ class SimulatorView:
             name=name,
             engine=engine,
             served=bool(entry.get("served")),
-            settings=MappingProxyType(copy.deepcopy(entry.get("settings") or {})),
+            settings=MappingProxyType(_copied(entry.get("settings") or {})),
             deck=self.path / deck if deck else None,
             bindings=()
             if engine == _TEXTURE
             else tuple(Binding.from_record(name, record) for record in wiring),
-            inputs=tuple(_freeze(copy.deepcopy(record)) for record in entry.get("inputs") or ()),
+            inputs=tuple(_freeze(record) for record in entry.get("inputs") or ()),
         )
 
     def model(self, name: str) -> Model:
@@ -704,13 +770,15 @@ class SimulatorView:
 
     def _channels(self) -> Mapping[str, Channel]:
         if self._channel_records is None:
-            entries = self._parsed(VARIABLES_FILE)["channels"]
-            self._channel_records = MappingProxyType(
-                {
-                    channel.address: channel
-                    for channel in (Channel.from_entry(entry) for entry in entries)
-                }
-            )
+            with self._reading:
+                if self._channel_records is None:
+                    entries = self._parsed(VARIABLES_FILE)["channels"]
+                    self._channel_records = MappingProxyType(
+                        {
+                            channel.address: channel
+                            for channel in (Channel.from_entry(entry) for entry in entries)
+                        }
+                    )
         return self._channel_records
 
     def channel(self, address: str) -> Channel:
@@ -835,6 +903,12 @@ class SimulatorView:
     def scenario_dir(self, name: str) -> Path:
         """The view's copy of a scenario's attached files, ``scenarios/<name>/``."""
         return self.path / SCENARIOS_DIR / name
+
+
+#: The view :meth:`SimulatorView.open` last read for each directory, with the
+#: stat signature it was read under.
+_OPENED: dict[tuple[type, Path], tuple[tuple[_FileStat, ...], SimulatorView]] = {}
+_OPENED_LOCK = threading.Lock()
 
 
 def _bounds(value_range: Sequence[float] | None) -> tuple[float, float] | None:

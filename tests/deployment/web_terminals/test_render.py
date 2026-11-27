@@ -463,9 +463,47 @@ def test_nginx_fragment_has_proxy_pass_to_each_users_loopback_web_upstream() -> 
 
     # Assert
     assert "return 302" not in nginx_conf  # Phase-1 redirect scheme is gone
-    for index in range(len(users)):
+    for index, user in enumerate(users):
         expected_port = allocate_ports(_BASE_PORTS, index)["web"]
-        assert f"proxy_pass http://127.0.0.1:{expected_port}/;" in nginx_conf
+        name = user["name"] if isinstance(user, dict) else user
+        assert (
+            f"upstream osprey_terminal_{name} {{\n    server 127.0.0.1:{expected_port};\n"
+            in nginx_conf
+        )
+        assert f"proxy_pass http://osprey_terminal_{name}/;" in nginx_conf
+
+
+def test_nginx_fragment_keeps_upstream_connections_open() -> None:
+    """A page is many small requests, and each must not pay for a connect.
+
+    Three things together make nginx reuse a connection to a terminal: a named
+    `upstream` with `keepalive`, HTTP/1.1 toward it, and no `Connection: close`
+    on a request that is not a websocket handshake. The idle timeout stays
+    under the app's own 5s keep-alive, so nginx never reuses a connection the
+    app is closing.
+    """
+    config = copy.deepcopy(_MULTI_USER_CONFIG)
+    users = config["modules"]["web_terminals"]["users"]
+
+    nginx_conf = render_web_terminals(config)["nginx/nginx.conf"]
+
+    blocks = re.findall(r"^upstream osprey_terminal_(\S+) \{\n(.*?)^\}", nginx_conf, re.M | re.S)
+    assert [name for name, _ in blocks] == [
+        user["name"] if isinstance(user, dict) else user for user in users
+    ]
+    for _, body in blocks:
+        assert re.search(r"^    keepalive \d+;$", body, re.M)
+        timeout = re.search(r"^    keepalive_timeout (\d+)s;$", body, re.M)
+        assert timeout and int(timeout.group(1)) < 5
+    assert nginx_conf.index("upstream osprey_terminal_") < nginx_conf.index("server {")
+    # Every proxy_pass to a terminal goes through its named upstream.
+    assert not re.search(r"proxy_pass http://127\.0\.0\.1:\d+/?;", nginx_conf)
+    # A request that is not a handshake carries no `Connection` header upstream.
+    upgrade_map = re.search(r"map \$http_upgrade \$connection_upgrade \{(.*?)\}", nginx_conf, re.S)
+    assert upgrade_map
+    assert re.search(r"^\s*default upgrade;$", upgrade_map.group(1), re.M)
+    assert re.search(r"^\s*'' '';$", upgrade_map.group(1), re.M)
+    assert "close" not in upgrade_map.group(1)
 
 
 def test_nginx_fragment_has_websocket_upgrade_machinery() -> None:

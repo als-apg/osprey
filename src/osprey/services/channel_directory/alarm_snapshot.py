@@ -2,9 +2,9 @@
 
 :class:`AlarmSnapshot` is handed a constructed backend and knows nothing of config:
 who builds the backend, and who replaces the snapshot when the target moves, is the
-directory service. The snapshot owns only the task lifetime. The first read inside
-a running loop starts the backend's ``start()``; :meth:`AlarmSnapshot.aclose` cancels
-it and closes the backend. A read waits for the start up to the caller's deadline,
+directory service. The snapshot owns only the task lifetime. :meth:`AlarmSnapshot.start`,
+or else the first read inside a running loop, starts the backend's ``start()``;
+:meth:`AlarmSnapshot.aclose` cancels it and closes the backend. A read waits for the start up to the caller's deadline,
 then reads the backend once with what is left of it; the backend does the waiting
 for catch-up. The answer is exactly the backend's: a feed still loading, a missing
 client or an unreachable broker stays its ``Unavailable``, never a clear state, and
@@ -59,6 +59,14 @@ class AlarmSnapshot:
         self.backend = backend
         self.target = target
         self._task: asyncio.Task[None] | None = None
+
+    def start(self) -> None:
+        """Start the backend now, without waiting for it; a started one is left alone.
+
+        What a process calls when it comes up, so the feed is catching up
+        before anyone reads it. Needs a running loop.
+        """
+        self._started()
 
     async def state_for(self, pv: str, deadline: float) -> Any:
         """The backend's alarm state of *pv*, read once within *deadline* seconds."""

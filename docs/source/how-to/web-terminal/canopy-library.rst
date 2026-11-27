@@ -169,13 +169,19 @@ screenshot shows the layout, not the machine.
       CANOPY_DRAFTS_DIR="$HOME/my-assistant/data/canopy/library" \
       CANOPY_VIEWER_DIST="$HOME/my-assistant/canopy_payload/viewer" \
       CANOPY_VIEWS_DIR="$HOME/canopy-dev/views" \
+      CANOPY_CACHE_DIR="$HOME/canopy-dev/cache" \
       CANOPY_PV_MODE=mock \
       CANOPY_BROWSER_SANDBOX=1 \
       ~/canopy-dev/venv/bin/python -m canopy_mcp --http --port 8765
 
    ``CANOPY_DRAFTS_DIR`` makes the library the store the tools write to.
    ``CANOPY_VIEWS_DIR`` keeps saved views out of it, since the library holds
-   only screens and its report.
+   only screens and its report. ``CANOPY_CACHE_DIR`` does the same for the
+   listing of the screens the server keeps between runs: without it the
+   server writes that file to ``.cache/`` inside the store it serves, and a
+   library that holds a ``.cache`` directory is refused by the report check
+   and by ``osprey build``. If you started the server without it, delete
+   ``data/canopy/library/.cache`` before you regenerate the report.
 
 4. Register the server with Claude Code, export the token, and start Claude
    Code in ``~/canopy-dev/project``. The single quotes store the placeholder,

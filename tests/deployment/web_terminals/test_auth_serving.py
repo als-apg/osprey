@@ -438,8 +438,8 @@ def _config(nginx_port: int, *, oidc_issuer: str | None = None) -> dict[str, Any
 
 
 _UPSTREAM_RE = re.compile(
-    r"location /u/(?P<user>[^/ ]+)/ \{.*?proxy_pass http://127\.0\.0\.1:(?P<port>\d+)/;",
-    re.DOTALL,
+    r"^upstream osprey_terminal_(?P<user>\S+) \{\s*server 127\.0\.0\.1:(?P<port>\d+);",
+    re.MULTILINE,
 )
 
 

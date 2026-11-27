@@ -261,6 +261,25 @@ def test_the_exemption_claims_every_credential_name_by_clearing_it(index):
 
 
 @pytest.mark.parametrize("index", [0, 1])
+def test_the_exemption_lets_an_asset_arrive_compressed_and_revalidated(index):
+    """What a cached, compressed asset needs travels by name; nothing else does.
+
+    With `proxy_pass_request_headers off` the app never learns the browser
+    takes gzip or already holds the file, and would send every asset whole and
+    uncompressed on every use. The empty `Connection` keeps the upstream
+    connection open for the next asset.
+    """
+    _, body = _bodies()[index]
+    assert "proxy_pass_request_headers off;" in body
+    assert "proxy_set_header Accept-Encoding $http_accept_encoding;" in body
+    assert "proxy_set_header If-None-Match $http_if_none_match;" in body
+    assert "proxy_set_header If-Modified-Since $http_if_modified_since;" in body
+    assert 'proxy_set_header Connection "";' in body
+    assert "proxy_http_version 1.1;" in body
+    assert re.search(r"proxy_pass http://osprey_terminal_\w+;", body)
+
+
+@pytest.mark.parametrize("index", [0, 1])
 def test_the_exemption_allows_get_only_and_no_upgrade(index):
     _, body = _bodies()[index]
     assert re.search(r"limit_except GET \{\s*deny all;\s*\}", body)
@@ -406,7 +425,14 @@ def test_the_cap_exemption_forwards_only_the_headers_it_names(user):
     """``proxy_pass_request_headers off`` drops the secret header unspelled."""
     _, body = _cap_location_for(_locations(_config(_PASSWORD)), user)
     assert "proxy_pass_request_headers off;" in body
-    for name in ("Content-Type", "Accept", "Range", "If-None-Match", "If-Modified-Since"):
+    for name in (
+        "Content-Type",
+        "Accept",
+        "Accept-Encoding",
+        "Range",
+        "If-None-Match",
+        "If-Modified-Since",
+    ):
         assert f"proxy_set_header {name} $" in body, name
 
 

@@ -311,3 +311,31 @@ async def test_a_list_the_feed_cannot_answer_is_passed_on():
         await snapshot.aclose()
 
     assert len(backend.deadlines) == 1
+
+
+async def test_start_starts_the_backend_without_a_read_and_without_waiting():
+    """A process starts the feed as it comes up; nothing has to read it first."""
+    backend = _StillLoading()
+    snapshot = AlarmSnapshot(backend, "live")
+
+    snapshot.start()
+    snapshot.start()
+    await asyncio.sleep(0)
+
+    assert backend.started == 1
+    assert backend.deadlines == []
+    await snapshot.aclose()
+    assert backend.closed == 1
+    assert not _other_tasks()
+
+
+async def test_a_read_after_start_uses_the_feed_already_started():
+    backend = _Answering(AlarmStates(rows=(), stale=False, last_contact=None))
+    snapshot = AlarmSnapshot(backend, "live")
+    snapshot.start()
+    await asyncio.sleep(0)
+
+    await snapshot.states(1.0)
+
+    assert backend.started == 1
+    await snapshot.aclose()

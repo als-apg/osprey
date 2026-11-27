@@ -17,6 +17,11 @@ Three rules, one owner each:
   result kept; a client that does not accept gzip, or asks for a byte range,
   gets the file itself.
 
+* **A page's style sheets are one request.** A named, ordered list of the
+  set's sheets (:meth:`AssetSet.define_bundle`) is served concatenated at
+  ``<mount>/_v/<fingerprint>/_bundle/<name>.css``, under the same rules as a
+  file: fingerprinted, validated by content, gzipped once.
+
 The plain URL (``<mount>/<path>``) keeps working for every page that does not
 name the fingerprint: it is answered ``no-cache``, which stores the file and
 revalidates it on every use.
@@ -40,6 +45,8 @@ __all__ = [
     "CACHE_IMMUTABLE",
     "CACHE_REVALIDATE",
     "VERSION_SEGMENT",
+    "BUNDLE_SEGMENT",
+    "AssetBundle",
     "AssetEntry",
     "AssetSet",
     "etag_matches",
@@ -54,6 +61,29 @@ CACHE_REVALIDATE = "no-cache"
 
 #: The path segment that introduces a fingerprint, directly under a mount.
 VERSION_SEGMENT = "_v"
+
+#: The path segment, under a mount, that a bundle of style sheets is served at.
+BUNDLE_SEGMENT = "_bundle"
+
+_BUNDLE_PATH = re.compile(rf"^{BUNDLE_SEGMENT}/([A-Za-z0-9][A-Za-z0-9_-]*)\.css$")
+
+#: A ``url(...)`` in a style sheet: a quoted string, or a bare token.
+_CSS_URL = re.compile(
+    r"""url\(\s*(?:"((?:[^"\\\n]|\\.)*)"|'((?:[^'\\\n]|\\.)*)'|([^\s"'()]+))\s*\)""",
+    re.IGNORECASE,
+)
+
+#: A reference a concatenated sheet may not move: it names its own place.
+_CSS_ABSOLUTE = re.compile(r"^(?:[a-z][a-z0-9+.-]*:|//|/|#)", re.IGNORECASE)
+
+#: Rules that are only valid before every other rule of a sheet. A sheet that
+#: carries one cannot keep its meaning in the middle of a concatenation.
+_CSS_LEADING_RULE = re.compile(r"@(?:import|namespace)\b", re.IGNORECASE)
+
+#: ``@charset`` is dropped: the bundle is UTF-8, as every source is read.
+_CSS_CHARSET = re.compile(r"""@charset\s+(?:"[^"]*"|'[^']*')\s*;""", re.IGNORECASE)
+
+_CSS_COMMENT = re.compile(r"/\*.*?\*/", re.DOTALL)
 
 #: How many hex digits of the set's digest a fingerprint carries.
 _FINGERPRINT_LENGTH = 16
@@ -103,6 +133,31 @@ class AssetEntry:
     @property
     def etag(self) -> str:
         """The validator of the file itself."""
+        return f'"{self.digest[:32]}"'
+
+    @property
+    def compressed_etag(self) -> str:
+        """The validator of the gzipped representation."""
+        return f'"{self.digest[:32]}-gz"'
+
+
+@dataclass(frozen=True, slots=True)
+class AssetBundle:
+    """Several style sheets of the set, concatenated in a stated order.
+
+    Attributes:
+        body: The concatenated sheets, UTF-8.
+        digest: Hex SHA-256 of ``body``.
+        compressed: ``body`` gzipped, or ``None`` when that saves too little.
+    """
+
+    body: bytes
+    digest: str
+    compressed: bytes | None
+
+    @property
+    def etag(self) -> str:
+        """The validator of the bundle itself."""
         return f'"{self.digest[:32]}"'
 
     @property
@@ -171,6 +226,8 @@ class AssetSet:
         self._version: str | None = None
         self._scanned_at = 0.0
         self._graphs: dict[tuple[str, tuple[str, ...]], tuple[str, ...]] = {}
+        self._bundles: dict[str, tuple[str, tuple[str, ...]]] = {}
+        self._built: dict[str, tuple[str, AssetBundle | None]] = {}
 
     # -- the fingerprint ---------------------------------------------------
 
@@ -302,6 +359,31 @@ class AssetSet:
             return path
         return f"{mount}/{VERSION_SEGMENT}/{self.version()}/{rest}"
 
+    def url_of_file(self, path: str) -> str | None:
+        """The fingerprinted URL of *path* when it names a file of the set, else ``None``.
+
+        What a page served from somewhere else uses to name one of these files
+        at the address this app's own pages name it by, so a browser that has
+        the file keeps using it. Answered from the last scan: no file is read.
+
+        Args:
+            path: A root-relative URL path under one of the mounts, without a
+                query string or fragment.
+        """
+        mount = self._mount_of(path)
+        if mount is None:
+            return None
+        rest = path[len(mount) + 1 :]
+        parts = rest.split("/")
+        if not rest or rest.startswith(f"{VERSION_SEGMENT}/") or ".." in parts or "" in parts:
+            return None
+        version = self.version()
+        full_path = os.path.join(dict(self._mounts)[mount], *parts)
+        with self._lock:
+            if full_path not in self._entries:
+                return None
+        return f"{mount}/{VERSION_SEGMENT}/{version}/{rest}"
+
     def root(self, mount: str) -> str:
         """The fingerprinted root of *mount*, with a trailing slash.
 
@@ -366,6 +448,119 @@ class AssetSet:
             self._graphs = {k: v for k, v in self._graphs.items() if k[0] == key[0]}
             self._graphs[key] = graph
         return graph
+
+    # -- bundles of style sheets ---------------------------------------------
+
+    def define_bundle(self, name: str, mount: str, sheets: Sequence[str]) -> None:
+        """Name an ordered list of the set's style sheets to be served as one.
+
+        Defined when the app is built, never per request, so every process
+        that serves the app answers the same bundle URL.
+
+        Args:
+            name: The bundle's name, the stem of its file name.
+            mount: The mount the bundle is served under.
+            sheets: Plain root-relative URLs of the sheets, in cascade order.
+
+        Raises:
+            ValueError: *name* is not a plain file stem, or *mount* is not a
+                mount of the set.
+        """
+        if not _BUNDLE_PATH.match(f"{BUNDLE_SEGMENT}/{name}.css"):
+            raise ValueError(f"{name!r} is not a bundle name")
+        mount = mount.rstrip("/")
+        if mount not in dict(self._mounts):
+            raise ValueError(f"{mount!r} is not a mount of this asset set")
+        with self._lock:
+            self._bundles[name] = (mount, tuple(sheets))
+            self._built.pop(name, None)
+
+    def bundle_sheets(self, name: str) -> tuple[str, ...]:
+        """The sheets of the bundle *name*, in order; empty for an unknown name."""
+        with self._lock:
+            return self._bundles.get(name, ("", ()))[1]
+
+    def bundle_url(self, name: str) -> str | None:
+        """The fingerprinted URL of the bundle *name*, or ``None`` when it cannot be built.
+
+        ``None`` tells the page to link the sheets one by one: an unknown
+        name, a sheet that is missing, or one that carries a rule only valid
+        at the top of a sheet.
+        """
+        if self.bundle(name) is None:
+            return None
+        with self._lock:
+            mount = self._bundles[name][0]
+        return f"{mount}/{VERSION_SEGMENT}/{self.version()}/{BUNDLE_SEGMENT}/{name}.css"
+
+    def bundle_named(self, path: str) -> AssetBundle | None:
+        """The bundle a mount-relative *path* (``_bundle/<name>.css``) names, or ``None``."""
+        match = _BUNDLE_PATH.match(path)
+        return self.bundle(match.group(1)) if match else None
+
+    def bundle(self, name: str) -> AssetBundle | None:
+        """The bundle *name* as it is now; built once per fingerprint.
+
+        Each sheet is preceded by a comment naming it. A relative ``url(...)``
+        is rewritten to reach the same file from the bundle's address, at that
+        file's fingerprinted URL, so a font or image is the one request the
+        rest of the page makes for it.
+        """
+        version = self.version()
+        with self._lock:
+            defined = self._bundles.get(name)
+            built = self._built.get(name)
+        if defined is None:
+            return None
+        if built is not None and built[0] == version:
+            return built[1]
+        bundle = self._build_bundle(defined[0], defined[1], version)
+        with self._lock:
+            self._built[name] = (version, bundle)
+        return bundle
+
+    def _build_bundle(self, mount: str, sheets: Sequence[str], version: str) -> AssetBundle | None:
+        # Where the bundle is served, which every rewritten reference starts from.
+        served_in = f"{mount}/{VERSION_SEGMENT}/{version}/{BUNDLE_SEGMENT}"
+        parts: list[str] = []
+        for sheet in sheets:
+            source_path = self._file_of(sheet)
+            if source_path is None:
+                return None
+            try:
+                text = source_path.read_text(encoding="utf-8-sig")
+            except (OSError, UnicodeDecodeError):
+                return None
+            if _CSS_LEADING_RULE.search(_CSS_COMMENT.sub("", text)):
+                return None
+            text = _CSS_CHARSET.sub("", text)
+
+            def moved(match: re.Match[str], sheet: str = sheet) -> str:
+                reference = match.group(1) or match.group(2) or match.group(3) or ""
+                if not reference or _CSS_ABSOLUTE.match(reference):
+                    return match.group(0)
+                target, mark, rest = reference.partition("?")
+                if not mark:
+                    target, mark, rest = reference.partition("#")
+                plain = posixpath.normpath(posixpath.join(posixpath.dirname(sheet), target))
+                relative = posixpath.relpath(self._versioned(plain, version), served_in)
+                return f'url("{relative}{mark}{rest}")'
+
+            parts.append(f"/* {sheet} */\n{_CSS_URL.sub(moved, text).rstrip()}\n")
+        body = "\n".join(parts).encode("utf-8")
+        packed = gzip.compress(body, compresslevel=9, mtime=0)
+        return AssetBundle(
+            body=body,
+            digest=hashlib.sha256(body).hexdigest(),
+            compressed=packed if len(packed) <= len(body) * _MIN_SAVING else None,
+        )
+
+    def _versioned(self, path: str, version: str) -> str:
+        """*path* under its mount's fingerprint segment; unchanged under no mount."""
+        mount = self._mount_of(path)
+        if mount is None:
+            return path
+        return f"{mount}/{VERSION_SEGMENT}/{version}/{path[len(mount) + 1 :]}"
 
     def _file_of(self, url: str) -> Path | None:
         """The file a plain root-relative URL names, or ``None``."""

@@ -166,6 +166,13 @@ def _versioned(client, mount: str) -> str:
     return f"{mount}/_v/{client.app.state.assets.version()}"
 
 
+def _first_sheet(client, page_id: str) -> str:
+    """The first style sheet *page_id* links: the shell's bundle, or the tokens."""
+    if page_id == "index":
+        return client.app.state.assets.bundle_url("base")
+    return f"{_versioned(client, '/design-system')}/css/tokens.css"
+
+
 class TestPrefixInjection:
     """``OSPREY_TERMINAL_USER=alice`` -> baked ``/u/alice`` prefix everywhere."""
 
@@ -244,10 +251,10 @@ class TestHeadAssetAndEntrypointPrefixing:
             # A classic <script src> and a <link href> shared by every page.
             design = _versioned(c, "/design-system")
             assert f'src="/u/alice{design}/js/theme-boot.js"' in body
-            assert f'href="/u/alice{design}/css/tokens.css"' in body
+            assert f'href="/u/alice{_first_sheet(c, page_id)}"' in body
             # The un-prefixed root-absolute forms must not remain.
             assert f'src="{design}/js/theme-boot.js"' not in body
-            assert f'href="{design}/css/tokens.css"' not in body
+            assert f'href="{_first_sheet(c, page_id)}"' not in body
 
             entrypoint = _MODULE_ENTRYPOINTS[page_id]
             if entrypoint is not None:
@@ -267,7 +274,7 @@ class TestHeadAssetAndEntrypointPrefixing:
 
             design = _versioned(c, "/design-system")
             assert f'src="{design}/js/theme-boot.js"' in body
-            assert f'href="{design}/css/tokens.css"' in body
+            assert f'href="{_first_sheet(c, page_id)}"' in body
 
             entrypoint = _MODULE_ENTRYPOINTS[page_id]
             if entrypoint is not None:

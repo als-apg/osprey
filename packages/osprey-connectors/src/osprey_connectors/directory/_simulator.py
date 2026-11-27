@@ -1,7 +1,9 @@
 """The virtual accelerator's directory of channels, answered from the build's simulator view.
 
 The view is read once, on the first call that answers, and held for the life of
-the backend; a view it could not read is tried again on the next call. Each row
+the backend; a view it could not read is tried again on the next call. Backends
+of one process share the rows of one view: a second backend reads the view the
+first one opened and builds no row of its own. Each row
 is a channel of the view, or a status or server health address the simulator serves
 beside the channels. The server of a row is ``sim-<model>``, the served physics
 model that owns the address, else ``sim-texture``, as the composite routes it.
@@ -20,8 +22,11 @@ globs, wrapped as ``*term*`` unless the term starts or ends with ``*``; a leadin
 from __future__ import annotations
 
 import re
+import threading
+import weakref
 from collections import Counter
 from collections.abc import Callable, Iterable, Mapping
+from types import MappingProxyType
 from typing import Literal
 
 from typing_extensions import override
@@ -130,6 +135,23 @@ def _read_records(view: SimulatorView) -> dict[str, DirectoryRecord]:
     return dict(sorted(records.items()))
 
 
+#: Each open view's rows and servers, built once per view of the process.
+_READ: weakref.WeakKeyDictionary[
+    SimulatorView, tuple[Mapping[str, DirectoryRecord], frozenset[str]]
+] = weakref.WeakKeyDictionary()
+_READ_LOCK = threading.Lock()
+
+
+def _rows_of(view: SimulatorView) -> tuple[Mapping[str, DirectoryRecord], frozenset[str]]:
+    """``view``'s rows by name and its servers, built on the first call for that view."""
+    with _READ_LOCK:
+        read = _READ.get(view)
+        if read is None:
+            servers = served_servers(model.name for model in view.physics_models())
+            read = _READ[view] = (MappingProxyType(_read_records(view)), servers)
+        return read
+
+
 def _is_name_term(word: str) -> bool:
     return word.startswith("=") or "*" in word or "?" in word
 
@@ -207,9 +229,7 @@ class SimulatorDirectory(ChannelDirectory):
         if self.project_dir is None:
             return Unavailable("no project directory to find the simulator view under")
         try:
-            view = SimulatorView.of_project(self.project_dir)
-            records = _read_records(view)
-            servers = served_servers(model.name for model in view.physics_models())
+            records, servers = _rows_of(SimulatorView.of_project(self.project_dir))
         except NoSimulatorView as absent:
             return Unavailable(str(absent))
         except (LookupError, OSError, TypeError, ValueError, AttributeError) as failure:

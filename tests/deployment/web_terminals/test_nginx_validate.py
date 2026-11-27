@@ -1152,7 +1152,9 @@ def test_a_terminal_with_nothing_listening_answers_with_the_starting_page() -> N
     """
     origin_host = "dls-deploy.dls.example.org"
     nginx_conf = render_web_terminals(_config())["nginx/nginx.conf"]
-    upstream_ports = re.findall(r"proxy_pass http://127\.0\.0\.1:(\d+)/;", nginx_conf)
+    upstream_ports = re.findall(
+        r"^upstream osprey_terminal_\S+ \{\s*server 127\.0\.0\.1:(\d+);", nginx_conf, re.MULTILINE
+    )
     assert len(upstream_ports) == 2, upstream_ports
     bob_port = upstream_ports[1]
     app_502 = (
