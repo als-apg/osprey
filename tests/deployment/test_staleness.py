@@ -16,9 +16,11 @@ from pathlib import Path
 import pytest
 from packaging.version import Version
 
+from osprey import repo_layout
 from osprey.cli.build_profile_load import _PROFILE_SCHEMA_MIN_OSPREY
 from osprey.deployment import staleness
 from osprey.deployment.staleness import DriftState
+from osprey_facility import source_tree
 
 PROFILE_YAML = """\
 name: Exemplar
@@ -150,6 +152,23 @@ def test_an_uncomparable_stamp_is_not_judged_too_old(repo, stamp):
 
     assert "before the login vocabulary" not in report.message
     assert report.state is DriftState.CLEAN
+
+
+def test_a_knowledge_page_written_after_the_build_is_drift_until_the_next_build(repo):
+    """The facility tree is a build input whatever the profile states, its
+    knowledge bundle included: a page written there after the render is a
+    refusal that names the tree, and the next build's stamp clears it."""
+    facility = repo_layout.entry("facility").path
+    _write(repo / facility / source_tree.path("knowledge") / "draft.md", "# Draft\n")
+
+    report = staleness.check_drift(repo)
+
+    assert report.state is DriftState.DRIFT
+    assert report.changed_keys == (f"{facility}/",)
+
+    _write_manifest(repo)
+
+    assert staleness.check_drift(repo).state is DriftState.CLEAN
 
 
 def test_no_build_still_reads_as_no_build(tmp_path):

@@ -58,6 +58,22 @@ def test_a_lifecycle_fixture_repo_passes_the_start_gate(make, tmp_path: Path) ->
     assert not report.refuses
 
 
+def test_the_shared_bundle_scenario_passes_the_start_gate(tmp_path: Path) -> None:
+    """The bundle the qmd scenario authors is in the render ``osprey up`` starts.
+
+    The bundle is written into the facility tree, a build input, so the
+    scenario has to build after it: a bundle newer than the stamp is drift.
+    """
+    repo = _seeded(tmp_path)
+
+    bundle = lifecycle._seed_shared_bundle(repo)
+
+    assert any(bundle.iterdir())
+    report = check_drift(repo)
+    assert report.state is DriftState.CLEAN, report.status_line
+    assert not report.refuses
+
+
 def test_the_chain_boot_deployment_carries_the_protected_path_list(tmp_path: Path) -> None:
     """The config the chain boot writes for the agent is one the executor runs under."""
     from tests.facility import test_chain as chain

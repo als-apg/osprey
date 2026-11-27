@@ -1676,6 +1676,19 @@ def _image_user_gid(image: str, user: str) -> int | None:
     return int(value) if value.isdigit() else None
 
 
+def _seed_shared_bundle(repo: Path) -> Path:
+    """Author the shared bundle in *repo* and build; the bundle directory.
+
+    The bundle sits in the facility tree, which a build reads: an operator who
+    authors it builds before starting, and ``osprey up`` refuses a render older
+    than it. The stamp is this fixture's build.
+    """
+    bundle_dir = repo / BUNDLE_REL
+    shutil.copytree(BUNDLE_SEED_DIR, bundle_dir)
+    _stamp_build_manifest(repo)
+    return bundle_dir
+
+
 def _retarget_bundle_group_if_vacuous(bundle_dir: Path, probe_gid: int) -> None:
     """Make sure the shared corpus group is one the image does not already grant.
 
@@ -1765,8 +1778,7 @@ def test_deploy_lifecycle_shared_bundle_and_qmd_sidecar(repo: Path) -> None:
     # Seed the corpus BEFORE `up`: the sidecar's entrypoint refuses to open its
     # port on an empty index, so an unseeded bundle would fail as a health
     # timeout rather than as the thing it is.
-    bundle_dir = repo / BUNDLE_REL
-    shutil.copytree(BUNDLE_SEED_DIR, bundle_dir)
+    bundle_dir = _seed_shared_bundle(repo)
 
     # The gid the container-side membership probe must NOT be looking for, read
     # off the image rather than assumed. See _retarget_bundle_group_if_vacuous.
