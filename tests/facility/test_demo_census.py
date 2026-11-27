@@ -6,7 +6,8 @@ queries, logbook entries -- with the text that states it and the value it
 states. Each file must still state its value, and the built demo facility
 must hold the census' own counts. A test constant does not restate a count: it
 reads it from the census by name, through ``tests/_census.py``. ``REPRODUCE``
-rewrites the census's counts from a built demo; a text pin moves by hand. A change to the demo's size therefore
+rewrites the census's counts from a built demo, and with them the in-process
+nominal golden; a text pin moves by hand. A change to the demo's size therefore
 updates the census and every pin in the same commit; a pin that is moved
 without the census, or a census that is moved without the pins, fails here.
 """
@@ -286,15 +287,19 @@ def recapture(built: BuiltProject, document: dict[str, Any]) -> list[str]:
 
 def _write() -> None:
     from tests._builds import build_demo
+    from tests.facility.test_nominal_goldens import GOLDEN, capture
 
     document = json.loads(CENSUS_PATH.read_text(encoding="utf-8"))
     with tempfile.TemporaryDirectory(prefix="demo-census-") as root:
         built = build_demo(Path(root))
         lines = recapture(built, document)
+        nominals = capture(built)
     CENSUS_PATH.write_text(json.dumps(document, indent=2) + "\n", encoding="utf-8")
+    GOLDEN.write_text(json.dumps(nominals, indent=2) + "\n", encoding="utf-8")
     for line in lines:
         print(line)
     print(f"wrote {CENSUS_PATH.relative_to(REPO_ROOT)}")
+    print(f"wrote {len(nominals['channels'])} addresses to {GOLDEN.relative_to(REPO_ROOT)}")
 
 
 if __name__ == "__main__":
