@@ -17,10 +17,13 @@ importing it from shipped code drags nothing extra along.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import socket
+import sys
 import threading
 import time
+import traceback
 from contextlib import contextmanager, suppress
 from typing import TYPE_CHECKING, Any
 
@@ -53,6 +56,20 @@ _DRAIN_TIMEOUT = 5
 #: have finished, so a test that checked for leaked processes afterwards was
 #: racing the shutdown it was meant to observe.
 _SHUTDOWN_JOIN = 30.0
+
+#: Seconds a server may stay alive and still starting before
+#: :func:`run_app_server` gives up on it and reports where its lifespan startup
+#: is waiting. A hang ceiling, not an expected startup time: real interface
+#: apps are serving in about a tenth of a second, and a server that died is
+#: reported at once through its thread, never after this wait. Read at call
+#: time, so a test lowers it on the module.
+_STARTUP_CEILING_S = 30.0
+
+#: Innermost frames of the serving thread's stack a startup report keeps.
+_STACK_FRAMES_KEPT = 8
+
+#: Longest await chain a startup report follows from one task.
+_AWAIT_CHAIN_LIMIT = 64
 
 
 #: The address ``osprey web`` bound its listening socket to, published to its
@@ -127,12 +144,88 @@ def wait_for_port(port: int, timeout: float = 10.0) -> None:
     raise RuntimeError(f"Server did not become ready on port {port} within {timeout}s")
 
 
+def _frame_of(awaitable: Any) -> Any:
+    """The frame *awaitable* is suspended in, or ``None`` if it has none."""
+    for attr in ("cr_frame", "ag_frame", "gi_frame"):
+        frame = getattr(awaitable, attr, None)
+        if frame is not None:
+            return frame
+    return None
+
+
+def _awaited_by(awaitable: Any, frame: Any) -> Any:
+    """What *awaitable*, suspended in *frame*, is itself waiting on."""
+    for attr in ("cr_await", "ag_await", "gi_yieldfrom"):
+        inner = getattr(awaitable, attr, None)
+        if inner is not None:
+            break
+    # An async context manager's ``__aenter__`` awaits ``anext(gen)``, an
+    # awaitable with no frame of its own; the wait continues in the generator.
+    if (
+        _frame_of(inner) is None
+        and frame.f_code.co_name == "__aenter__"
+        and frame.f_code.co_filename.endswith("contextlib.py")
+    ):
+        return getattr(frame.f_locals.get("self"), "gen", None)
+    return inner
+
+
+def _await_chain(task: asyncio.Task[Any]) -> str:
+    """*task*'s await chain, outermost first, as ``name (file:line)`` steps."""
+    steps: list[str] = []
+    awaitable: Any = task.get_coro()
+    while awaitable is not None and len(steps) < _AWAIT_CHAIN_LIMIT:
+        frame = _frame_of(awaitable)
+        if frame is None:
+            steps.append(type(awaitable).__name__)
+            break
+        code = frame.f_code
+        steps.append(f"{code.co_name} ({code.co_filename}:{frame.f_lineno})")
+        awaitable = _awaited_by(awaitable, frame)
+    return " -> ".join(steps)
+
+
+def _startup_whereabouts(thread: threading.Thread, loop: list[asyncio.AbstractEventLoop]) -> str:
+    """Where a server still starting is waiting, for its startup report.
+
+    Two sections: the await chain of every pending task on the server's loop,
+    which names a step the lifespan waits on by ``await``, and the serving
+    thread's stack, which names a step that blocks the loop itself. Both are
+    read from another thread while the server runs, so each is best effort and
+    a section that cannot be read says so instead of raising.
+    """
+    lines = ["lifespan awaiting:"]
+    try:
+        tasks = list(asyncio.all_tasks(loop[0])) if loop else []
+        if not tasks:
+            lines.append("  no pending task")
+        for task in tasks:
+            try:
+                lines.append(f"  {task.get_name()}: {_await_chain(task)}")
+            except Exception as exc:
+                lines.append(f"  {task.get_name()}: unreadable ({exc!r})")
+    except Exception as exc:
+        lines.append(f"  unreadable ({exc!r})")
+    lines.append("serving thread at:")
+    try:
+        frame = sys._current_frames().get(thread.ident or -1)
+        if frame is None:
+            lines.append("  no running frame")
+        else:
+            stack = traceback.format_stack(frame)[-_STACK_FRAMES_KEPT:]
+            lines.extend(entry.rstrip("\n") for entry in stack)
+    except Exception as exc:
+        lines.append(f"  unreadable ({exc!r})")
+    return "\n".join(lines)
+
+
 def _wait_until_serving(
     server: uvicorn.Server,
     thread: threading.Thread,
     thread_error: list[BaseException],
     port: int,
-    timeout: float = 30.0,
+    app_name: str,
+    loop: list[asyncio.AbstractEventLoop],
 ) -> None:
     """Block until *server* is serving, or explain why it never will be.
 
@@ -144,11 +237,15 @@ def _wait_until_serving(
     timeout rather than at the error that actually occurred.
 
     Because a dead server is detected immediately through the thread check,
-    the timeout only ever bounds a *slow but alive* startup — app lifespans do
-    real work (service imports, degraded-mode probes) that stretches under
-    parallel test load, so the bound is generous rather than tight.
+    :data:`_STARTUP_CEILING_S` only ever bounds a *slow but alive* startup —
+    app lifespans do real work (service imports, degraded-mode probes) that
+    stretches under parallel test load, so the ceiling is generous rather than
+    tight. A server still starting when it expires is reported with where its
+    lifespan startup is waiting, read from *loop* (the server's event loop,
+    once it has one) and the serving *thread*.
     """
-    deadline = time.monotonic() + timeout
+    ceiling = _STARTUP_CEILING_S
+    deadline = time.monotonic() + ceiling
     while time.monotonic() < deadline:
         if server.started:
             return
@@ -158,7 +255,11 @@ def _wait_until_serving(
                 "the application's startup failed (see the server log above)"
             ) from (thread_error[0] if thread_error else None)
         time.sleep(0.02)
-    raise RuntimeError(f"Server did not become ready on port {port} within {timeout}s")
+    whereabouts = _startup_whereabouts(thread, loop)
+    raise RuntimeError(
+        f"{app_name} on port {port} was still starting after {ceiling:.0f} s "
+        f"(hang ceiling); its lifespan startup is\n{whereabouts}"
+    )
 
 
 @contextmanager
@@ -183,10 +284,14 @@ def run_app_server(app: FastAPI) -> Iterator[str]:
     )
     server = uvicorn.Server(config)
     thread_error: list[BaseException] = []
+    loop: list[asyncio.AbstractEventLoop] = []
 
     def _serve() -> None:
         try:
-            server.run(sockets=[sock])
+            # What ``Server.run`` does, with the loop kept for a startup report.
+            with asyncio.Runner(loop_factory=config.get_loop_factory()) as runner:
+                loop.append(runner.get_loop())
+                runner.run(server.serve(sockets=[sock]))
         except BaseException as exc:  # surfaced to the caller as the cause
             # Includes the SystemExit uvicorn raises when startup fails.
             thread_error.append(exc)
@@ -212,7 +317,8 @@ def run_app_server(app: FastAPI) -> Iterator[str]:
             sock.close()
 
     try:
-        _wait_until_serving(server, t, thread_error, port)
+        app_name = getattr(app, "title", type(app).__name__)
+        _wait_until_serving(server, t, thread_error, port, app_name, loop)
     except BaseException:
         _shutdown()
         raise
