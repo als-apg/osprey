@@ -73,14 +73,10 @@
   <!-- FOUC prevention: applies data-sidebar="collapsed" before any CSS loads -->
   <script src="{{ prefixed('/design-system/js/sidebar-boot.js') }}"></script>
 
-  <!-- Design system tokens and shared primitives -->
-  <link rel="stylesheet" href="{{ prefixed('/design-system/css/tokens.css') }}">
-  <link rel="stylesheet" href="{{ prefixed('/design-system/css/base.css') }}">
-  <link rel="stylesheet" href="{{ prefixed('/design-system/css/primitives.css') }}">
-  <link rel="stylesheet" href="{{ prefixed('/design-system/css/highlight.css') }}">
-
-  <!-- Fonts (self-hosted, no external CDN) -->
-  <link rel="stylesheet" href="{{ prefixed('/static/fonts/fonts.css') }}">
+  <!-- Design system tokens, shared primitives and the self-hosted fonts: one
+       request. The sheets and their order are SHELL_STYLE_BUNDLES['base'] in
+       app.py; they come before the vendored sheets below. -->
+  {{ stylesheet_bundle('base') }}
 
   <!-- xterm.js (CDN by default; local in OSPREY_OFFLINE mode) -->
   <link rel="stylesheet" href="{{ prefixed(vendor_url('xterm.css', '/static/vendor/xterm.min.css')) }}">
@@ -110,29 +106,12 @@
   <!-- dockview: docking workspace. UMD global window['dockview-core']. CSS before
        the OSPREY styles below so our theming can override the base dockview rules. -->
   <link rel="stylesheet" href="{{ prefixed(vendor_url('dockview-core css', '/static/vendor/dockview.css')) }}">
-  <!-- OSPREY theme bridge: remaps dockview's --dv-* onto design tokens. Must load
-       AFTER dockview.css so these overrides win the cascade. -->
-  <link rel="stylesheet" href="{{ prefixed('/static/css/dockview-overrides.css') }}">
+  <!-- OSPREY theme bridge (remaps dockview's --dv-* onto design tokens; must
+       load AFTER dockview.css so these overrides win the cascade), then the
+       OSPREY styles: one request. The sheets and their order are
+       SHELL_STYLE_BUNDLES['shell'] in app.py. -->
+  {{ stylesheet_bundle('shell') }}
   <script defer src="{{ prefixed(vendor_url('dockview-core', '/static/vendor/dockview-core.min.js')) }}"></script>
-
-  <!-- OSPREY styles -->
-  <link rel="stylesheet" href="{{ prefixed('/static/css/terminal.css') }}">
-  <link rel="stylesheet" href="{{ prefixed('/static/css/sidebar-artifacts.css') }}">
-  <link rel="stylesheet" href="{{ prefixed('/static/css/files.css') }}">
-  <link rel="stylesheet" href="{{ prefixed('/static/css/operator.css') }}">
-  <link rel="stylesheet" href="{{ prefixed('/static/css/md-rendered.css') }}">
-  <link rel="stylesheet" href="{{ prefixed('/static/css/drawer.css') }}">
-  <link rel="stylesheet" href="{{ prefixed('/static/css/palette.css') }}">
-  <link rel="stylesheet" href="{{ prefixed('/static/css/feedback-modal.css') }}">
-  <link rel="stylesheet" href="{{ prefixed('/static/css/watchdog-alert.css') }}">
-  <link rel="stylesheet" href="{{ prefixed('/static/css/sessions.css') }}">
-  <link rel="stylesheet" href="{{ prefixed('/static/css/settings.css') }}">
-  <link rel="stylesheet" href="{{ prefixed('/static/css/tour.css') }}">
-  <link rel="stylesheet" href="{{ prefixed('/static/css/login-nudge.css') }}">
-  <link rel="stylesheet" href="{{ prefixed('/static/css/undo-notice.css') }}">
-  <link rel="stylesheet" href="{{ prefixed('/static/css/scaffold/10-prompt-gallery.css') }}">
-  <link rel="stylesheet" href="{{ prefixed('/static/css/scaffold/20-memory-gallery.css') }}">
-  <link rel="stylesheet" href="{{ prefixed('/static/css/scaffold/30-config-structured-renderers.css') }}">
 
   <!-- The whole module graph, named up front so the browser fetches every
        import level in parallel instead of one level per round trip. Last in

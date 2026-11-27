@@ -347,8 +347,13 @@ describe('notice styling', () => {
     }
   });
 
-  test('index.html links the dialog stylesheet, or the overlay never appears', () => {
-    expect(indexHtml).toContain("prefixed('/static/css/feedback-modal.css')");
+  test('the shell links the dialog stylesheet, or the overlay never appears', () => {
+    // The page links its own sheets as bundles; the sheets of a bundle are
+    // listed where the app defines it.
+    const app = readFileSync(join(STATIC_DIR, '../app.py'), 'utf8');
+    const shell = app.match(/"shell": \(([^)]*)\)/)?.[1] ?? '';
+    expect(shell).toContain('"/static/css/feedback-modal.css"');
+    expect(indexHtml).toContain("stylesheet_bundle('shell')");
   });
 });
 

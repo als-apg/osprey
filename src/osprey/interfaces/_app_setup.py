@@ -19,12 +19,19 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI
+from starlette.concurrency import run_in_threadpool
 from starlette.datastructures import Headers
 from starlette.responses import FileResponse, Response
 from starlette.staticfiles import NotModifiedResponse
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
-from osprey.interfaces._assets import AssetSet, etag_matches, split_version
+from osprey.interfaces._assets import (
+    BUNDLE_SEGMENT,
+    AssetBundle,
+    AssetSet,
+    etag_matches,
+    split_version,
+)
 from osprey.interfaces._media_types import PinnedTypeStaticFiles, asset_media_type
 from osprey.interfaces.common_middleware import (
     ASSET_CORS_HEADERS,
@@ -80,11 +87,45 @@ class AssetStaticFiles(PinnedTypeStaticFiles):
         error states none and is left to ``NoCacheStaticMiddleware``.
         """
         fingerprint, file_path = split_version(path.replace(os.sep, "/"))
+        if file_path.startswith(f"{BUNDLE_SEGMENT}/") and scope["method"] in ("GET", "HEAD"):
+            # Built in a worker thread the first time a fingerprint is asked for.
+            bundle = await run_in_threadpool(self._assets.bundle_named, file_path)
+            if bundle is not None:
+                response = self._bundle_response(bundle, scope)
+                response.headers.update(ASSET_CORS_HEADERS)
+                response.headers["Cache-Control"] = self._assets.cache_control(fingerprint)
+                return response
         response = await super().get_response(file_path, scope)
         response.headers.update(ASSET_CORS_HEADERS)
         if response.status_code in (200, 206, 304):
             response.headers["Cache-Control"] = self._assets.cache_control(fingerprint)
         return response
+
+    @staticmethod
+    def _bundle_response(bundle: AssetBundle, scope: Scope) -> Response:
+        """Answer with a bundle of style sheets, its gzipped copy, or ``304``."""
+        request_headers = Headers(scope=scope)
+        accepted = {
+            coding.split(";", 1)[0].strip().lower()
+            for coding in request_headers.get("accept-encoding", "").split(",")
+        }
+        compress = bundle.compressed is not None and "gzip" in accepted
+        headers = {
+            "etag": bundle.compressed_etag if compress else bundle.etag,
+            "vary": "Accept-Encoding",
+        }
+        if etag_matches(request_headers.get("if-none-match"), bundle.etag, bundle.compressed_etag):
+            return NotModifiedResponse(Headers(headers))
+        body = bundle.body
+        if compress and bundle.compressed is not None:
+            headers["content-encoding"] = "gzip"
+            body = bundle.compressed
+        headers["content-length"] = str(len(body))
+        return Response(
+            b"" if scope["method"] == "HEAD" else body,
+            media_type="text/css; charset=utf-8",
+            headers=headers,
+        )
 
     def file_response(
         self,

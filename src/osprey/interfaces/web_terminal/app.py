@@ -221,11 +221,75 @@ def _module_preloads(ctx: Context, *entries: str) -> Markup:
     return Markup("\n  ".join(links))
 
 
+#: The shell page's own style sheets, as the bundles its head links: each an
+#: ordered list served as one request (see ``AssetSet.define_bundle``). The
+#: order within a bundle is the cascade order, and the two bundles sit either
+#: side of the vendored sheets in ``index.html``: ``base`` before them,
+#: ``shell`` after, so a rule here still overrides a vendored one exactly as
+#: it did when every sheet was a link of its own. A sheet that is added to the
+#: shell is added here, not to the page.
+SHELL_STYLE_BUNDLES: dict[str, tuple[str, ...]] = {
+    "base": (
+        "/design-system/css/tokens.css",
+        "/design-system/css/base.css",
+        "/design-system/css/primitives.css",
+        "/design-system/css/highlight.css",
+        "/static/fonts/fonts.css",
+    ),
+    "shell": (
+        "/static/css/dockview-overrides.css",
+        "/static/css/terminal.css",
+        "/static/css/sidebar-artifacts.css",
+        "/static/css/files.css",
+        "/static/css/operator.css",
+        "/static/css/md-rendered.css",
+        "/static/css/drawer.css",
+        "/static/css/palette.css",
+        "/static/css/feedback-modal.css",
+        "/static/css/watchdog-alert.css",
+        "/static/css/sessions.css",
+        "/static/css/settings.css",
+        "/static/css/tour.css",
+        "/static/css/login-nudge.css",
+        "/static/css/undo-notice.css",
+        "/static/css/scaffold/10-prompt-gallery.css",
+        "/static/css/scaffold/20-memory-gallery.css",
+        "/static/css/scaffold/30-config-structured-renderers.css",
+    ),
+}
+
+#: The mount the shell's bundles are served under.
+_BUNDLE_MOUNT = "/static"
+
+
+@pass_context
+def _stylesheet_bundle(ctx: Context, name: str) -> Markup:
+    """Jinja global: the ``<link>`` of the shell's style bundle *name*.
+
+    One link to the concatenated sheets at their fingerprinted address. Where
+    the bundle cannot be built (no asset set, or a sheet that must stay a
+    sheet of its own) the sheets are linked one by one, in the same order, so
+    the page is styled either way.
+    """
+    prefix = ctx.get("url_prefix", "")
+    assets = _assets_of(ctx)
+    bundle_url = assets.bundle_url(name) if assets is not None else None
+    if bundle_url is not None:
+        urls = [apply_url_prefix(prefix, bundle_url)]
+    else:
+        urls = [
+            apply_url_prefix(prefix, assets.url(sheet) if assets is not None else sheet)
+            for sheet in SHELL_STYLE_BUNDLES[name]
+        ]
+    return Markup("\n  ".join(f'<link rel="stylesheet" href="{escape(url)}">' for url in urls))
+
+
 templates = Jinja2Templates(directory=str(STATIC_DIR))
 templates.env.globals["vendor_url"] = vendor_url
 templates.env.globals["prefixed"] = _prefixed
 templates.env.globals["import_map"] = _import_map
 templates.env.globals["module_preloads"] = _module_preloads
+templates.env.globals["stylesheet_bundle"] = _stylesheet_bundle
 templates.env.globals["favicon_url"] = _favicon_url()
 
 logger = __import__("logging").getLogger(__name__)
@@ -2478,6 +2542,8 @@ def create_app(
     # frame_ancestors: console-origin HTML, proxied panel pages included, may
     # only be framed by the console itself (Q1-C6).
     configure_interface_app(app, static_dir=STATIC_DIR, frame_ancestors=True)
+    for name, sheets in SHELL_STYLE_BUNDLES.items():
+        app.state.assets.define_bundle(name, _BUNDLE_MOUNT, sheets)
 
     return app
 
