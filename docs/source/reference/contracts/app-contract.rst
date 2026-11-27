@@ -154,4 +154,5 @@ These changes broke apps before the number existed, each in the release named:
 - ``single_user_alias`` is removed; ``roster_grant: {}`` names the one operator
   (2026.11.1).
 - The measurement-kinds module moved out of the framework to
-  ``osprey_facility.kinds`` (after 2026.11.1).
+  ``osprey_facility.kinds`` (the framework release after 2026.11.1; the module ships
+  in ``osprey-facility`` 2026.11.0).
