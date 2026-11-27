@@ -44,7 +44,12 @@ import click
 
 from osprey import repo_layout
 from osprey.deployment.compose_merge import MERGED_COMPOSE_FILENAME
-from osprey.utils.workspace import APPS_DIRNAME, LAYER_DIR_KINDS, STATE_ZONE_DIRS
+from osprey.utils.workspace import (
+    APPS_DIRNAME,
+    LAYER_DIR_KINDS,
+    PROFILE_FILENAME,
+    STATE_ZONE_DIRS,
+)
 from osprey_connectors.dotenv import ENV_SHARED_FILENAME
 from osprey_connectors.errors import BuildProfileError
 from osprey_connectors.logger import get_logger
@@ -913,7 +918,7 @@ def _prepare_repo_root(target: Path, *, force: bool) -> bool:
     if not any(entry.name != ".git" for entry in target.iterdir()):
         return False
 
-    if not (target / "profile.yml").is_file():
+    if not (target / PROFILE_FILENAME).is_file():
         raise click.UsageError(_TARGET_NOT_EMPTY.format(target=target))
     if not force:
         raise click.UsageError(_ALREADY_A_REPO.format(target=target))
@@ -1544,7 +1549,7 @@ def init(
     # `--reset`, which implies its file half) judges that deployment first: one
     # holding anything at a retired path stops before the zone is held aside,
     # so its operator content is never replaced from an unmigrated layout.
-    if (force or reset) and (target / "profile.yml").is_file():
+    if (force or reset) and (target / PROFILE_FILENAME).is_file():
         from osprey.repo_retired import refuse_retired_layout
 
         refuse_retired_layout(target)
@@ -1553,7 +1558,7 @@ def init(
     # profile.yml aside. Inside the materializer a `--force` or `--reset` run
     # always looks like a first init, and would re-seed a directory the operator
     # deliberately deleted.
-    first_ever = not (target / "profile.yml").is_file()
+    first_ever = not (target / PROFILE_FILENAME).is_file()
     # `--reset` implies `--force`'s file half. Its promise is "start over on
     # this name", and a source zone left standing from the last deployment is
     # not a start over — an edited profile.yml or a file an older preset wrote
@@ -1743,7 +1748,7 @@ def _revalidate(directory: Path | None, *, preset: str | None, conflicts: dict[s
             f"with {', '.join(named)}."
         )
     target = Path(directory).resolve() if directory is not None else Path.cwd().resolve()
-    if not (target / "profile.yml").is_file():
+    if not (target / PROFILE_FILENAME).is_file():
         raise click.UsageError(
             f"--revalidate rewrites an existing deployment repo, and {target} holds no "
             f"profile.yml. To create one, run `osprey init <dir> --preset <name>`."
@@ -1814,7 +1819,6 @@ def _reset_project_name(target: Path) -> str:
     from osprey.deployment.deployment_record import deployed_project
     from osprey.deployment.errors import DeploymentRecordError
 
-    from .build_profile_resolve import PROFILE_FILENAME
     from .variant_selection import active_variant_overlay
 
     with suppress(DeploymentRecordError):
@@ -2131,7 +2135,7 @@ def _entry_list(target: Path, materialized: _MaterializedProfile) -> list[str]:
     for _kind, layer in layer_files(target):
         by_dir.setdefault(layer.parent.name, []).append(layer.stem)
     rows: list[tuple[str, str]] = [
-        ("profile.yml", "your assistant's settings; edit this"),
+        (PROFILE_FILENAME, "your assistant's settings; edit this"),
     ]
     entry_notes = (
         ("facility", "channel lists and facility docs; edit these"),

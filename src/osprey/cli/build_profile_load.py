@@ -1107,7 +1107,7 @@ def _retired_tier_refusal() -> FacilityBuildError:
     return FacilityBuildError(
         "profile-invalid",
         _RETIRED_TIER_KEY,
-        ["profile.yml"],
+        [PROFILE_FILENAME],
         f"remove `{_RETIRED_TIER_KEY}` from the profile",
         record_kind="path",
         detail=(
@@ -1147,7 +1147,7 @@ def _check_simulation_periods(raw: dict[str, Any]) -> None:
             raise FacilityBuildError(
                 "profile-invalid",
                 key,
-                ["profile.yml"],
+                [PROFILE_FILENAME],
                 f"set `{key}` to a number of seconds greater than 0",
                 record_kind="path",
                 detail=str(error),
@@ -1177,7 +1177,7 @@ def _check_default_scenarios(raw: dict[str, Any]) -> None:
         raise FacilityBuildError(
             "profile-invalid",
             DEFAULT_SCENARIOS_KEY,
-            ["profile.yml"],
+            [PROFILE_FILENAME],
             f"set `{DEFAULT_SCENARIOS_KEY}` to a list of scenario names, or to a mapping "
             "with such a list under `va` and under `standin`",
             record_kind="path",
@@ -1203,7 +1203,7 @@ def _check_limits_database_path(raw: dict[str, Any]) -> None:
     text is unchanged. Only this build-time site, which holds the profile,
     names the machine location: runtime and static strings (compose generator,
     roster constants, templates) keep saying ``data/facility``, because the
-    render still places the facility description there (D7).
+    render places the facility description there.
 
     Args:
         raw: The resolved raw profile dict.
@@ -1237,7 +1237,7 @@ def _check_limits_database_path(raw: dict[str, Any]) -> None:
     raise FacilityBuildError(
         "profile-invalid",
         key,
-        ["profile.yml"],
+        [PROFILE_FILENAME],
         f"move its limits into {limits} and remove {key} from the profile",
         record_kind="path",
         detail=(
