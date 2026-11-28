@@ -37,7 +37,7 @@ from zoneinfo import ZoneInfo
 import pytest
 import yaml
 
-from tests.interfaces._browser import wait_for_page_ready
+from tests.interfaces._browser import record_toasts, toasts, wait_for_page_ready, wait_for_toast
 from tests.interfaces._panel_host import PanelHost, open_panel_host
 
 if TYPE_CHECKING:
@@ -626,6 +626,7 @@ def open_panel(
 ) -> tuple[PanelHost, FakeBackend]:
     """The panel at *url*, framed by the host page behind a fake backend, its list settled."""
     page = browser.new_page(viewport=viewport or {"width": 1280, "height": 800})
+    record_toasts(page)
     backend = (backend or FakeBackend()).install(page)
     host = open_panel_host(page, url)
     expect(host.locator("#ariel-list-body")).to_have_attribute("aria-busy", "false")
@@ -860,6 +861,7 @@ def test_req3_unfetchable_draft_leaves_the_form_empty_with_an_error(
     a new entry (Decision 8).
     """
     outer = chromium_browser.new_page()
+    record_toasts(outer)
     backend = FakeBackend().install(outer)
     with outer.expect_console_message(lambda m: "Failed to load draft" in m.text):
         page = open_panel_host(outer, f"{ariel_url}/#create?draft=missing")
@@ -869,9 +871,7 @@ def test_req3_unfetchable_draft_leaves_the_form_empty_with_an_error(
     expect(page.locator("#entry-subject")).to_have_value("")
     expect(page.locator("#entry-details")).to_have_value("")
     expect(page.locator("#ariel-compose-banner")).to_be_hidden()
-    expect(page.locator(".osprey-toast-host [role=alert] .osprey-toast")).to_contain_text(
-        "draft is gone"
-    )
+    wait_for_toast(page, "draft is gone", kind="error")
     page.close()
 
 
@@ -1879,11 +1879,6 @@ def _submit(page: Page) -> None:
     page.click("#create-entry-form button[type=submit]")
 
 
-def _toast(page: Page, role: str):
-    """Toasts in the ``status`` (info/success/warning) or ``alert`` (error) region."""
-    return page.locator(f".osprey-toast-host [role={role}] .osprey-toast")
-
-
 def _go(page: Page, hash_: str) -> None:
     """Navigate the open page to *hash_* without a reload."""
     page.evaluate("(h) => { location.hash = h; }", hash_)
@@ -2066,7 +2061,7 @@ def test_mailbox_drafts_lists_newest_first_discards_and_submits(
     wait_for_hash(page, canonical(box="drafts", compose="draft:D3"))
     page.click("#create-cancel-btn")
     wait_for_call(page, backend, "DELETE", "/api/drafts/D3")
-    expect(_toast(page, "status")).to_contain_text("Draft discarded")
+    wait_for_toast(page, "Draft discarded", kind="success")
     expect(_sheet(page)).to_be_hidden()
     expect(rows).to_have_count(2)
     wait_for_hash(page, canonical(box="drafts"))
@@ -2572,7 +2567,7 @@ def test_related_is_hidden_when_text_embedding_is_off(
     page.wait_for_load_state("networkidle")
     expect(page.locator("#ariel-reader-body [data-entry-related]")).to_have_count(0)
     expect(page.locator("#ariel-reader-body")).not_to_contain_text("Related")
-    expect(_toast(page, "alert")).to_have_count(0)
+    assert [t for t in toasts(page) if t["kind"] == "error"] == []
     page.close()
 
 
