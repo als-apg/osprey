@@ -20,12 +20,19 @@ from pathlib import Path
 import pytest
 from fastapi import FastAPI
 from fastapi.responses import HTMLResponse
+from fastapi.staticfiles import StaticFiles
+from playwright.sync_api import expect
 
 from osprey.interfaces._serving import run_app_server
+from tests.interfaces import _browser
 from tests.interfaces._browser import (
     LAST_ACTIVE_DEBOUNCE_MS,
+    TOAST_TIMEOUT_MS,
     assert_page_loads_clean,
+    record_toasts,
+    toasts,
     wait_for_last_active,
+    wait_for_toast,
 )
 
 pytestmark = [pytest.mark.browser, pytest.mark.slow]
@@ -145,3 +152,79 @@ def test_wait_for_last_active_refuses_an_empty_key(chromium_browser) -> None:
     page = chromium_browser.new_page()
     with pytest.raises(ValueError, match="key"):
         wait_for_last_active(page, "")
+
+
+_DESIGN_SYSTEM_STATIC = (
+    Path(__file__).resolve().parents[2] / "src/osprey/interfaces/design_system/static"
+)
+
+#: Raises two short toasts through the real toast layer, the second queued
+#: behind the first.
+_SHOW_TWO_TOASTS_JS = """
+async () => {
+  const { showToast } = await import('/design-system/js/toast.js');
+  showToast('first', { timeout: 50 });
+  showToast('second', { kind: 'error', timeout: 50 });
+}
+"""
+
+
+def _serve_toast_layer() -> AbstractContextManager[str]:
+    """Serve a bare page at ``/`` and the design system's static files."""
+    app = FastAPI()
+
+    @app.get("/", response_class=HTMLResponse)
+    def _index() -> str:
+        return "<html><head></head><body><h1>ok</h1></body></html>"
+
+    app.mount("/design-system", StaticFiles(directory=_DESIGN_SYSTEM_STATIC))
+    return run_app_server(app)
+
+
+def test_toast_recorder_keeps_a_toast_that_came_and_went(chromium_browser) -> None:
+    """Toasts that have already hidden are still in the record, in the order shown."""
+    with _serve_toast_layer() as base_url:
+        page = chromium_browser.new_page()
+        record_toasts(page)
+        page.goto(base_url)  # page-ready: a bare page this test serves
+        page.evaluate(_SHOW_TWO_TOASTS_JS)
+        expect(page.locator(".osprey-toast")).to_have_count(0)
+        assert toasts(page) == [
+            {"message": "first", "kind": "info"},
+            {"message": "second", "kind": "error"},
+        ]
+
+
+def test_wait_for_toast_names_the_record_when_the_message_never_shows(
+    chromium_browser, monkeypatch
+) -> None:
+    """A message no toast carried fails with that message and what the page did show."""
+    # The smallest ceiling Playwright honours: the subject is the failure, not the wait.
+    monkeypatch.setattr(_browser, "_TOAST_SHOWN_TIMEOUT_MS", 1)
+    with _serve_toast_layer() as base_url:
+        page = chromium_browser.new_page()
+        record_toasts(page)
+        page.goto(base_url)  # page-ready: a bare page this test serves
+        page.evaluate(_SHOW_TWO_TOASTS_JS)
+        expect(page.locator(".osprey-toast")).to_have_count(0)
+        with pytest.raises(AssertionError, match="never raised") as raised:
+            wait_for_toast(page, "never raised")
+        assert "'second'" in str(raised.value)
+
+
+def test_toasts_refuses_a_frame_without_the_recorder(chromium_browser) -> None:
+    """A page loaded without the recorder is refused, never read as "no toast"."""
+    with _serve_toast_layer() as base_url:
+        page = chromium_browser.new_page()
+        page.goto(base_url)  # page-ready: a bare page this test serves
+        with pytest.raises(AssertionError, match="not installed"):
+            toasts(page)
+
+
+def test_toast_timeout_is_read_from_the_page_source() -> None:
+    """The toast wait's ceiling is scaled from the timeout the toast layer declares."""
+    source = (_DESIGN_SYSTEM_STATIC / "js/toast.js").read_text(encoding="utf-8")
+    match = re.search(r"^export const TOAST_TIMEOUT_MS = (\d+);$", source, re.M)
+    assert match, "TOAST_TIMEOUT_MS not found in toast.js"
+    assert int(match.group(1)) == TOAST_TIMEOUT_MS
+    assert TOAST_TIMEOUT_MS > 0
