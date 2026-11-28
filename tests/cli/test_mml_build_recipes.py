@@ -254,11 +254,49 @@ def expected_response_lines(tree: str) -> tuple[str, ...]:
         SYNTHETIC_LINE,
     )
 
-    return {
+    checks = {
         "nsls2": (NSLS2_LINES[0], NSLS2_LINES[1]),
         "spear3": (*SPEAR3_WRAPPED_LINES, SPEAR3_LINE),
         "synthetic": (SYNTHETIC_LINE,),
     }[tree]
+    return (*checks, *unnameable_lines(tree))
+
+
+def unnameable_lines(tree: str) -> tuple[str, ...]:
+    """The build warning naming each channel of a fixture tree's exports a run cannot record.
+
+    The addresses are read from the tree's ``*.ao.json`` exports, in export
+    order, which is the roster order the warning names them in; a tree with no
+    such channel prints no warning.
+    """
+    from osprey_facility.plan_names import is_plan_name
+
+    addresses: dict[str, None] = {}
+
+    def collect(node: Any) -> None:
+        if isinstance(node, dict):
+            for key, value in node.items():
+                if key == "ChannelNames":
+                    names = value if isinstance(value, list) else [value]
+                    addresses.update(
+                        dict.fromkeys(
+                            name
+                            for name in names
+                            if isinstance(name, str) and name and not is_plan_name(name)
+                        )
+                    )
+                else:
+                    collect(value)
+        elif isinstance(node, list):
+            for value in node:
+                collect(value)
+
+    for export in sorted((FIXTURES / tree).glob("*.ao.json")):
+        collect(json.loads(export.read_text(encoding="utf-8")))
+    if not addresses:
+        return ()
+    summary = f"⚠ {len(addresses)} channel(s) whose address holds `.` or `/` are no plan device"
+    return (summary, *(f"  {address}" for address in addresses))
 
 
 def build_past_the_seed_stops(

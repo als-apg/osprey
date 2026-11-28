@@ -73,6 +73,7 @@ from typing import Any
 
 from osprey.facility.views import ViewInputs
 from osprey_facility import FACILITY_FILE
+from osprey_facility.plan_names import is_plan_name
 from osprey_facility.records import FacilityRecords
 
 __all__ = [
@@ -216,16 +217,34 @@ def _warn_once(inputs: ViewInputs, warning: str) -> None:
     output.warn(summary, detail or None)
 
 
-def _beyond_one_dimension(records: list[Any]) -> str | None:
-    """The warning naming each readback of more than one dimension, or ``None``."""
+def _beyond_one_dimension(records: list[Any]) -> list[str]:
+    """One warning per direction naming each channel of more than one dimension:
+    the setpoints, then the readbacks; none for a direction without one."""
+    warnings = []
+    for direction, kind in (("write", "setpoint"), ("read", "readback")):
+        addresses = [
+            record.address
+            for record in records
+            if record.direction == direction and record.shape is not None and len(record.shape) > 1
+        ]
+        if addresses:
+            summary = (
+                f"{len(addresses)} {kind} channel(s) of more than one dimension are no plan device"
+            )
+            warnings.append("\n".join((summary, *addresses)))
+    return warnings
+
+
+def _unnameable(records: list[Any]) -> str | None:
+    """The warning naming each channel whose address a run cannot record, or ``None``."""
     addresses = [
         record.address
         for record in records
-        if record.direction == "read" and record.shape is not None and len(record.shape) > 1
+        if record.direction in ("write", "read") and not is_plan_name(record.address)
     ]
     if not addresses:
         return None
-    summary = f"{len(addresses)} readback channel(s) of more than one dimension are no plan device"
+    summary = f"{len(addresses)} channel(s) whose address holds `.` or `/` are no plan device"
     return "\n".join((summary, *addresses))
 
 
@@ -277,7 +296,9 @@ def write_bluesky_view(root: Path, inputs: ViewInputs) -> list[Path]:
     )
     for warning in tolerance_warnings(inputs.records, _lanes(inputs)):
         _warn_once(inputs, warning)
-    left_out = _beyond_one_dimension(records)
-    if left_out is not None:
+    for left_out in _beyond_one_dimension(records):
         _warn_once(inputs, left_out)
+    unnamed = _unnameable(records)
+    if unnamed is not None:
+        _warn_once(inputs, unnamed)
     return [target]

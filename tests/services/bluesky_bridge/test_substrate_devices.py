@@ -13,7 +13,8 @@ channels exist and which way they point; a ring/family/grammar opinion at this
 seam is what made a build report 144 devices for a 2908-channel machine. So the
 tests feed it addresses no address grammar would recognise and require every one
 of them through, and pin that the module's own text carries no partition
-vocabulary.
+vocabulary. The one name it refuses is one a run cannot record, holding ``.``
+or ``/``.
 
 The second is the readback rule: a settable names a readback only where the
 roster paired one. An unpaired setpoint has to reach the worker with no
@@ -579,6 +580,16 @@ class TestTolerancesAndMotionBands:
         assert "SR:DIAG:IMAGE" not in {entry["name"] for entry in document["readables"]}
         assert len(document["readables"]) == 2
 
+    def test_a_setpoint_of_more_than_one_dimension_is_no_settable(self) -> None:
+        image = ChannelRecord(
+            address="SR:DIAG:MASK:SP", source=_SOURCE, direction="write", shape=(4, 8)
+        )
+
+        document = devices_document((*_RECORDS, image))
+
+        assert "SR:DIAG:MASK:SP" not in {entry["name"] for entry in document["settables"]}
+        assert len(document["settables"]) == 2
+
     def test_no_mapping_writes_the_same_bytes(self, tmp_path: Path) -> None:
         """Roster-derived callers pass no mapping and see the file they always did."""
         plain = tmp_path / "plain.yml"
@@ -610,19 +621,60 @@ class TestTolerancesAndMotionBands:
         assert document["settables"][1]["settle_tolerance"] == {"relative": 0.01}
 
 
+class TestANameARunCannotRecord:
+    """A run records a device under its name, which holds no ``.`` or ``/``."""
+
+    def test_a_dotted_setpoint_is_no_settable(self) -> None:
+        document = devices_document(
+            (_write("SR:MOT:01.VAL", readback="SR:MOT:01:RB"), _read("SR:MOT:01:RB"))
+        )
+
+        assert document["settables"] == []
+        assert [entry["name"] for entry in document["readables"]] == ["SR:MOT:01:RB"]
+
+    def test_a_slashed_readback_is_no_readable(self) -> None:
+        document = devices_document((_read("ES1/MCA01"), _read("ES1:MCA01")))
+
+        assert [entry["name"] for entry in document["readables"]] == ["ES1:MCA01"]
+
+    def test_a_dotted_command_is_no_triggerable(self) -> None:
+        command, status = "ES1:DET:01.PROC", "ES1:DET:01:BUSY"
+
+        document = devices_document(
+            (_write(command, readback=status), _read(status)),
+            completions={command: CommandCompletion(command, status, "FALSE", 5.0)},
+        )
+
+        assert document["triggerables"] == []
+        assert document["settables"] == []
+
+    def test_a_settable_keeps_a_dotted_readback(self) -> None:
+        """The readback is no data key: the settable records under its setpoint."""
+        document = devices_document(
+            (_write("SR:MOT:01", readback="SR:MOT:01.RBV"), _read("SR:MOT:01.RBV"))
+        )
+
+        assert document["settables"] == [
+            {"name": "SR:MOT:01", "setpoint": "SR:MOT:01", "readback": "SR:MOT:01.RBV"}
+        ]
+        assert document["readables"] == []
+        assert validate_device_document(document) == []
+
+
 class TestTheDerivationIsFilterFree:
-    """No address grammar lives here -- the roster already answered."""
+    """No address grammar lives here beyond the names a run can record -- the
+    roster already answered."""
 
     #: Addresses nothing in this module could classify: no six colon-separated
     #: parts, no ``:SP``/``:RB`` suffix, no facility vocabulary at all. A
     #: derivation that filtered would drop every one of them.
     _ALIEN = (
         _write("plain_name", readback="plain_name_rb"),
-        _write("dev/motor/1/position"),
+        _write("dev-motor-1-position"),
         _write("SR:MAG:COIL:01,02:CURRENT:SETPOINT", readback="SR:MAG:COIL:01,02:CURRENT:MONITOR"),
         _read("temperature"),
         _read("BR:PSU:03:STATUS"),
-        _read("beamline.det.7.counts"),
+        _read("beamline det 7 counts"),
     )
 
     def test_every_record_survives_whatever_its_address_looks_like(self) -> None:
@@ -630,13 +682,13 @@ class TestTheDerivationIsFilterFree:
 
         assert [entry["name"] for entry in document["settables"]] == [
             "plain_name",
-            "dev/motor/1/position",
+            "dev-motor-1-position",
             "SR:MAG:COIL:01,02:CURRENT:SETPOINT",
         ]
         assert [entry["name"] for entry in document["readables"]] == [
             "temperature",
             "BR:PSU:03:STATUS",
-            "beamline.det.7.counts",
+            "beamline det 7 counts",
         ]
 
     def test_counts_are_exactly_the_roster_split(self) -> None:

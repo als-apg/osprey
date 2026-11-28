@@ -3,8 +3,8 @@
 ``acquire`` names a command on the device that states ``timeout_s``, whose
 status states ``idle``; ``results`` lists the readbacks on the device it
 records. A detector's id is its plan name: it holds no ``/`` or ``.`` and is no
-channel's address. The build stops with ``detector-invalid`` where a statement
-breaks a rule.
+channel's address; a result's address holds no ``/`` or ``.`` either. The build
+stops with ``detector-invalid`` where a statement breaks a rule.
 """
 
 from __future__ import annotations
@@ -224,6 +224,25 @@ _RULES["id-a-channel-address"] = (
     TEMPERATURE,
     "detector MCA1:TEMP has the address of a channel as its id",
     "give device MCA1:TEMP an id that is no channel address",
+)
+
+
+def _dotted_result(tree: dict[str, Any]) -> dict[str, Any]:
+    """``tree`` with readback ``MCA1:COUNTS.VAL`` on the detector, listed as a result."""
+    tree["records/channels.yaml"].append({"id": "MCA1:COUNTS.VAL", "on": {"device": DETECTOR}})
+    for device in tree["records/devices.yaml"]:
+        if device["id"] == DETECTOR:
+            device["results"] = [COUNTS, "MCA1:COUNTS.VAL"]
+    return tree
+
+
+# A run records each result under its address, so a result's address is a plan
+# name too.
+_RULES["result-with-a-dot"] = (
+    _dotted_result(_tree()),
+    DETECTOR,
+    "`results` lists MCA1:COUNTS.VAL, and a run cannot record an address that holds `/` or `.`",
+    "list a readback whose address holds neither",
 )
 
 

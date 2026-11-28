@@ -1,0 +1,1 @@
+`osprey_facility.plan_names.is_plan_name` says whether a Bluesky run can record a name: one that holds no `.` or `/`. The build checks a detector's id and each of its result addresses with it, and stops on a result address that holds either (`detector-invalid`).

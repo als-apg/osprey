@@ -70,6 +70,7 @@ Schema: the current one, or `published_schema(4)` for a format version's floor.
 | `osprey_facility.layers.relations` | framework job: `osprey.cli.facility_cmd` |
 | `osprey_facility.measurement_groups` | framework job: `osprey.facility.views` |
 | `osprey_facility.pairing` | framework job: `osprey.facility.views` |
+| `osprey_facility.plan_names` | framework job: `osprey.facility.views`, `osprey.services.bluesky_bridge` |
 | `osprey_facility.reading` | fork/tool |
 | `osprey_facility.records` | framework job: `osprey.apps.sdk`, `osprey.channel_roster`, `osprey.cli`, `osprey.facility.settings`, `osprey.facility.views`, `osprey.interfaces`, `osprey.mcp_server`, `osprey.runtime`, `osprey.services.ariel_search` |
 | `osprey_facility.references` | framework job: `osprey.interfaces.ariel`, `osprey.interfaces.okf_panel`, `osprey.mcp_server.ariel`, `osprey.services.ariel_search` |

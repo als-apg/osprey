@@ -124,7 +124,8 @@ its ``model``. A device a model wires takes its position from the deck.
 
 A device that states ``acquire``, a command on it whose status states
 ``idle``, and ``results``, readbacks on it, is a detector a plan triggers and
-records. Its id is its plan name and holds no ``/`` or ``.``.
+records. Its id is its plan name and holds no ``/`` or ``.``, and neither does
+the address of a result, since a run records each result under its address.
 
 .. code-block:: yaml
 
