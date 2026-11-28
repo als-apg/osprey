@@ -63,7 +63,7 @@ import yaml
 from playwright.sync_api import Frame, FrameLocator, Page, expect
 
 from osprey.interfaces._serving import run_app_server
-from tests.interfaces._browser import wait_for_page_ready
+from tests.interfaces._browser import record_toasts, wait_for_page_ready, wait_for_toast
 from tests.interfaces.web_terminal._chat_server import (
     OBSERVED_PROMPTS,
     PLANS,
@@ -403,6 +403,7 @@ def _ariel_stack(
                 try:
                     page = browser.new_page(viewport={"width": 1600, "height": 1000})
                     page.add_init_script(_PROBES)
+                    record_toasts(page)
                     page.goto(base_url, wait_until="domcontentloaded")
                     wait_for_page_ready(page)
                     expect(page.locator(_INPUT)).to_be_visible(timeout=15_000)
@@ -556,10 +557,8 @@ def test_ariel_entry_open_out_of_list_opens_reader_with_notice(stack_factory):
     expect(stack.frame_locator.locator(_READER_TITLE)).to_contain_text(
         "Vacuum gauge 2", timeout=10_000
     )
-    expect(stack.frame_locator.locator(".osprey-toast-host")).to_contain_text(
-        _NOT_LISTED, timeout=10_000
-    )
     frame = stack.frame()
+    wait_for_toast(frame, _NOT_LISTED)
     assert frame.evaluate("() => window.__sameDocument") == "yes", "the iframe reloaded"
     assert "q=orbit" in stack.hash() and f"sel={outsider}" in stack.hash()
     assert stack.row_ids() == rows_before
