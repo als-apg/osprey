@@ -18,9 +18,13 @@ window, and fails at once when the writer marked the page ``failed``.
 key a test expects, so a reload or an overwrite never races the page's own
 debounced write. ``wait_for_pointer`` waits until the tab's session pointer
 holds a key (one other than a given key, when asked) and returns it, since the
-page stores it after a connect, not with the render. ``open_hub_page`` is the hub's own entry point — it opens the page and
-waits through it — and ``rail_entry`` builds the locator for one of that rail's
-buttons.
+page stores it after a connect, not with the render. ``record_toasts`` installs
+a recorder that keeps every shared toast a page shows, since a toast hides
+itself after ``TOAST_TIMEOUT_MS``: ``wait_for_toast`` waits until the record
+holds a message, and ``toasts`` reads the record, for a test that asserts none
+was shown once the page has reached its end state. ``open_hub_page`` is the
+hub's own entry point — it opens the page and waits through it — and
+``rail_entry`` builds the locator for one of that rail's buttons.
 """
 
 from __future__ import annotations
@@ -39,7 +43,9 @@ from osprey.interfaces.design_system.panels.page_ready import FAILED
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-    from playwright.sync_api import Browser, Frame, FrameLocator, Page
+    from playwright.sync_api import Browser, BrowserContext, Frame, FrameLocator, Page
+
+    from tests.interfaces._panel_host import PanelHost
 
 # Bounded settle wait after `load` fires. Some interfaces (e.g. the web
 # terminal's SSE-backed panels) hold long-lived connections, so `networkidle`
@@ -414,6 +420,127 @@ def wait_for_pointer(page: Page, *, other_than: str | None = None) -> str:
         f"the page's pointer {last['key']!r} holds {last['value']!r}, not {wanted}, "
         f"{_POINTER_TIMEOUT_MS} ms after the wait began"
     )
+
+
+_TOAST_JS = (
+    Path(__file__).resolve().parents[2] / "src/osprey/interfaces/design_system/static/js/toast.js"
+)
+
+
+def _read_toast_timeout_ms() -> int:
+    source = _TOAST_JS.read_text(encoding="utf-8")
+    match = re.search(r"^export const TOAST_TIMEOUT_MS = (\d+);$", source, re.M)
+    if match is None:
+        raise RuntimeError(f"TOAST_TIMEOUT_MS not found in {_TOAST_JS}")
+    return int(match.group(1))
+
+
+#: How long a shared toast shows when its caller names no timeout, read from
+#: the toast layer's own source.
+TOAST_TIMEOUT_MS = _read_toast_timeout_ms()
+
+#: How long a toast may take to enter the page: one toast shows at a time, so a
+#: toast queued behind others shows only after theirs have timed out.
+_TOAST_SHOWN_TIMEOUT_MS = 4 * TOAST_TIMEOUT_MS
+
+#: Installed before any page script. ``__toasts`` lists every ``.osprey-toast``
+#: added to the document as ``{message, kind}``; the toast layer sets both
+#: before it appends the element, so the record is whole when it is taken.
+#: A toast appended in the same task as its host is seen twice in one batch
+#: (inside the added host, and as an added node itself) and recorded once.
+TOAST_RECORDER_JS = """
+(function () {
+  window.__toasts = [];
+  const seen = new WeakSet();
+  function record(el) {
+    if (seen.has(el)) return;
+    seen.add(el);
+    window.__toasts.push({ message: el.textContent, kind: el.dataset.kind || null });
+  }
+  new MutationObserver(function (muts) {
+    for (const m of muts) {
+      for (const node of m.addedNodes) {
+        if (node.nodeType !== Node.ELEMENT_NODE) continue;
+        if (node.matches('.osprey-toast')) record(node);
+        for (const inner of node.querySelectorAll('.osprey-toast')) record(inner);
+      }
+    }
+  }).observe(document, { childList: true, subtree: true });
+})();
+"""
+
+#: True once the record holds a toast whose message contains ``message`` and,
+#: when ``kind`` is not null, whose kind is ``kind``.
+_TOAST_SHOWN_JS = """
+([message, kind]) => (window.__toasts || []).some(
+  (t) => (t.message || '').includes(message) && (kind === null || t.kind === kind)
+)
+"""
+
+
+def record_toasts(target: Page | BrowserContext) -> None:
+    """Record every shared toast *target* shows from its next navigation on.
+
+    Call it before the navigation whose toasts the test reads: the recorder is
+    an init script, so it runs only in documents loaded after it is added.
+    Playwright runs it in every frame, iframes included, and each frame keeps
+    its own record.
+
+    Args:
+        target: The page, or the context whose pages are recorded.
+    """
+    target.add_init_script(TOAST_RECORDER_JS)
+
+
+def toasts(target: Page | Frame | PanelHost) -> list[dict]:
+    """Every toast *target* has shown since it loaded, in the order shown.
+
+    Args:
+        target: The page or frame whose record is read.
+
+    Returns:
+        One ``{"message": str, "kind": str | None}`` per toast.
+
+    Raises:
+        AssertionError: *target* has no recorder (``record_toasts`` was not
+            called before it loaded), so its record cannot say "no toast".
+    """
+    record = target.evaluate("() => (window.__toasts || null)")
+    if record is None:
+        raise AssertionError("the toast recorder is not installed in this frame")
+    return record
+
+
+def wait_for_toast(
+    target: Page | Frame | PanelHost, message: str, *, kind: str | None = None
+) -> None:
+    """Wait until *target* has shown a toast whose message contains *message*.
+
+    The record keeps a toast after it hides, so the wait holds however long the
+    test took to look; it gives up after a ceiling scaled from
+    ``TOAST_TIMEOUT_MS``.
+
+    Args:
+        target: The page or frame whose record is read.
+        message: Text the toast's message contains.
+        kind: The toast's kind (``info``, ``success``, ``warning``, ``error``);
+            ``None`` accepts any.
+
+    Raises:
+        AssertionError: *target* has no recorder, or no such toast was shown
+            within the ceiling; the message names *message* and the record.
+    """
+    toasts(target)
+    try:
+        target.wait_for_function(
+            _TOAST_SHOWN_JS, arg=[message, kind], timeout=_TOAST_SHOWN_TIMEOUT_MS
+        )
+    except PlaywrightTimeoutError:
+        wanted = repr(message) if kind is None else f"{message!r} of kind {kind!r}"
+        raise AssertionError(
+            f"no toast {wanted} was shown {_TOAST_SHOWN_TIMEOUT_MS} ms after the wait "
+            f"began; the page showed {toasts(target)!r}"
+        ) from None
 
 
 def open_hub_page(browser: Browser, base_url: str, *, viewport: dict | None = None) -> Page:
