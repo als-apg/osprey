@@ -220,6 +220,27 @@ def _expect_runs_count(page: Page, sid: str, n: int) -> None:
         raise AssertionError("\n".join(lines)) from exc
 
 
+def _expect_listed_once(page: Page, sid: str, row) -> None:
+    """*row* is listed once in session *sid*; a failure lists every row the session shows."""
+    try:
+        expect(row).to_have_count(1, timeout=_TIMEOUT_MS)
+    except AssertionError as exc:
+        rows = page.evaluate(
+            """(box) => [...document.querySelectorAll(`${box} .osprey-list-row`)].map((r) => ({
+              id: r.dataset.id ?? null,
+              title: r.querySelector('.osprey-list-title')?.textContent ?? null,
+            }))""",
+            f'{_TREE} [data-session-box="{sid}"]',
+        )
+        head = _group_count(page, sid, "images")
+        shown = head.text_content() if head.count() else None
+        lines = [
+            f"Images head reads {shown!r}; {row.count()} rows match, expected 1",
+            *(f"id={r['id']} title={r['title']}" for r in rows),
+        ]
+        raise AssertionError("\n".join(lines)) from exc
+
+
 def _menu(page: Page, row, item: str) -> None:
     row.click(button="right")
     page.get_by_role("menuitem", name=item).click()
@@ -508,6 +529,7 @@ def test_an_image_uploaded_after_clear_lands_under_the_new_session(hub, page, tm
     )
     _send(page, "What does this screen show?")
     _wait_for(lambda: any(t.uploads for t in hub.chat.turns))
+    (upload,) = [e for e in _store(hub).list_entries() if e.tool_source == "upload"]
 
     sid = cleared.transcript_id
     expect(_session(page, sid)).to_have_count(1, timeout=_TIMEOUT_MS)
@@ -524,8 +546,11 @@ def test_an_image_uploaded_after_clear_lands_under_the_new_session(hub, page, tm
     expect(_session(page, sid).locator(".osprey-tree-n")).to_have_text("2", timeout=_TIMEOUT_MS)
     _open_session(page, sid)
     _open_group(page, sid, "images")
-    image = page.locator(f'{_TREE} [data-session-box="{sid}"] .osprey-list-row', has_text="screen")
-    expect(image).to_have_count(1, timeout=_TIMEOUT_MS)
+    expect(_group_count(page, sid, "images")).to_have_text("1", timeout=_TIMEOUT_MS)
+    image = page.locator(
+        f'{_TREE} [data-session-box="{sid}"] .osprey-list-row[data-id="{upload.id}"]'
+    )
+    _expect_listed_once(page, sid, image)
     image.click()
     frame = page.frame_locator(_ARTIFACTS_FRAME)
     expect(frame.locator("#preview-content img").first).to_be_visible(timeout=_TIMEOUT_MS)
@@ -535,8 +560,11 @@ def test_an_image_uploaded_after_clear_lands_under_the_new_session(hub, page, tm
     expect(_session(page, before)).to_have_count(1, timeout=_TIMEOUT_MS)
     _open_session(page, before)
     _open_all(page)
-    old = page.locator(f'{_TREE} [data-session-box="{before}"] .osprey-list-row', has_text="screen")
+    old = page.locator(
+        f'{_TREE} [data-session-box="{before}"] .osprey-list-row[data-id="{upload.id}"]'
+    )
     expect(old).to_have_count(0)
+    expect(_group_count(page, before, "images")).to_have_count(0)
 
 
 def _hold_first_summary(page: Page, known: set[str]) -> list:
